@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Kairo CLI 是面向软件工程工作流的 Python 原生 Agent CLI。">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="icon" href="data:,">
+  <title>Kairo CLI — 从意图，到可审计的执行</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --bg-deep: #07090b;
+      --surface: #0f1317;
+      --surface-strong: #13191e;
+      --text: #f2f5f3;
+      --muted: #9aa5a1;
+      --quiet: #66706d;
+      --line: #20262b;
+      --line-strong: #354049;
+      --cyan: #54d6ff;
+      --mint: #62f2bd;
+      --danger: #ff756d;
+      --content: 1200px;
+      --sans: Inter, "SF Pro Display", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Code", "Noto Sans Mono CJK SC", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      overflow-x: hidden;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 76% 14%, rgb(84 214 255 / 7%), transparent 25rem),
+        radial-gradient(circle at 18% 38%, rgb(98 242 189 / 4%), transparent 28rem),
+        var(--bg);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      content: "";
+      opacity: .16;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+    }
+
+    a { color: inherit; text-decoration: none; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; }
+    .shell { width: min(var(--content), calc(100% - 48px)); margin-inline: auto; }
+
+    .site-header {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 88px;
+      border-bottom: 1px solid rgb(255 255 255 / 4%);
+    }
+
+    .wordmark { display: inline-flex; align-items: center; gap: 14px; font-weight: 720; }
+    .mark {
+      position: relative;
+      width: 30px;
+      height: 30px;
+      color: var(--mint);
+    }
+    .mark::before, .mark::after {
+      position: absolute;
+      content: "";
+      border: 2px solid currentColor;
+      transform: skew(-10deg);
+    }
+    .mark::before { inset: 2px 12px 2px 2px; border-right: 0; }
+    .mark::after { top: 8px; right: 1px; width: 16px; height: 12px; border-left: 0; transform: rotate(-44deg); }
+    .wordmark strong { font-size: 18px; letter-spacing: .02em; }
+    .wordmark span { color: var(--cyan); font: 700 12px/1 var(--mono); letter-spacing: .14em; }
+
+    .site-nav { display: flex; align-items: center; gap: 34px; }
+    .site-nav a {
+      color: #c7cecb;
+      font-size: 14px;
+      transition: color .2s ease;
+    }
+    .site-nav a:hover, .site-nav a:focus-visible { color: var(--text); }
+    .repo-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 42px;
+      padding: 0 16px;
+      border: 1px solid var(--line-strong);
+      color: var(--text) !important;
+      font-family: var(--mono);
+      border-radius: 6px;
+    }
+    .repo-link::before { content: ">_"; color: var(--mint); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, .88fr) minmax(520px, 1.12fr);
+      align-items: center;
+      gap: clamp(48px, 6vw, 96px);
+      min-height: calc(100vh - 88px);
+      padding: 84px 0 104px;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 630px;
+      margin-bottom: 30px;
+      font-size: clamp(58px, 6.2vw, 94px);
+      font-weight: 780;
+      line-height: .99;
+      letter-spacing: -.065em;
+    }
+    .hero-copy > p {
+      max-width: 590px;
+      margin-bottom: 34px;
+      color: #acb5b2;
+      font-size: clamp(17px, 1.5vw, 20px);
+      line-height: 1.8;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 14px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 50px;
+      padding: 0 22px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 700;
+      transition: transform .2s ease, background .2s ease, border-color .2s ease;
+    }
+    .button:hover { transform: translateY(-2px); border-color: #718087; }
+    .button:focus-visible, .mode-button:focus-visible, .execute-button:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 3px;
+    }
+    .button-primary { border-color: var(--cyan); background: var(--cyan); color: #071015; }
+    .button-secondary { border-color: #3b8f76; color: var(--mint); }
+    .button .arrow { margin-left: 18px; font-family: var(--mono); }
+
+    .terminal {
+      overflow: hidden;
+      border: 1px solid #49545b;
+      border-radius: 12px;
+      background: rgb(7 10 12 / 88%);
+      box-shadow: 0 38px 100px rgb(0 0 0 / 36%);
+    }
+    .terminal-head {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      min-height: 58px;
+      padding: 0 20px;
+      border-bottom: 1px solid #30383d;
+      color: #c8cfcc;
+      font: 13px/1 var(--mono);
+    }
+    .traffic { display: flex; gap: 8px; }
+    .traffic i { width: 10px; height: 10px; border-radius: 50%; background: #56605e; }
+    .traffic i:nth-child(1) { background: var(--danger); }
+    .traffic i:nth-child(2) { background: #f4c858; }
+    .traffic i:nth-child(3) { background: #55d68b; }
+    .terminal-minimize { justify-self: end; color: #87918e; }
+    .terminal-body { padding: clamp(24px, 3vw, 38px); font-family: var(--mono); }
+    .prompt { margin-bottom: 24px; color: #d1d8d5; font-size: 15px; }
+    .prompt b { margin-right: 12px; color: var(--mint); }
+    .plan-panel {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 22px;
+      border: 1px solid #317b68;
+      border-radius: 7px;
+      background: rgb(98 242 189 / 3%);
+    }
+    .plan-panel strong { display: block; margin-bottom: 8px; color: var(--mint); font-size: 18px; }
+    .plan-panel span { color: #a8b1ae; font-size: 13px; }
+    .execute-button {
+      min-width: 126px;
+      min-height: 44px;
+      border: 0;
+      border-radius: 5px;
+      background: var(--mint);
+      color: #06110d;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .execute-button[disabled] { cursor: default; opacity: .82; }
+
+    .hero-flow {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin: 36px 8px 30px;
+    }
+    .hero-flow::before {
+      position: absolute;
+      top: 17px;
+      left: 16%;
+      right: 16%;
+      height: 1px;
+      content: "";
+      background: repeating-linear-gradient(90deg, var(--cyan) 0 7px, transparent 7px 13px);
+      opacity: .7;
+    }
+    .flow-step { position: relative; z-index: 1; text-align: center; }
+    .flow-index {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      margin: 0 auto 12px;
+      place-items: center;
+      border: 1px solid var(--cyan);
+      border-radius: 5px;
+      background: var(--bg-deep);
+      color: var(--cyan);
+    }
+    .flow-step:last-child .flow-index { border-color: var(--mint); color: var(--mint); }
+    .flow-step strong { display: block; margin-bottom: 5px; color: #dfe6e3; font-size: 13px; }
+    .flow-step span { color: var(--quiet); font-size: 11px; }
+    .terminal-log {
+      min-height: 76px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: #aeb7b4;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .terminal-log .ok { color: var(--mint); }
+    .terminal-log .active { color: var(--cyan); }
+
+    .section { padding: 128px 0; border-top: 1px solid var(--line); }
+    .section-label {
+      margin-bottom: 22px;
+      color: var(--mint);
+      font: 700 12px/1 var(--mono);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .section-heading {
+      max-width: 840px;
+      margin-bottom: 24px;
+      font-size: clamp(42px, 5vw, 72px);
+      line-height: 1.06;
+      letter-spacing: -.055em;
+    }
+    .section-lead {
+      max-width: 660px;
+      margin-bottom: 68px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.75;
+    }
+
+    .mode-rail {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin: 0 0 76px;
+    }
+    .mode-rail::before {
+      position: absolute;
+      top: 21px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      content: "";
+      background: var(--line-strong);
+    }
+    .mode-button {
+      position: relative;
+      z-index: 1;
+      padding: 0 24px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      text-align: center;
+      cursor: pointer;
+    }
+    .mode-dot {
+      display: grid;
+      width: 44px;
+      height: 44px;
+      margin: 0 auto 20px;
+      place-items: center;
+      border: 2px solid #566068;
+      border-radius: 50%;
+      background: var(--bg);
+    }
+    .mode-dot::after { width: 9px; height: 9px; content: ""; border-radius: 50%; background: #566068; }
+    .mode-button strong { display: block; margin-bottom: 10px; color: #cbd2cf; font: 700 29px/1 var(--mono); }
+    .mode-button span { font-size: 15px; line-height: 1.5; }
+    .mode-button[aria-selected="true"] { color: #aeb8b5; }
+    .mode-button[aria-selected="true"] .mode-dot { border-color: var(--cyan); box-shadow: 0 0 0 6px rgb(84 214 255 / 10%); }
+    .mode-button[aria-selected="true"] .mode-dot::after { background: var(--cyan); }
+    .mode-button[aria-selected="true"] strong { color: var(--cyan); }
+
+    .workflow { padding-top: 34px; border-top: 1px solid var(--line); }
+    .workflow-title { margin-bottom: 28px; color: var(--muted); font: 700 12px/1 var(--mono); letter-spacing: .12em; }
+    .workflow-track {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: start;
+    }
+    .workflow-step { position: relative; min-width: 0; padding-right: 22px; }
+    .workflow-step:not(:last-child)::after {
+      position: absolute;
+      top: 20px;
+      right: 8px;
+      width: 30px;
+      height: 1px;
+      content: "";
+      background: #4a545a;
+    }
+    .workflow-icon {
+      display: grid;
+      width: 42px;
+      height: 42px;
+      margin-bottom: 18px;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      color: var(--mint);
+      font: 700 14px/1 var(--mono);
+    }
+    .workflow-step:nth-child(2n) .workflow-icon { color: var(--cyan); }
+    .workflow-step span { color: #c9d0cd; font-size: 14px; }
+
+    .mode-console {
+      display: grid;
+      grid-template-columns: auto minmax(320px, 620px) 1fr;
+      align-items: center;
+      gap: 26px;
+      margin-top: 48px;
+      padding: 24px 28px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: var(--bg-deep);
+      color: #aab3b0;
+      font: 13px/1 var(--mono);
+    }
+    .mode-console-controls { display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }
+    .console-mode {
+      padding: 11px 18px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font: inherit;
+    }
+    .console-mode:last-child { border-right: 0; }
+    .console-mode.active { color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
+    .mode-console-output { justify-self: end; }
+    .mode-console-output strong { color: var(--cyan); font-weight: 600; }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr);
+      gap: clamp(64px, 9vw, 140px);
+      align-items: center;
+    }
+    .topology {
+      position: relative;
+      display: grid;
+      min-height: 520px;
+      place-items: center;
+    }
+    .topology-lines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+    .topology-lines line { stroke: #4fbfc1; stroke-width: 1.3; opacity: .8; }
+    .topology-core {
+      z-index: 2;
+      display: grid;
+      width: 178px;
+      aspect-ratio: 1;
+      place-items: center;
+      border: 1px solid var(--cyan);
+      border-radius: 50%;
+      background: var(--bg);
+      color: var(--cyan);
+      font: 700 18px/1 var(--mono);
+      box-shadow: 0 0 0 14px rgb(84 214 255 / 3%), 0 0 0 15px var(--line);
+    }
+    .topology-node {
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 142px;
+      padding: 15px 18px;
+      border: 1px solid #3a9fb7;
+      border-radius: 7px;
+      background: var(--bg);
+      color: #c7e9ef;
+      font: 14px/1 var(--mono);
+      transition: transform .2s ease, border-color .2s ease;
+    }
+    .topology-node:hover { transform: translateY(-3px); border-color: var(--mint); }
+    .topology-node::before { color: var(--mint); content: "<>"; }
+    .node-mcp { top: 2%; left: 37%; }
+    .node-skill { top: 38%; left: 0; }
+    .node-browser { top: 37%; right: -2%; }
+    .node-runtime { bottom: 3%; left: 5%; }
+    .node-wechat { right: 3%; bottom: 3%; }
+
+    .security-list { border-top: 1px solid var(--line); }
+    .security-row {
+      display: grid;
+      grid-template-columns: 42px 1fr 28px;
+      align-items: center;
+      gap: 18px;
+      min-height: 82px;
+      border-bottom: 1px solid var(--line);
+      transition: background .2s ease;
+    }
+    .security-row:hover { background: rgb(255 255 255 / 1.5%); }
+    .security-icon {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border: 1px solid #438b75;
+      border-radius: 50%;
+      color: var(--mint);
+      font: 700 13px/1 var(--mono);
+    }
+    .security-row strong { font-size: 16px; font-weight: 650; }
+    .check { color: var(--mint); font: 700 18px/1 var(--mono); }
+
+    .cta-wrap { padding-bottom: 76px; }
+    .cta {
+      position: relative;
+      overflow: hidden;
+      padding: clamp(56px, 8vw, 92px) 32px;
+      border: 1px solid #35515a;
+      text-align: center;
+      background: rgb(84 214 255 / 2.5%);
+    }
+    .cta::before, .cta::after {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      content: "";
+      border-color: var(--cyan);
+      opacity: .7;
+    }
+    .cta::before { top: 16px; left: 16px; border-top: 1px solid; border-left: 1px solid; }
+    .cta::after { right: 16px; bottom: 16px; border-right: 1px solid; border-bottom: 1px solid; }
+    .cta h2 {
+      max-width: 820px;
+      margin: 0 auto 34px;
+      font-size: clamp(36px, 4.5vw, 64px);
+      line-height: 1.15;
+      letter-spacing: -.045em;
+    }
+    .cta .actions { justify-content: center; }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 30px 0 46px;
+      border-top: 1px solid var(--line);
+      color: var(--quiet);
+      font: 11px/1.6 var(--mono);
+      letter-spacing: .04em;
+    }
+
+    @media (max-width: 980px) {
+      .site-nav > a:not(.repo-link) { display: none; }
+      .hero { grid-template-columns: 1fr; min-height: auto; padding-top: 72px; }
+      .hero-copy { max-width: 740px; }
+      .terminal { max-width: 760px; }
+      .control-grid { grid-template-columns: 1fr; }
+      .topology { max-width: 640px; width: 100%; margin-inline: auto; }
+      .mode-console { grid-template-columns: 1fr; }
+      .mode-console-output { justify-self: start; }
+    }
+
+    @media (max-width: 700px) {
+      .shell { width: min(100% - 30px, var(--content)); }
+      .site-header { height: 72px; }
+      .repo-link { min-height: 38px; padding: 0 11px; font-size: 11px; }
+      .wordmark { gap: 10px; }
+      .wordmark strong { font-size: 15px; }
+      .wordmark span { display: none; }
+      .hero { padding: 62px 0 78px; gap: 56px; }
+      h1 { font-size: clamp(48px, 15vw, 68px); }
+      .hero-copy > p { font-size: 16px; line-height: 1.7; }
+      .button { flex: 1 1 150px; }
+      .terminal-head { min-height: 48px; }
+      .terminal-body { padding: 20px 16px; }
+      .plan-panel { align-items: stretch; flex-direction: column; }
+      .execute-button { width: 100%; }
+      .hero-flow { margin-inline: 0; gap: 6px; }
+      .flow-step span { display: none; }
+      .section { padding: 88px 0; }
+      .section-heading { font-size: clamp(39px, 12vw, 54px); }
+      .section-lead { margin-bottom: 48px; font-size: 16px; }
+      .mode-rail { gap: 12px; }
+      .mode-button { padding: 0 4px; }
+      .mode-button strong { font-size: 20px; }
+      .mode-button span { display: none; }
+      .workflow-track { grid-template-columns: 1fr; gap: 12px; }
+      .workflow-step { display: flex; align-items: center; gap: 16px; padding: 0; }
+      .workflow-step:not(:last-child)::after { top: 43px; left: 20px; width: 1px; height: 24px; }
+      .workflow-icon { flex: 0 0 42px; margin: 0; }
+      .mode-console { gap: 16px; padding: 20px 16px; }
+      .mode-console-controls { min-width: 0; }
+      .console-mode { padding-inline: 8px; }
+      .topology { min-height: 420px; transform: scale(.92); }
+      .topology-node { min-width: 118px; padding: 12px; font-size: 11px; }
+      .topology-core { width: 132px; font-size: 14px; }
+      .node-mcp { left: 34%; }
+      .security-row { grid-template-columns: 36px 1fr 20px; gap: 12px; }
+      .security-row strong { font-size: 14px; }
+      .cta { padding-inline: 20px; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site-header shell">
+    <a class="wordmark" href="#top" aria-label="Kairo CLI 首页">
+      <i class="mark" aria-hidden="true"></i>
+      <strong>Kairo</strong><span>CLI</span>
+    </a>
+    <nav class="site-nav" aria-label="主导航">
+      <a href="#capabilities">能力</a>
+      <a href="#workflow">工作流</a>
+      <a href="#security">安全</a>
+      <a href="../docs/architecture.md">文档</a>
+      <a class="repo-link" href="../README.md">查看 README</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero shell" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <h1 id="hero-title">从意图，<br>到可审计的执行。</h1>
+        <p>Kairo CLI 将规划、协作、工具与上下文，收束进一个安全可控的工程运行时。</p>
+        <div class="actions">
+          <a class="button button-primary" href="../README.md#快速开始">快速开始 <span class="arrow">→</span></a>
+          <a class="button button-secondary" href="../docs/architecture.md">查看架构 <span class="arrow">↗</span></a>
+        </div>
+      </div>
+
+      <div class="terminal" aria-label="Kairo CLI Plan 模式演示">
+        <div class="terminal-head">
+          <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>kairocli</span>
+          <span class="terminal-minimize">—</span>
+        </div>
+        <div class="terminal-body">
+          <div class="prompt"><b>$</b>kairocli</div>
+          <div class="plan-panel">
+            <div><strong id="plan-status">Plan ready</strong><span>3 steps · approval required</span></div>
+            <button class="execute-button" id="execute" type="button">▶&nbsp; Execute</button>
+          </div>
+          <div class="hero-flow" aria-label="执行流程">
+            <div class="flow-step"><span class="flow-index">1</span><strong>Inspect</strong><span>理解上下文</span></div>
+            <div class="flow-step"><span class="flow-index">2</span><strong>Plan</strong><span>生成执行计划</span></div>
+            <div class="flow-step"><span class="flow-index">3</span><strong>Execute</strong><span>执行并记录结果</span></div>
+          </div>
+          <div class="terminal-log" id="terminal-log" aria-live="polite">
+            <div><span class="ok">✓</span> Project context loaded</div>
+            <div><span class="ok">✓</span> Safety policy active</div>
+            <div><span class="active">›</span> Waiting for approval</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="capabilities" aria-labelledby="modes-title">
+      <div class="shell">
+        <p class="section-label">// execution modes</p>
+        <h2 class="section-heading" id="modes-title">三种模式，一套执行内核。</h2>
+        <p class="section-lead">同一套运行时驱动不同协作形态，按任务选择最合适的工作方式。</p>
+
+        <div class="mode-rail" role="tablist" aria-label="执行模式">
+          <button class="mode-button" role="tab" aria-selected="false" data-mode="Agent" type="button">
+            <i class="mode-dot" aria-hidden="true"></i><strong>ReAct</strong><span>即时推理与工具执行</span>
+          </button>
+          <button class="mode-button" role="tab" aria-selected="true" data-mode="Plan" type="button">
+            <i class="mode-dot" aria-hidden="true"></i><strong>Plan</strong><span>依赖感知的计划与审阅</span>
+          </button>
+          <button class="mode-button" role="tab" aria-selected="false" data-mode="Team" type="button">
+            <i class="mode-dot" aria-hidden="true"></i><strong>Team</strong><span>隔离上下文的多角色协作</span>
+          </button>
+        </div>
+
+        <div class="workflow" id="workflow">
+          <p class="workflow-title">// workflow</p>
+          <div class="workflow-track">
+            <div class="workflow-step"><i class="workflow-icon">01</i><span>理解上下文</span></div>
+            <div class="workflow-step"><i class="workflow-icon">02</i><span>生成计划</span></div>
+            <div class="workflow-step"><i class="workflow-icon">03</i><span>审批边界</span></div>
+            <div class="workflow-step"><i class="workflow-icon">04</i><span>执行工具</span></div>
+            <div class="workflow-step"><i class="workflow-icon">05</i><span>记录结果</span></div>
+          </div>
+          <div class="mode-console">
+            <span>mode</span>
+            <div class="mode-console-controls" aria-hidden="true">
+              <span class="console-mode" data-console-mode="Agent">Agent</span>
+              <span class="console-mode active" data-console-mode="Plan">Plan</span>
+              <span class="console-mode" data-console-mode="Team">Team</span>
+            </div>
+            <span class="mode-console-output">active: <strong id="active-mode">Plan</strong></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="security" aria-labelledby="control-title">
+      <div class="shell">
+        <p class="section-label">// extensibility with control</p>
+        <h2 class="section-heading" id="control-title">扩展能力，不扩大失控面。</h2>
+        <p class="section-lead">连接熟悉的工具和入口，同时把执行权限、工作区边界与审计记录留在本地。</p>
+
+        <div class="control-grid">
+          <div class="topology" aria-label="Kairo CLI 集成拓扑">
+            <svg class="topology-lines" viewBox="0 0 600 520" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="300" y1="260" x2="300" y2="54"></line>
+              <line x1="300" y1="260" x2="70" y2="225"></line>
+              <line x1="300" y1="260" x2="540" y2="225"></line>
+              <line x1="300" y1="260" x2="135" y2="472"></line>
+              <line x1="300" y1="260" x2="475" y2="472"></line>
+            </svg>
+            <div class="topology-core">Kairo CLI</div>
+            <div class="topology-node node-mcp">MCP</div>
+            <div class="topology-node node-skill">Skill</div>
+            <div class="topology-node node-browser">Browser</div>
+            <div class="topology-node node-runtime">Runtime API</div>
+            <div class="topology-node node-wechat">WeChat</div>
+          </div>
+
+          <div class="security-list" aria-label="安全边界">
+            <div class="security-row"><i class="security-icon">01</i><strong>工作区路径围栏</strong><span class="check">✓</span></div>
+            <div class="security-row"><i class="security-icon">02</i><strong>危险操作审批</strong><span class="check">✓</span></div>
+            <div class="security-row"><i class="security-icon">03</i><strong>默认拒绝无人值守工具</strong><span class="check">✓</span></div>
+            <div class="security-row"><i class="security-icon">04</i><strong>凭据脱敏与审计</strong><span class="check">✓</span></div>
+            <div class="security-row"><i class="security-icon">05</i><strong>可恢复会话与快照</strong><span class="check">✓</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta-wrap shell">
+      <div class="cta">
+        <h2>把意图交给 Agent，<br>把边界留在自己手里。</h2>
+        <div class="actions">
+          <a class="button button-primary" href="../README.md#快速开始">开始使用 <span class="arrow">→</span></a>
+          <a class="button button-secondary" href="../README.md">阅读文档 <span class="arrow">↗</span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    <span>Kairo CLI · Python 3.11—3.14 · MIT License</span>
+    <span>ReAct · Plan · Team · MCP</span>
+  </footer>
+
+  <script>
+    const executeButton = document.querySelector("#execute");
+    const planStatus = document.querySelector("#plan-status");
+    const terminalLog = document.querySelector("#terminal-log");
+    executeButton.addEventListener("click", () => {
+      executeButton.disabled = true;
+      executeButton.textContent = "Running…";
+      planStatus.textContent = "Executing";
+      terminalLog.innerHTML = [
+        '<div><span class="ok">✓</span> Inspect complete</div>',
+        '<div><span class="ok">✓</span> Plan approved</div>',
+        '<div><span class="active">›</span> Executing step 1/3</div>'
+      ].join("");
+      window.setTimeout(() => {
+        executeButton.textContent = "✓ Complete";
+        planStatus.textContent = "Run complete";
+        terminalLog.innerHTML = [
+          '<div><span class="ok">✓</span> Inspect complete</div>',
+          '<div><span class="ok">✓</span> Plan approved</div>',
+          '<div><span class="ok">✓</span> Result recorded</div>'
+        ].join("");
+      }, 900);
+    });
+
+    const modeButtons = document.querySelectorAll(".mode-button");
+    const consoleModes = document.querySelectorAll(".console-mode");
+    const activeMode = document.querySelector("#active-mode");
+    modeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const mode = button.dataset.mode;
+        modeButtons.forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+        consoleModes.forEach((item) => item.classList.toggle("active", item.dataset.consoleMode === mode));
+        activeMode.textContent = mode;
+      });
+    });
+  </script>
+</body>
+</html>

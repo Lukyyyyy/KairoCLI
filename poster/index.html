@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="icon" href="data:,">
+  <title>Kairo CLI Poster</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --surface: #0e1215;
+      --text: #f2f5f3;
+      --muted: #9aa5a1;
+      --line: #343d43;
+      --cyan: #54d6ff;
+      --mint: #62f2bd;
+      --sans: Inter, "SF Pro Display", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+      --mono: "SFMono-Regular", "Cascadia Code", "Noto Sans Mono CJK SC", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 1200px; height: 1600px; margin: 0; overflow: hidden; }
+    body { color: var(--text); background: var(--bg); font-family: var(--sans); }
+    .poster {
+      position: relative;
+      width: 1200px;
+      height: 1600px;
+      overflow: hidden;
+      padding: 74px 78px 52px;
+      background:
+        radial-gradient(circle at 84% 24%, rgb(84 214 255 / 6%), transparent 340px),
+        radial-gradient(circle at 15% 74%, rgb(98 242 189 / 4%), transparent 320px),
+        var(--bg);
+    }
+    .poster::before {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      opacity: .18;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+    }
+    header, main, footer { position: relative; z-index: 1; }
+    .brand { display: flex; align-items: center; gap: 18px; margin-bottom: 42px; }
+    .mark { position: relative; width: 42px; height: 42px; color: var(--mint); }
+    .mark::before, .mark::after {
+      position: absolute;
+      content: "";
+      border: 3px solid currentColor;
+      transform: skew(-10deg);
+    }
+    .mark::before { inset: 2px 17px 2px 2px; border-right: 0; }
+    .mark::after { top: 11px; right: 1px; width: 23px; height: 17px; border-left: 0; transform: rotate(-44deg); }
+    .brand-name { font-size: 32px; font-weight: 760; letter-spacing: .015em; }
+    .brand-name span { margin-left: 12px; color: var(--cyan); font: 700 17px/1 var(--mono); letter-spacing: .16em; }
+    h1 {
+      max-width: 1020px;
+      margin: 0 0 22px;
+      font-size: 86px;
+      font-weight: 800;
+      line-height: 1.02;
+      letter-spacing: -.065em;
+    }
+    .subtitle {
+      margin: 0 0 26px;
+      color: #b7c0bd;
+      font-size: 21px;
+      line-height: 1.5;
+    }
+    .command { margin-bottom: 30px; color: var(--mint); font: 700 34px/1.2 var(--mono); letter-spacing: .02em; }
+    .terminal {
+      height: 780px;
+      overflow: hidden;
+      border: 1px solid #4b565c;
+      border-radius: 18px;
+      background: rgb(5 8 10 / 88%);
+      box-shadow: 0 36px 90px rgb(0 0 0 / 35%);
+    }
+    .terminal-head {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      height: 64px;
+      padding: 0 24px;
+      border-bottom: 1px solid #313a3f;
+      color: #c5ceca;
+      font: 16px/1 var(--mono);
+    }
+    .traffic { display: flex; gap: 9px; }
+    .traffic i { width: 12px; height: 12px; border-radius: 50%; background: #56605e; }
+    .traffic i:first-child { background: #ff756d; }
+    .traffic i:nth-child(2) { background: #f4c858; }
+    .traffic i:last-child { background: #55d68b; }
+    .terminal-minimize { justify-self: end; color: #7e8985; }
+    .execution {
+      position: relative;
+      display: grid;
+      gap: 0;
+      width: 610px;
+      margin: 44px auto 0;
+    }
+    .execution::before {
+      position: absolute;
+      top: 50px;
+      bottom: 50px;
+      left: 53px;
+      width: 1px;
+      content: "";
+      background: repeating-linear-gradient(to bottom, var(--cyan) 0 8px, transparent 8px 15px);
+    }
+    .execution-step {
+      position: relative;
+      display: grid;
+      grid-template-columns: 108px 44px 1fr;
+      align-items: center;
+      min-height: 130px;
+      font-family: var(--mono);
+    }
+    .step-icon {
+      z-index: 1;
+      display: grid;
+      width: 72px;
+      height: 72px;
+      place-items: center;
+      border: 2px solid var(--cyan);
+      border-radius: 50%;
+      background: #070a0c;
+      color: var(--cyan);
+      font-size: 19px;
+      font-weight: 800;
+    }
+    .execution-step:nth-child(n+3) .step-icon { border-color: var(--mint); color: var(--mint); }
+    .chevron { color: var(--cyan); font-size: 28px; }
+    .execution-step:nth-child(n+3) .chevron { color: var(--mint); }
+    .step-label { color: #e8eeeb; font-size: 32px; font-weight: 650; }
+    .capabilities {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      height: 104px;
+      border-bottom: 1px solid #34505a;
+      color: #e7ecea;
+      font: 700 41px/1 var(--mono);
+    }
+    .capabilities strong:first-child { color: var(--cyan); }
+    .capabilities strong:last-child { color: var(--mint); }
+    .integrations { padding-top: 22px; color: #c3cbc8; text-align: center; font: 22px/1.5 var(--mono); }
+    footer {
+      position: absolute;
+      right: 78px;
+      bottom: 48px;
+      left: 78px;
+      display: flex;
+      justify-content: space-between;
+      padding-top: 24px;
+      border-top: 1px solid #315044;
+      color: #98a39f;
+      font: 16px/1 var(--mono);
+      letter-spacing: .025em;
+    }
+    footer strong { color: var(--mint); }
+  </style>
+</head>
+<body>
+  <article class="poster" aria-label="Kairo CLI 产品海报">
+    <header>
+      <div class="brand"><i class="mark" aria-hidden="true"></i><div class="brand-name">Kairo <span>CLI</span></div></div>
+      <h1>从意图，<br>到可审计的执行。</h1>
+      <p class="subtitle">Python-native Agent CLI for software engineering workflows.</p>
+      <div class="command">$ kairocli</div>
+    </header>
+    <main>
+      <section class="terminal" aria-label="Kairo CLI 执行链">
+        <div class="terminal-head">
+          <span class="traffic" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>kairocli</span>
+          <span class="terminal-minimize">—</span>
+        </div>
+        <div class="execution">
+          <div class="execution-step"><i class="step-icon">01</i><span class="chevron">›</span><span class="step-label">Inspect</span></div>
+          <div class="execution-step"><i class="step-icon">02</i><span class="chevron">›</span><span class="step-label">Plan</span></div>
+          <div class="execution-step"><i class="step-icon">03</i><span class="chevron">›</span><span class="step-label">Approve</span></div>
+          <div class="execution-step"><i class="step-icon">04</i><span class="chevron">›</span><span class="step-label">Execute</span></div>
+          <div class="execution-step"><i class="step-icon">05</i><span class="chevron">›</span><span class="step-label">Record</span></div>
+        </div>
+      </section>
+      <div class="capabilities"><strong>ReAct</strong><span>·</span><strong>Plan</strong><span>·</span><strong>Team</strong></div>
+      <div class="integrations">MCP · Skill · Browser · Runtime API</div>
+    </main>
+    <footer><span>Python 3.11—3.14 · MIT License</span><strong>KAIRO CLI / 0.1.0</strong></footer>
+  </article>
+</body>
+</html>

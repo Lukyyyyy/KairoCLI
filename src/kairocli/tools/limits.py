@@ -1,0 +1,6 @@
+"""Shared limits enforced by Kairo CLI built-in tools."""
+
+MAX_READ_FILE_LINES = 2_000
+MAX_READ_FILE_CHARS = 200_000
+MAX_GREP_MAX_CHARS = 60_000
+MAX_PATCH_BYTES = 1024 * 1024

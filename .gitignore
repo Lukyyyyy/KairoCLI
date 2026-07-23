@@ -1,0 +1,35 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local project memory and runtime data
+KAIRO.md
+.kairocli/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.trace
+
+# OS, environments, caches, and build/test output
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.playwright-cli/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+build/
+dist/
