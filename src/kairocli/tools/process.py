@@ -47,24 +47,37 @@ async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
             os.killpg(process.pid, signal.SIGTERM)
         except ProcessLookupError:
             return
+        except PermissionError:
+            await _terminate_single_process(process)
+            return
         for _ in range(20):
             try:
                 os.killpg(process.pid, 0)
             except ProcessLookupError:
+                return
+            except PermissionError:
+                await _terminate_single_process(process)
                 return
             await asyncio.sleep(0.05)
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             return
+        except PermissionError:
+            await _terminate_single_process(process)
+            return
         if process.returncode is None:
             await process.wait()
         return
+    await _terminate_single_process(process)
+
+
+async def _terminate_single_process(process: asyncio.subprocess.Process) -> None:
     if process.returncode is not None:
         return
     try:
         process.terminate()
-    except ProcessLookupError:
+    except (PermissionError, ProcessLookupError):
         return
     try:
         await asyncio.wait_for(process.wait(), 1.0)
@@ -73,6 +86,6 @@ async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
         pass
     try:
         process.kill()
-    except ProcessLookupError:
+    except (PermissionError, ProcessLookupError):
         return
     await process.wait()

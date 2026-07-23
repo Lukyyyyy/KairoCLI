@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-import signal
 import subprocess
 import time
 import uuid
@@ -12,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ..cancellation import AgentCanceled, wait_with_cancellation
+from .process import _terminate_process_tree
 
 SHELL_ID_PATTERN = re.compile(r"shell_[0-9a-f]{12}$")
 MAX_SHELL_SESSIONS = 4
@@ -336,31 +336,6 @@ class ShellSessionManager:
 def _validate_shell_id(session_id: str) -> None:
     if not SHELL_ID_PATTERN.fullmatch(session_id):
         raise ValueError("Invalid shell session ID")
-
-
-async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
-    if process.returncode is not None:
-        return
-    try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGTERM)
-        else:
-            process.terminate()
-    except ProcessLookupError:
-        return
-    try:
-        await asyncio.wait_for(process.wait(), 1.0)
-        return
-    except TimeoutError:
-        pass
-    try:
-        if os.name == "posix":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
-    except ProcessLookupError:
-        return
-    await process.wait()
 
 
 async def _await_shell_shutdown(task: asyncio.Task[None]) -> None:

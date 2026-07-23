@@ -11,6 +11,7 @@ import pytest
 
 import kairocli.cancellation as cancellation_module
 import kairocli.tools.filesystem as filesystem_module
+import kairocli.tools.process as process_module
 import kairocli.tools.registry as tools_module
 from kairocli.agent import AgentCanceled
 from kairocli.models import ToolOutput
@@ -1599,6 +1600,34 @@ async def test_command_timeout_has_stable_result_shape(tmp_path: Path) -> None:
         "stdout_truncated": False,
         "stderr_truncated": False,
     }
+
+
+async def test_process_group_permission_error_falls_back_to_child_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        pid = 123
+        returncode: int | None = None
+        terminated = False
+
+        def terminate(self) -> None:
+            self.terminated = True
+            self.returncode = -15
+
+        async def wait(self) -> int:
+            assert self.returncode is not None
+            return self.returncode
+
+    process = Process()
+
+    def deny_process_group(_pid: int, _signal: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(process_module.os, "killpg", deny_process_group)
+
+    await process_module._terminate_process_tree(process)  # type: ignore[arg-type]
+
+    assert process.terminated is True
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX process-group assertion")
