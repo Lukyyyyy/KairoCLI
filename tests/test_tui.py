@@ -36,9 +36,7 @@ def test_tui_error_text_is_total_redacted_and_unicode_safe() -> None:
         def __str__(self) -> str:
             raise KeyboardInterrupt
 
-    assert _safe_tui_error(UnprintableTuiError()) == (
-        "UnprintableTuiError message unavailable"
-    )
+    assert _safe_tui_error(UnprintableTuiError()) == ("UnprintableTuiError message unavailable")
     assert _safe_tui_error(RuntimeError("token=secret-value\ud800")) == "token=***"
 
 
@@ -165,9 +163,7 @@ def test_tui_modified_approval_requires_json_object() -> None:
 
 
 def test_tui_transcript_redacts_config_api_key() -> None:
-    rendered = _redact_tui_transcript_input(
-        "/config provider glm api-key top-secret-value"
-    )
+    rendered = _redact_tui_transcript_input("/config provider glm api-key top-secret-value")
     assert "top-secret-value" not in rendered
     assert rendered.endswith("api-key ***")
 
@@ -243,9 +239,7 @@ class UnsafeDisplayClient(LlmClient):
     async def complete(
         self, messages: list[Message], tools: list[dict[str, Any]] | None = None
     ) -> LlmResponse:
-        return LlmResponse(
-            content="[red]literal[/red]\x1b]52;c;clipboard-secret\x07"
-        )
+        return LlmResponse(content="[red]literal[/red]\x1b]52;c;clipboard-secret\x07")
 
 
 async def test_tui_treats_model_markup_as_text_and_removes_terminal_controls(
@@ -266,9 +260,7 @@ async def test_tui_treats_model_markup_as_text_and_removes_terminal_controls(
             if worker is not None and not worker.is_running:
                 break
             await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "[red]literal[/red]" in transcript
         assert "clipboard-secret" not in transcript
         assert "\x1b" not in transcript
@@ -375,9 +367,7 @@ async def test_tui_modified_approval_is_rechecked_by_tool_policy(
     async with app.run_test() as pilot:
         await pilot.pause()
         execution = app.run_worker(
-            agent.tools.execute(
-                "write_file", {"path": "original.txt", "content": "original"}
-            ),
+            agent.tools.execute("write_file", {"path": "original.txt", "content": "original"}),
             name="approval-test",
         )
         for _ in range(20):
@@ -501,17 +491,13 @@ async def test_tui_index_and_search_are_management_commands(
             if worker is not None and not worker.is_running:
                 break
             await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "service.py" in transcript
         assert "unique_payment_handler" in transcript
         assert client.calls == 0
 
 
-async def test_tui_mcp_management_uses_shared_commands(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+async def test_tui_mcp_management_uses_shared_commands(tmp_path: Path, monkeypatch: Any) -> None:
     client = BlockingClient()
     registry = ToolRegistry(tmp_path)
     agent = Agent(client, registry, "system")
@@ -548,9 +534,7 @@ async def test_tui_mcp_management_uses_shared_commands(
             if worker is not None and not worker.is_running:
                 break
             await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "demo://one" in transcript
         assert client.calls == 0
 
@@ -578,15 +562,11 @@ async def test_tui_plan_requires_explicit_review(tmp_path: Path, monkeypatch: An
             if worker is not None and not worker.is_running:
                 break
             await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "Plan canceled." in transcript
 
 
-async def test_tui_team_command_reaches_orchestrator(
-    tmp_path: Path, monkeypatch: Any
-) -> None:
+async def test_tui_team_command_reaches_orchestrator(tmp_path: Path, monkeypatch: Any) -> None:
     agent = Agent(ImmediateClient(), ToolRegistry(tmp_path), "system")
     captured: list[App[Any]] = []
     monkeypatch.setattr(App, "run", lambda self: captured.append(self))
@@ -602,9 +582,7 @@ async def test_tui_team_command_reaches_orchestrator(
             if worker is not None and not worker.is_running:
                 break
             await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "background done" in transcript
         assert "Unknown or unavailable" not in transcript
 
@@ -650,9 +628,7 @@ async def test_tui_memory_skill_and_unknown_slash_stay_local(
                 if worker is not None and not worker.is_running:
                     break
                 await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "managed locally" in transcript
         assert "Unknown or unavailable TUI command" in transcript
         assert not skills.skills["demo"].enabled
@@ -691,9 +667,7 @@ async def test_tui_model_and_config_are_local_and_secret_safe(
                 if worker is not None and not worker.is_running:
                     break
                 await asyncio.sleep(0.01)
-        transcript = "\n".join(
-            line.text for line in captured[0].query_one(RichLog).lines
-        )
+        transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
         assert "top-secret-value" not in transcript
         assert config.default_provider == "kimi"
         assert client.calls == 0

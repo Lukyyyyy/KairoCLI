@@ -286,15 +286,11 @@ def test_git_checkout_uses_ref_and_sparse_path(tmp_path: Path) -> None:
         ["git", "-C", str(source_repository), "config", "user.email", "test@example.test"],
         check=True,
     )
-    subprocess.run(
-        ["git", "-C", str(source_repository), "config", "user.name", "Test"], check=True
-    )
+    subprocess.run(["git", "-C", str(source_repository), "config", "user.name", "Test"], check=True)
     _skill(source_repository / "skills" / "demo")
     (source_repository / "outside.txt").write_text("outside", encoding="utf-8")
     subprocess.run(["git", "-C", str(source_repository), "add", "."], check=True)
-    subprocess.run(
-        ["git", "-C", str(source_repository), "commit", "-qm", "skill"], check=True
-    )
+    subprocess.run(["git", "-C", str(source_repository), "commit", "-qm", "skill"], check=True)
 
     checkout = tmp_path / "checkout"
     installer_module._checkout_git_source(  # noqa: SLF001 - exercise Git safety contract
@@ -316,9 +312,7 @@ async def test_agent_install_tool_installs_and_refreshes_prompt(tmp_path: Path) 
     source = _skill(tmp_path / "agent-source")
     agent = make_agent(registry.paths, AppConfig.load(registry.paths), skill_registry=registry)
 
-    output = await agent.tools.execute(
-        "install_skill", {"source": str(source), "scope": "project"}
-    )
+    output = await agent.tools.execute("install_skill", {"source": str(source), "scope": "project"})
 
     assert output.startswith("Installed Skill demo [project]")
     assert "**demo**" in agent.system_prompt

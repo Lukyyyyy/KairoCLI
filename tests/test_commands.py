@@ -42,7 +42,8 @@ def test_help_covers_every_user_command() -> None:
     expected = {
         item.value
         for item in CommandType
-        if item not in {
+        if item
+        not in {
             CommandType.NONE,
             CommandType.UNKNOWN,
             CommandType.HISTORY_CLEAR,

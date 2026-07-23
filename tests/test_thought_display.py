@@ -14,8 +14,7 @@ def test_thought_display_collapses_and_expands_the_latest_turn() -> None:
     assert display.render() == display.summary()
     assert display.toggle() is True
     assert display.render() == (
-        "Thought for 1s (ctrl+o to collapse)\n"
-        "model reasoning\n✓ 1 tool(s) · 2 ms"
+        "Thought for 1s (ctrl+o to collapse)\nmodel reasoning\n✓ 1 tool(s) · 2 ms"
     )
     assert display.toggle() is True
     assert display.render() == "Thought for 1s (ctrl+o to expand)"

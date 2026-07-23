@@ -691,9 +691,7 @@ async def test_mcp_wall_timeout_respects_chrome_millisecond_argument(
             raise
         return "unreachable"
 
-    registry.register(
-        ToolDefinition("mcp__chrome-devtools__navigate_page", "test", {}, blocked)
-    )
+    registry.register(ToolDefinition("mcp__chrome-devtools__navigate_page", "test", {}, blocked))
     started = time.monotonic()
     output = (
         await registry.execute_many_outputs(

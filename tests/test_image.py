@@ -76,9 +76,7 @@ def test_image_reference_rejects_non_regular_files(tmp_path: Path) -> None:
 def test_alpha_image_is_flattened_and_keeps_dimensions() -> None:
     source = io.BytesIO()
     Image.new("RGBA", (3, 2), (255, 0, 0, 0)).save(source, "PNG")
-    processed = process_base64_image(
-        base64.b64encode(source.getvalue()).decode(), "image/png"
-    )
+    processed = process_base64_image(base64.b64encode(source.getvalue()).decode(), "image/png")
     assert processed.media_type == "image/png"
     assert processed.original_size == (3, 2)
     assert processed.display_size == (3, 2)

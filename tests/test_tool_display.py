@@ -33,9 +33,10 @@ def test_tool_display_groups_plain_calls_and_redacts_details() -> None:
 
 
 def test_tool_display_bounds_details_and_summarizes_multiple_groups() -> None:
-    assert format_tool_calls(
-        [_call("read_file", {"path": "a"}), _call("write_file", {"path": "b"})]
-    ) == "⏵ 2 tool groups / 2 calls"
+    assert (
+        format_tool_calls([_call("read_file", {"path": "a"}), _call("write_file", {"path": "b"})])
+        == "⏵ 2 tool groups / 2 calls"
+    )
     long_path = "/".join(f"directory-{index}" for index in range(100))
     detail = format_tool_calls([_call("read_file", {"path": long_path})])
     assert len(detail.split("(", 1)[1].removesuffix(")")) == 80
@@ -45,9 +46,7 @@ def test_tool_display_is_total_for_recursive_nonfinite_and_invalid_unicode() -> 
     recursive: dict[str, object] = {}
     recursive["self"] = recursive
 
-    assert "<invalid arguments>" in format_tool_calls(
-        [_call("mcp__test__recursive", recursive)]
-    )
+    assert "<invalid arguments>" in format_tool_calls([_call("mcp__test__recursive", recursive)])
     assert "<invalid arguments>" in format_tool_calls(
         [_call("mcp__test__nonfinite", {"score": float("nan")})]
     )
@@ -71,9 +70,7 @@ def test_tool_result_summary_uses_metadata_without_leaking_body() -> None:
             ),
         ],
     )
-    assert rendered == (
-        "⚠ 2 tool(s) · 1 failed · 1 timed out · 1 truncated · 1 image(s) · 1.2 s"
-    )
+    assert rendered == ("⚠ 2 tool(s) · 1 failed · 1 timed out · 1 truncated · 1 image(s) · 1.2 s")
     assert "private" not in rendered
 
 

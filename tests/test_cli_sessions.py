@@ -286,6 +286,7 @@ def test_prompt_uses_gray_block_composer(tmp_path: Path) -> None:
     assert "plan-review.input" in rules and "bg:#eaf5f8" in rules
     assert "wechat.input" in rules and "bg:#f1f1f1" in rules
 
+
 def test_prompt_bottom_status_updates_when_plan_mode_is_armed(tmp_path: Path) -> None:
     workspace = tmp_path / "KairoCLI"
     workspace.mkdir()
@@ -656,10 +657,7 @@ def test_plan_summary_hides_internal_ids_and_empty_dependencies() -> None:
     summary = cli_module._plan_summary(plan)
 
     assert summary == (
-        "Plan · 2 steps\n"
-        "  1  Fetch Shenzhen weather\n"
-        "  2  Present the result\n"
-        "     ↳ after 1"
+        "Plan · 2 steps\n  1  Fetch Shenzhen weather\n  2  Present the result\n     ↳ after 1"
     )
     assert "fetch-weather" not in summary
     assert "depends: none" not in summary
@@ -796,9 +794,7 @@ async def test_wechat_workspace_uses_an_isolated_composer_style_prompt(
             self.kwargs = kwargs
             current_window = SimpleNamespace(style="", height=object())
             content = SimpleNamespace(children=[])
-            alternative_content = SimpleNamespace(
-                style="", content=SimpleNamespace(children=[])
-            )
+            alternative_content = SimpleNamespace(style="", content=SimpleNamespace(children=[]))
             prompt_container = SimpleNamespace(
                 content=content,
                 alternative_content=alternative_content,
@@ -828,8 +824,7 @@ async def test_wechat_workspace_uses_an_isolated_composer_style_prompt(
     assert workspace_session.app.layout.current_window.height.max == 1
     assert workspace_session.app.layout.current_window.dont_extend_height() is True
     assert (
-        workspace_session.app.layout.container.children[0].alternative_content.style
-        == "bg:default"
+        workspace_session.app.layout.container.children[0].alternative_content.style == "bg:default"
     )
     prompt_container = workspace_session.app.layout.container.children[0]
     for content in (prompt_container.content, prompt_container.alternative_content.content):
@@ -944,9 +939,9 @@ async def test_plan_review_uses_an_isolated_prompt_session(
 
         async def prompt_async(self) -> str:
             self.prompt_height = self.app.layout.current_window.height
-            self.prompt_alternative_style = (
-                self.app.layout.container.children[0].alternative_content.style
-            )
+            self.prompt_alternative_style = self.app.layout.container.children[
+                0
+            ].alternative_content.style
             return "/cancel"
 
     import prompt_toolkit
@@ -970,9 +965,7 @@ async def test_plan_review_uses_an_isolated_prompt_session(
     assert len(created) == 1
     review_session = created[0]
     prompt_text = "".join(fragment[1] for fragment in review_session.kwargs["message"])
-    assert prompt_text == (
-        "\n● Review plan  Enter run  ·  Esc cancel  ·  Type to revise  › "
-    )
+    assert prompt_text == ("\n● Review plan  Enter run  ·  Esc cancel  ·  Type to revise  › ")
     assert review_session.prompt_height.min == 2
     assert review_session.prompt_height.max == 2
     assert review_session.prompt_alternative_style == "class:plan-review.input"
@@ -1433,9 +1426,7 @@ def test_completion_understands_open_angles_and_slash_subcommands() -> None:
         "/hitl on",
         "/hitl off",
     ]
-    assert _slash_completion_candidates("/config ", ["/config"]) == [
-        "/config provider"
-    ]
+    assert _slash_completion_candidates("/config ", ["/config"]) == ["/config provider"]
     assert _slash_completion_candidates("/trace reasoning ", ["/trace"]) == [
         "/trace reasoning off",
         "/trace reasoning on",

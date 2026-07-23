@@ -175,9 +175,7 @@ def test_local_parser_rejects_binary_source_without_caching(tmp_path: Path) -> N
     path = tmp_path / "binary.py"
     path.write_bytes(b"def x():\0broken")
     manager = LspManager(tmp_path, configs=[])
-    manager.diagnostics[str(path.resolve())] = [
-        Diagnostic("binary.py", 1, 1, "error", "stale")
-    ]
+    manager.diagnostics[str(path.resolve())] = [Diagnostic("binary.py", 1, 1, "error", "stale")]
 
     assert manager.diagnose_file(path) == []
     assert str(path.resolve()) not in manager.diagnostics
@@ -185,8 +183,7 @@ def test_local_parser_rejects_binary_source_without_caching(tmp_path: Path) -> N
 
 def test_diagnostic_formatting_reports_omitted_count() -> None:
     diagnostics = [
-        Diagnostic("a.py", index, 1, "warning", f"issue {index}", "test")
-        for index in range(1, 4)
+        Diagnostic("a.py", index, 1, "warning", f"issue {index}", "test") for index in range(1, 4)
     ]
     rendered = format_diagnostics(diagnostics, max_items=2)
     assert rendered.count("issue") == 2
@@ -227,15 +224,11 @@ async def test_lsp_inspect_has_parser_fallback_without_a_server(tmp_path: Path) 
     assert result["diagnostics"][0]["severity"] == "error"
     assert result["code_actions"] == []
     assert result["server"] is None
-    schema = next(
-        item for item in registry.schemas() if item["function"]["name"] == "lsp_inspect"
-    )
+    schema = next(item for item in registry.schemas() if item["function"]["name"] == "lsp_inspect")
     assert schema["function"]["parameters"]["required"] == ["path"]
     outside = tmp_path.parent / "outside.py"
     outside.write_text("x = 1\n", encoding="utf-8")
-    escaped = json.loads(
-        await registry.execute("lsp_inspect", {"path": "../outside.py"})
-    )
+    escaped = json.loads(await registry.execute("lsp_inspect", {"path": "../outside.py"}))
     assert escaped["policy_denied"] is True
     await registry.close()
 
@@ -414,9 +407,7 @@ async def test_same_document_diagnostics_are_serialized_by_version(
 async def test_dead_lsp_process_is_reset_before_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     client.process = SimpleNamespace(returncode=1)  # type: ignore[assignment]
     client._versions["file:///stale.py"] = 9
     reset = False
@@ -443,9 +434,7 @@ async def test_dead_lsp_process_is_reset_before_restart(
 async def test_live_process_with_dead_lsp_reader_is_reset_before_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     client.process = SimpleNamespace(returncode=None)  # type: ignore[assignment]
     client._reader_task = asyncio.create_task(asyncio.sleep(0))
     await client._reader_task
@@ -473,9 +462,7 @@ async def test_live_process_with_dead_lsp_reader_is_reset_before_restart(
 async def test_lsp_reader_skips_invalid_json_frames_and_keeps_correlation(
     tmp_path: Path,
 ) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     reader = asyncio.StreamReader()
     client.process = SimpleNamespace(stdout=reader)  # type: ignore[assignment]
     future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
@@ -484,13 +471,7 @@ async def test_lsp_reader_skips_invalid_json_frames_and_keeps_correlation(
     invalid_bodies = [
         b'{"jsonrpc":"2.0","id":1,"result":{},"result":{"bad":true}}',
         b'{"jsonrpc":"2.0","id":1,"result":{"value":NaN}}',
-        (
-            '{"jsonrpc":"2.0","id":1,"result":{"value":'
-            + "[" * 40
-            + "0"
-            + "]" * 40
-            + "}}"
-        ).encode(),
+        ('{"jsonrpc":"2.0","id":1,"result":{"value":' + "[" * 40 + "0" + "]" * 40 + "}}").encode(),
         b'{"jsonrpc":"1.0","id":1,"result":{"bad":true}}',
     ]
     valid = b'{"jsonrpc":"2.0","id":1,"result":{"ok":true}}'
@@ -514,9 +495,7 @@ async def test_lsp_outgoing_nonfinite_payload_fails_before_write(tmp_path: Path)
             return None
 
     stdin = FakeStdin()
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     client.process = SimpleNamespace(returncode=None, stdin=stdin)  # type: ignore[assignment]
 
     with pytest.raises(RuntimeError, match="valid finite JSON"):
@@ -543,9 +522,7 @@ def test_lsp_content_length_rejects_ambiguous_or_non_ascii_values(
 def test_lsp_ignores_unopened_and_external_diagnostic_publications(
     tmp_path: Path,
 ) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     unknown = (tmp_path / "unknown.py").as_uri()
     external = (tmp_path.parent / "external.py").as_uri()
     payload = {
@@ -563,9 +540,7 @@ def test_lsp_ignores_unopened_and_external_diagnostic_publications(
 
 
 async def test_duplicate_lsp_response_does_not_kill_reader_state(tmp_path: Path) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
     future.set_result({"ok": True})
     client._pending[1] = future
@@ -670,9 +645,7 @@ def test_invalid_lsp_command_configuration_is_rejected(
 def test_lsp_discards_old_versions_and_bounds_untrusted_diagnostics(
     tmp_path: Path,
 ) -> None:
-    client = LspClient(
-        LspServerConfig("unused", (), (".py",), "python"), tmp_path
-    )
+    client = LspClient(LspServerConfig("unused", (), (".py",), "python"), tmp_path)
     uri = (tmp_path / "demo.py").resolve().as_uri()
     client._versions[uri] = 2
     event = client._events.setdefault(uri, asyncio.Event())
@@ -811,9 +784,7 @@ while True:
 """,
         encoding="utf-8",
     )
-    config = LspServerConfig(
-        sys.executable, (str(server), str(log)), (".py",), "python"
-    )
+    config = LspServerConfig(sys.executable, (str(server), str(log)), (".py",), "python")
     registry = ToolRegistry(tmp_path)
     registry.lsp = LspManager(tmp_path, configs=[config], diagnostic_timeout=1)
     first = json.loads(
@@ -830,9 +801,7 @@ while True:
     ]
     await registry.execute("write_file", {"path": "demo.py", "content": "value = 2\n"})
     inspection = json.loads(
-        await registry.execute(
-            "lsp_inspect", {"path": "demo.py", "start_line": 1, "end_line": 1}
-        )
+        await registry.execute("lsp_inspect", {"path": "demo.py", "start_line": 1, "end_line": 1})
     )
     assert inspection["diagnostics"][0]["message"] == "fake warning"
     assert inspection["code_actions"] == [
@@ -862,9 +831,7 @@ while True:
         )
     )
     assert workspace["servers_queried"] == 1
-    assert [item["message"] for item in workspace["diagnostics"]] == [
-        "workspace warning"
-    ]
+    assert [item["message"] for item in workspace["diagnostics"]] == ["workspace warning"]
     assert "must be filtered" not in json.dumps(workspace)
     await registry.close()
     methods = [json.loads(line)["method"] for line in log.read_text().splitlines()]

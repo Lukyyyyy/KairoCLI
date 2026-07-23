@@ -31,10 +31,7 @@ class CountingEmbedding:
         self.calls.append(list(texts))
         if self.fail:
             raise RuntimeError("embedding unavailable")
-        return [
-            [1.0, float("payment" in text.casefold()), float(len(text) % 17)]
-            for text in texts
-        ]
+        return [[1.0, float("payment" in text.casefold()), float(len(text) % 17)] for text in texts]
 
 
 def test_embedding_factory_supports_offline_ollama_and_zhipu() -> None:
@@ -53,9 +50,7 @@ def test_embedding_factory_supports_offline_ollama_and_zhipu() -> None:
     assert ollama.model == "nomic-custom"
     assert ollama.base_url == "http://localhost:11434"
 
-    zhipu = embedding_client_from_environment(
-        {"KAIROCLI_EMBEDDING_PROVIDER": "glm"}
-    )
+    zhipu = embedding_client_from_environment({"KAIROCLI_EMBEDDING_PROVIDER": "glm"})
     assert isinstance(zhipu, HttpEmbeddingClient)
     assert zhipu.provider == "zhipu"
     assert zhipu.model == "embedding-3"
@@ -63,13 +58,9 @@ def test_embedding_factory_supports_offline_ollama_and_zhipu() -> None:
 
 def test_embedding_configuration_and_response_validation() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
-        embedding_client_from_environment(
-            {"KAIROCLI_EMBEDDING_PROVIDER": "unknown"}
-        )
+        embedding_client_from_environment({"KAIROCLI_EMBEDDING_PROVIDER": "unknown"})
     with pytest.raises(ValueError, match="cannot exceed"):
-        embedding_client_from_environment(
-            {"KAIROCLI_EMBEDDING_DIMENSIONS": "999999"}
-        )
+        embedding_client_from_environment({"KAIROCLI_EMBEDDING_DIMENSIONS": "999999"})
     with pytest.raises(ValueError, match="credentials"):
         HttpEmbeddingClient("https://user:pass@example.test", "model")
 
@@ -200,18 +191,10 @@ def test_chunker_emits_python_and_java_symbol_metadata() -> None:
     }
     java_chunks = chunker.chunk(
         "Service.java",
-        "public class Service {\n"
-        "  public int run() {\n"
-        "    return 1;\n"
-        "  }\n"
-        "}\n",
+        "public class Service {\n  public int run() {\n    return 1;\n  }\n}\n",
     )
-    assert ("class", "Service") in {
-        (chunk.kind, chunk.name) for chunk in java_chunks
-    }
-    assert ("method", "run") in {
-        (chunk.kind, chunk.name) for chunk in java_chunks
-    }
+    assert ("class", "Service") in {(chunk.kind, chunk.name) for chunk in java_chunks}
+    assert ("method", "run") in {(chunk.kind, chunk.name) for chunk in java_chunks}
 
 
 async def test_index_skips_unchanged_files_and_removes_deleted_paths(tmp_path: Path) -> None:
@@ -244,9 +227,7 @@ async def test_index_reports_throttled_progress(tmp_path: Path) -> None:
         (tmp_path / f"file-{number:02}.md").write_text(
             f"# File {number}\ncontent\n", encoding="utf-8"
         )
-    index = CodeIndex(
-        tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding()
-    )
+    index = CodeIndex(tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding())
     updates: list[tuple[int, int, str]] = []
 
     async def progress(position: int, total: int, path: str) -> None:
@@ -295,9 +276,7 @@ async def test_index_and_graph_bound_source_growth_after_stat(
             requested.append(size)
             return super().read(size)
 
-    def growing_open(
-        path: Path, mode: str = "r", *args: object, **kwargs: object
-    ) -> Any:
+    def growing_open(path: Path, mode: str = "r", *args: object, **kwargs: object) -> Any:
         if path == source and mode == "rb":
             return GrowingReader(b"x" * 9)
         return real_open(path, mode, *args, **kwargs)
@@ -335,9 +314,7 @@ async def test_partial_reindex_removes_deleted_files_only_inside_scope(tmp_path:
     stale = first_dir / "stale.py"
     stale.write_text("def stale(): pass\n", encoding="utf-8")
     (second_dir / "keep.py").write_text("def keep(): pass\n", encoding="utf-8")
-    index = CodeIndex(
-        tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding()
-    )
+    index = CodeIndex(tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding())
     await index.index()
     stale.unlink()
     await index.index(first_dir)
@@ -355,9 +332,7 @@ async def test_index_refuses_workspace_symlink_escape(tmp_path: Path) -> None:
         link.symlink_to(outside)
     except OSError:
         pytest.skip("symlink creation is not permitted")
-    index = CodeIndex(
-        workspace, workspace / ".kairocli" / "index.db", CountingEmbedding()
-    )
+    index = CodeIndex(workspace, workspace / ".kairocli" / "index.db", CountingEmbedding())
     assert await index.index() == {"files": 0, "chunks": 0}
 
 
@@ -410,9 +385,7 @@ def test_vector_store_search_isolates_corrupt_rows_and_marks_paths_for_reindex(
 
 
 @pytest.mark.parametrize("query", [[], [float("inf")], [True]])
-def test_vector_store_rejects_invalid_query_vectors(
-    tmp_path: Path, query: list[float]
-) -> None:
+def test_vector_store_rejects_invalid_query_vectors(tmp_path: Path, query: list[float]) -> None:
     store = VectorStore(tmp_path / "invalid-query.db")
 
     with pytest.raises(ValueError, match="Embedding vector"):

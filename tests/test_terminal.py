@@ -18,9 +18,7 @@ def test_terminal_sanitizer_removes_escape_protocols_and_spoofing_controls() -> 
 
 
 def test_terminal_sanitizer_preserves_text_and_normalizes_carriage_returns() -> None:
-    assert sanitize_terminal_text("你好\tworld\r\nnext\rover") == (
-        "你好\tworld\nnext\nover"
-    )
+    assert sanitize_terminal_text("你好\tworld\r\nnext\rover") == ("你好\tworld\nnext\nover")
 
 
 def test_terminal_sanitizer_makes_split_sequences_non_executable() -> None:
@@ -41,9 +39,7 @@ def test_stream_sanitizer_handles_c1_controls_and_split_crlf() -> None:
     assert rendered == "a\nbredc"
 
 
-def test_cli_untrusted_render_boundaries_disable_controls(
-    monkeypatch: Any, capsys: Any
-) -> None:
+def test_cli_untrusted_render_boundaries_disable_controls(monkeypatch: Any, capsys: Any) -> None:
     class PlainConsole:
         def print(self, value: object = "", **kwargs: Any) -> None:
             print(value)

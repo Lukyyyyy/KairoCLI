@@ -53,11 +53,7 @@ async def test_apply_patch_returns_before_and_after_display_diff(tmp_path: Path)
 +after
  same
 """
-    output = await ToolRegistry(tmp_path).execute_output(
-        "apply_patch", {"patch": patch}
-    )
-    assert output.diffs == (
-        FileDiff("code.txt", "before\nsame\n", "after\nsame\n"),
-    )
+    output = await ToolRegistry(tmp_path).execute_output("apply_patch", {"patch": patch})
+    assert output.diffs == (FileDiff("code.txt", "before\nsame\n", "after\nsame\n"),)
     assert "before" not in output.text
     assert "after" not in output.text

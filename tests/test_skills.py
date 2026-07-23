@@ -19,9 +19,7 @@ from kairocli.skills import (
 )
 
 
-def _disable_skill_concurrently(
-    home: str, workspace: str, name: str, start: Any
-) -> None:
+def _disable_skill_concurrently(home: str, workspace: str, name: str, start: Any) -> None:
     registry = SkillRegistry(KairoPaths.discover(Path(workspace), Path(home)))
     registry.reload()
     start.wait(10)
@@ -137,9 +135,7 @@ def test_skill_state_migrates_legacy_and_survives_malformed_json(tmp_path: Path)
         '{"disabled":["demo",42]}',
     ],
 )
-def test_skill_state_strict_json_failures_are_isolated(
-    tmp_path: Path, payload: str
-) -> None:
+def test_skill_state_strict_json_failures_are_isolated(tmp_path: Path, payload: str) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
     _write_skill(paths.user_dir / "skills", "demo")
     paths.user_dir.mkdir(parents=True, exist_ok=True)
@@ -217,9 +213,7 @@ def test_skill_document_read_is_bounded_when_file_grows_after_stat(
     monkeypatch.setattr(Path, "open", growing_open)
     registry = SkillRegistry(paths)
 
-    loaded = registry._load_skill(
-        skill_file.parent, skill_file, SkillSource.USER, set()
-    )
+    loaded = registry._load_skill(skill_file.parent, skill_file, SkillSource.USER, set())
 
     assert loaded is None
     assert requested == [9]
@@ -383,6 +377,7 @@ async def test_agent_skill_tools_use_bounded_body_and_reference_loader(tmp_path:
     assert loaded.startswith("## Loaded Skill: demo")
     assert "skill body truncated" in loaded
     assert "details.md" in loaded
-    assert await agent.tools.execute(
-        "load_skill_reference", {"name": "demo", "path": "details.md"}
-    ) == "details"
+    assert (
+        await agent.tools.execute("load_skill_reference", {"name": "demo", "path": "details.md"})
+        == "details"
+    )

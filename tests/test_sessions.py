@@ -112,9 +112,7 @@ def test_session_roundtrip_preserves_protocol_usage_and_strips_images(
     ]
     assert loaded.messages[1].tool_calls[0].arguments == {"path": "README.md"}
     assert loaded.messages[1].reasoning_content == "reasoning"
-    assert "secret-binary" not in json.dumps(
-        [message.content for message in loaded.messages]
-    )
+    assert "secret-binary" not in json.dumps([message.content for message in loaded.messages])
     assert loaded.input_tokens == 10
     assert loaded.output_tokens == 4
     assert loaded.cached_tokens == 2
@@ -382,9 +380,7 @@ def test_session_message_revision_is_independent_from_todo_updates(tmp_path: Pat
 
     persisted = SessionStore(database).load(state.meta.id, workspace)
     assert persisted is not None
-    assert [message.content for message in persisted.messages] == [
-        "message after todo"
-    ]
+    assert [message.content for message in persisted.messages] == ["message after todo"]
     assert [item.content for item in todo_store.list_todos(state.meta.id, workspace)] == [
         "parallel todo"
     ]
@@ -410,9 +406,7 @@ def test_session_store_migrates_message_revision_for_existing_database(
 
     store = SessionStore(database)
     with closing(sqlite3.connect(database)) as connection:
-        columns = {
-            str(row[1]) for row in connection.execute("PRAGMA table_info(sessions)")
-        }
+        columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(sessions)")}
 
     assert "message_revision" in columns
     workspace = tmp_path / "work"
@@ -456,9 +450,7 @@ def test_corrupt_session_payload_degrades_to_empty_history(tmp_path: Path) -> No
         '[{"role":"user","content":' + "[" * 1_100 + "0" + "]" * 1_100 + "}]",
     ],
 )
-def test_session_load_rejects_nonstandard_or_overdeep_json(
-    tmp_path: Path, payload: str
-) -> None:
+def test_session_load_rejects_nonstandard_or_overdeep_json(tmp_path: Path, payload: str) -> None:
     workspace = tmp_path / "work"
     workspace.mkdir()
     database = tmp_path / "sessions.db"

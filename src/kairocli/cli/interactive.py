@@ -85,6 +85,7 @@ MAX_INTERACTIVE_ERROR_BYTES = 4_000
 class _WechatSetupCanceled(Exception):
     """Raised when the user leaves the WeChat setup prompt."""
 
+
 _WELCOME_PIXEL_WORDMARK = (
     "█▄▀ ▄▀▄ ▀█▀ █▀▄ ▄▀▄",
     "█▄  █▀█  █  █▀▄ █ █",
@@ -171,10 +172,7 @@ def _print_approval_request(
         choice_text += " · v always this server"
     choice_text += " · s skip · m modify · n reject"
     console.print(
-        "Permission required\n"
-        f"  Tool: {tool_name}\n"
-        f"  Arguments:\n{summary}\n"
-        f"  {choice_text}"
+        f"Permission required\n  Tool: {tool_name}\n  Arguments:\n{summary}\n  {choice_text}"
     )
 
 
@@ -2288,9 +2286,7 @@ def _prompt_session(
                 Window(
                     FormattedTextControl(
                         lambda: (
-                            "  " + str(bottom_toolbar()) + " "
-                            if callable(bottom_toolbar)
-                            else ""
+                            "  " + str(bottom_toolbar()) + " " if callable(bottom_toolbar) else ""
                         )
                     ),
                     height=Dimension.exact(1),

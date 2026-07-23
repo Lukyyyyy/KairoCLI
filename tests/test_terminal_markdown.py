@@ -37,9 +37,7 @@ def test_terminal_markdown_indents_lines_after_answer_marker() -> None:
 
 
 def test_terminal_markdown_indents_terminal_width_wrapped_lines() -> None:
-    rendered = TerminalMarkdownRenderer.render(
-        "甲" * 25, columns=40, continuation_indent="  "
-    )
+    rendered = TerminalMarkdownRenderer.render("甲" * 25, columns=40, continuation_indent="  ")
 
     assert rendered == ("甲" * 19) + "\n  " + ("甲" * 6) + "\n"
 

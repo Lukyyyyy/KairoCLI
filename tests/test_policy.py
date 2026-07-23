@@ -22,9 +22,7 @@ from kairocli.policy import (
 )
 
 
-def _append_audit_in_process(
-    workspace: str, home: str, gate: Any, label: str
-) -> None:
+def _append_audit_in_process(workspace: str, home: str, gate: Any, label: str) -> None:
     policy_module.MAX_AUDIT_FILE_BYTES = 512
     gate.wait(10)
     paths = KairoPaths.discover(Path(workspace), Path(home))
@@ -248,9 +246,7 @@ def test_audit_rejects_symlinked_user_container_without_external_access(
     paths.user_dir.symlink_to(outside, target_is_directory=True)
     original = external.read_bytes()
 
-    AuditLog(paths).append(
-        "execute_command", "allowed", {"command": "must not escape"}
-    )
+    AuditLog(paths).append("execute_command", "allowed", {"command": "must not escape"})
     recent = read_recent_audit(paths)
 
     assert "unavailable" in recent.casefold()

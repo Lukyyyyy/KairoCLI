@@ -66,7 +66,8 @@ async def test_snapshot_never_captures_or_restores_workspace_git_metadata(
     state.write_text("after", encoding="utf-8")
     await service.capture("post-turn protect-git")
     tree = await service._tree_files(  # noqa: SLF001
-        target, service._environment(work_tree=True)  # noqa: SLF001
+        target,
+        service._environment(work_tree=True),  # noqa: SLF001
     )
     result = await service.restore(target)
 
@@ -185,9 +186,7 @@ async def test_restore_failure_automatically_rolls_back_pre_restore_state(
     real_git = service._git
     failed = False
 
-    async def fail_target_checkout(
-        *args: str, env: dict[str, str] | None = None
-    ) -> str:
+    async def fail_target_checkout(*args: str, env: dict[str, str] | None = None) -> str:
         nonlocal failed
         if len(args) >= 2 and args[0] == "checkout" and args[1] == target and not failed:
             failed = True
@@ -233,7 +232,11 @@ async def test_background_capture_config_status_and_clean(tmp_path: Path) -> Non
     assert snapshots[0].turn_id == "background-1"
     assert "Maximum listed: 3" in await service.status()
     tree = await service._git(  # noqa: SLF001 - contract-check isolated repository contents
-        "ls-tree", "-r", "--name-only", "HEAD", env=service._environment()  # noqa: SLF001
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "HEAD",
+        env=service._environment(),  # noqa: SLF001
     )
     assert tree.splitlines() == ["kept.txt"]
     assert await service.clean() is True

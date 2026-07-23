@@ -34,9 +34,7 @@ class LocalStreamingProvider:
         port = self.server.sockets[0].getsockname()[1]
         return f"http://127.0.0.1:{port}/v1"
 
-    async def _handle(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             headers = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 5)
             content_length = 0
@@ -103,13 +101,10 @@ class LocalStreamingProvider:
                 )
                 return
             if not tool_messages and "command tool request" in transcript:
-                command = (
-                    f"{shlex.quote(sys.executable)} -c "
-                    + shlex.quote(
-                        "from pathlib import Path; "
-                        "Path('command-created.txt').write_text('command side effect'); "
-                        "print('command-ok')"
-                    )
+                command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+                    "from pathlib import Path; "
+                    "Path('command-created.txt').write_text('command side effect'); "
+                    "print('command-ok')"
                 )
                 await self._respond_tool_call(
                     writer,
@@ -163,9 +158,7 @@ class LocalStreamingProvider:
                     else "tool-command:executed"
                 )
             elif tool_messages and "command timeout request" in transcript:
-                answer = "tool-command:timeout:" + str(
-                    tool_messages[-1].get("content", "")
-                )
+                answer = "tool-command:timeout:" + str(tool_messages[-1].get("content", ""))
             else:
                 answer = f"answer-{len(self.requests)} 世界"
             await self._respond_answer(writer, answer)
@@ -187,10 +180,7 @@ class LocalStreamingProvider:
             },
         ]
         encoded = (
-            "".join(
-                f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                for event in events
-            )
+            "".join(f"data: {json.dumps(event, ensure_ascii=False)}\n\n" for event in events)
             + "data: [DONE]\n\n"
         ).encode("utf-8")
         await self._respond(writer, 200, encoded, "text/event-stream")
@@ -227,8 +217,7 @@ class LocalStreamingProvider:
             },
         ]
         encoded = (
-            "".join(f"data: {json.dumps(event)}\n\n" for event in events)
-            + "data: [DONE]\n\n"
+            "".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
         ).encode()
         await self._respond(writer, 200, encoded, "text/event-stream")
 

@@ -121,9 +121,7 @@ class RetryOrchestratorClient(LlmClient):
         if "strict Kairo CLI reviewer" in system:
             self.review_calls += 1
             if self.review_calls == 1:
-                return LlmResponse(
-                    content='{"approved":false,"issues":["add verification"]}'
-                )
+                return LlmResponse(content='{"approved":false,"issues":["add verification"]}')
             return LlmResponse(content='{"approved":true,"issues":[]}')
         if "You are the worker responsible for:" in prompt:
             self.worker_calls += 1
@@ -179,9 +177,9 @@ async def test_orchestrator_bounds_worker_review_dependency_and_final_context(
     tmp_path: Path,
 ) -> None:
     client = LargeTeamContextClient()
-    result = await AgentOrchestrator(
-        Agent(client, ToolRegistry(tmp_path), "system")
-    ).run("process large result")
+    result = await AgentOrchestrator(Agent(client, ToolRegistry(tmp_path), "system")).run(
+        "process large result"
+    )
 
     assert result == "team final"
     assert all(len(prompt.encode("utf-8")) < 1024 * 1024 for prompt in client.prompts)

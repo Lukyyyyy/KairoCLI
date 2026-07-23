@@ -82,9 +82,7 @@ def test_sensitive_page_policy_bounds_rule_count_and_pattern_length(
 ) -> None:
     rules = tmp_path / "sensitive_patterns.txt"
     rules.write_text(
-        "*://one.example/*\n"
-        + "x" * 21
-        + "\n*://two.example/*\n*://three.example/*\n",
+        "*://one.example/*\n" + "x" * 21 + "\n*://two.example/*\n*://three.example/*\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(browser_module, "MAX_SENSITIVE_RULES", 2)
@@ -339,9 +337,7 @@ async def test_browser_command_transactionally_restarts_mcp_and_clears_approvals
     session = BrowserSession(9222, transport=httpx.MockTransport(handler))
     manager = Manager()
     policy = ApprovalPolicy(True)
-    policy.remember(
-        "mcp__chrome-devtools__click", ApprovalResult.approve_all()
-    )
+    policy.remember("mcp__chrome-devtools__click", ApprovalResult.approve_all())
     policy.remember(
         "mcp__chrome-devtools__take_snapshot",
         ApprovalResult.approve_all_by_server(),
@@ -368,9 +364,7 @@ async def test_browser_command_transactionally_restarts_mcp_and_clears_approvals
     assert policy.needs_approval("mcp__chrome-devtools__click")
     assert policy.needs_approval("mcp__chrome-devtools__take_snapshot")
 
-    policy.remember(
-        "mcp__chrome-devtools__click", ApprovalResult.approve_all_by_server()
-    )
+    policy.remember("mcp__chrome-devtools__click", ApprovalResult.approve_all_by_server())
     manager.fail = True
     failed = await handle_browser_command(
         "disconnect",
@@ -419,12 +413,8 @@ def test_browser_guard_tracks_navigation_and_agent_owned_tabs(tmp_path: Path) ->
     )
     assert session.last_navigated_url == "https://example.com"
     assert session.is_agent_opened_tab("page-7")
-    assert not guard.check(
-        "mcp__chrome-devtools__close_page", {"pageIdx": "page-7"}
-    ).blocked
-    blocked = guard.check(
-        "mcp__chrome-devtools__close_page", {"pageIdx": "existing"}
-    )
+    assert not guard.check("mcp__chrome-devtools__close_page", {"pageIdx": "page-7"}).blocked
+    blocked = guard.check("mcp__chrome-devtools__close_page", {"pageIdx": "existing"})
     assert blocked.blocked and "not opened by Kairo CLI" in blocked.reason
 
 
@@ -459,12 +449,8 @@ async def test_failed_browser_tools_do_not_commit_session_mutations(
         )
     )
 
-    await registry.execute(
-        "mcp__chrome-devtools__navigate_page", {"url": "https://after.example"}
-    )
-    await registry.execute(
-        "mcp__chrome-devtools__close_page", {"pageIdx": "page-7"}
-    )
+    await registry.execute("mcp__chrome-devtools__navigate_page", {"url": "https://after.example"})
+    await registry.execute("mcp__chrome-devtools__close_page", {"pageIdx": "page-7"})
 
     assert session.last_navigated_url == "https://before.example"
     assert session.is_agent_opened_tab("page-7")
@@ -498,9 +484,7 @@ async def test_sensitive_browser_writes_ignore_approve_all_cache(tmp_path: Path)
         return "ok"
 
     registry.register(
-        ToolDefinition(
-            "mcp__chrome-devtools__take_snapshot", "read", {"type": "object"}, ok
-        )
+        ToolDefinition("mcp__chrome-devtools__take_snapshot", "read", {"type": "object"}, ok)
     )
     registry.register(
         ToolDefinition("mcp__chrome-devtools__click", "write", {"type": "object"}, ok)
@@ -577,9 +561,7 @@ async def test_parallel_navigation_commits_before_sensitive_write_approval(
     await asyncio.sleep(0)
 
     assert not click_executed.is_set()
-    assert [name for name, _ in approvals] == [
-        "mcp__chrome-devtools__navigate_page"
-    ]
+    assert [name for name, _ in approvals] == ["mcp__chrome-devtools__navigate_page"]
 
     release_navigation.set()
     await asyncio.gather(navigation_task, click_task)
@@ -601,9 +583,7 @@ async def test_waiting_for_browser_operation_is_cancelable(tmp_path: Path) -> No
     session.remember_navigation("https://example.com/docs")
     registry = ToolRegistry(
         tmp_path,
-        browser_guard=BrowserGuard(
-            session, SensitivePagePolicy(tmp_path / "missing-rules")
-        ),
+        browser_guard=BrowserGuard(session, SensitivePagePolicy(tmp_path / "missing-rules")),
     )
 
     async def first_handler(arguments: dict[str, object]) -> str:
@@ -632,14 +612,10 @@ async def test_waiting_for_browser_operation_is_cancelable(tmp_path: Path) -> No
         )
     )
 
-    first = asyncio.create_task(
-        registry.execute("mcp__chrome-devtools__take_snapshot", {})
-    )
+    first = asyncio.create_task(registry.execute("mcp__chrome-devtools__take_snapshot", {}))
     await asyncio.wait_for(entered.wait(), timeout=1)
     canceled = asyncio.Event()
-    second = asyncio.create_task(
-        registry.execute("mcp__chrome-devtools__list_pages", {}, canceled)
-    )
+    second = asyncio.create_task(registry.execute("mcp__chrome-devtools__list_pages", {}, canceled))
     await asyncio.sleep(0)
     canceled.set()
 
@@ -670,9 +646,7 @@ async def test_canceled_navigation_forces_fresh_browser_write_approval(
         tmp_path,
         approval_policy=ApprovalPolicy(True),
         approver=approve,
-        browser_guard=BrowserGuard(
-            session, SensitivePagePolicy(tmp_path / "missing-rules")
-        ),
+        browser_guard=BrowserGuard(session, SensitivePagePolicy(tmp_path / "missing-rules")),
     )
 
     async def navigate(arguments: dict[str, object]) -> str:
@@ -745,9 +719,7 @@ async def test_sensitive_browser_write_without_approver_is_denied(tmp_path: Path
             unreachable,
         )
     )
-    result = json.loads(
-        await registry.execute("mcp__chrome-devtools__evaluate_script", {})
-    )
+    result = json.loads(await registry.execute("mcp__chrome-devtools__evaluate_script", {}))
     assert result["approval_denied"] is True
 
 

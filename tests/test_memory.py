@@ -26,9 +26,7 @@ from kairocli.paths import KairoPaths
 from kairocli.tools import ToolRegistry
 
 
-def _concurrent_memory_writer(
-    home: str, workspace: str, prefix: str, start: Any
-) -> None:
+def _concurrent_memory_writer(home: str, workspace: str, prefix: str, start: Any) -> None:
     memory = MemoryStore(KairoPaths.discover(Path(workspace), Path(home)))
     start.wait(10)
     for number in range(20):
@@ -101,16 +99,10 @@ def test_invalid_memory_file_degrades_to_empty(tmp_path: Path) -> None:
         '[{"id":"000000000001","fact":"valid","scope":"global",'
         '"project":null,"created_at":"2026-01-01","unknown":NaN}]',
         '[{"id":"000000000001","fact":"valid","scope":"global",'
-        '"project":null,"created_at":"2026-01-01","unknown":'
-        + "[" * 20
-        + "0"
-        + "]" * 20
-        + "}]",
+        '"project":null,"created_at":"2026-01-01","unknown":' + "[" * 20 + "0" + "]" * 20 + "}]",
     ],
 )
-def test_memory_strict_json_failures_degrade_and_recover(
-    tmp_path: Path, payload: str
-) -> None:
+def test_memory_strict_json_failures_degrade_and_recover(tmp_path: Path, payload: str) -> None:
     paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
     paths.memory_file.parent.mkdir(parents=True)
     paths.memory_file.write_text(payload, encoding="utf-8")
@@ -324,8 +316,6 @@ async def test_make_agent_registers_save_memory_tool(tmp_path: Path) -> None:
     paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
     config = AppConfig.load(paths)
     agent = make_agent(paths, config)
-    result = await agent.tools.execute(
-        "save_memory", {"fact": "项目使用 Ruff", "scope": "project"}
-    )
+    result = await agent.tools.execute("save_memory", {"fact": "项目使用 Ruff", "scope": "project"})
     assert "Saved long-term memory" in result
     assert MemoryStore(paths).search("Ruff")

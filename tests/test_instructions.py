@@ -23,18 +23,14 @@ def test_instruction_layers_and_safe_imports_follow_reference_order(
     paths.project_dir.mkdir()
     (paths.workspace / "docs").mkdir()
     (paths.user_dir / "KAIRO.md").write_text("user rule", encoding="utf-8")
-    (paths.workspace / "docs" / "rules.md").write_text(
-        "imported rule", encoding="utf-8"
-    )
+    (paths.workspace / "docs" / "rules.md").write_text("imported rule", encoding="utf-8")
     (paths.workspace / "KAIRO.md").write_text(
         "@docs/rules.md\n@../outside.md\nroot rule", encoding="utf-8"
     )
     (tmp_path / "outside.md").write_text("outside secret", encoding="utf-8")
     (paths.project_dir / "KAIRO.md").write_text("dot rule", encoding="utf-8")
     (paths.workspace / "KAIRO.local.md").write_text("local rule", encoding="utf-8")
-    (paths.project_dir / "KAIRO.local.md").write_text(
-        "dot local rule", encoding="utf-8"
-    )
+    (paths.project_dir / "KAIRO.local.md").write_text("dot local rule", encoding="utf-8")
 
     context = InstructionResolver(paths).base_context()
 
@@ -75,9 +71,7 @@ def test_instruction_import_cycles_depth_binary_and_budget_are_bounded(
     tmp_path: Path,
 ) -> None:
     paths = _paths(tmp_path)
-    (paths.workspace / "KAIRO.md").write_text(
-        "@a.md\n" + "x" * 5_000, encoding="utf-8"
-    )
+    (paths.workspace / "KAIRO.md").write_text("@a.md\n" + "x" * 5_000, encoding="utf-8")
     (paths.workspace / "a.md").write_text("@b.md\na", encoding="utf-8")
     (paths.workspace / "b.md").write_text("@a.md\nb", encoding="utf-8")
 
@@ -99,9 +93,7 @@ def test_instruction_import_cannot_follow_symlink_outside_workspace(
         linked.symlink_to(outside)
     except OSError:
         pytest.skip("symlinks are unavailable")
-    (paths.workspace / "KAIRO.md").write_text(
-        "@linked.md\nsafe rule", encoding="utf-8"
-    )
+    (paths.workspace / "KAIRO.md").write_text("@linked.md\nsafe rule", encoding="utf-8")
 
     context = InstructionResolver(paths).base_context()
 
@@ -145,13 +137,9 @@ async def test_prompt_index_and_instruction_tool_share_resolver(tmp_path: Path) 
     assert "pkg/KAIRO.md" in prompt
     schema_names = {item["function"]["name"] for item in agent.tools.schemas()}
     assert "load_project_instructions" in schema_names
-    loaded = await agent.tools.execute(
-        "load_project_instructions", {"path": "pkg/module.py"}
-    )
+    loaded = await agent.tools.execute("load_project_instructions", {"path": "pkg/module.py"})
     assert "root instruction" in loaded
     assert "nested instruction" in loaded
-    escaped = await agent.tools.execute(
-        "load_project_instructions", {"path": "../outside"}
-    )
+    escaped = await agent.tools.execute("load_project_instructions", {"path": "../outside"})
     assert "Instruction target must stay within the workspace" in escaped
     await agent.tools.close()

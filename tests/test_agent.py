@@ -680,11 +680,7 @@ async def test_plan_rewrites_a_verbatim_question_as_an_action(tmp_path: Path) ->
     client = BudgetClient(
         LlmResponse(
             content=json.dumps(
-                {
-                    "tasks": [
-                        {"id": "weather", "description": question, "dependencies": []}
-                    ]
-                },
+                {"tasks": [{"id": "weather", "description": question, "dependencies": []}]},
                 ensure_ascii=False,
             )
         )

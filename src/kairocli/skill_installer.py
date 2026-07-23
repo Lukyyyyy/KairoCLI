@@ -469,9 +469,7 @@ def _copy_validated_tree(source: Path, target: Path, *, private: bool) -> str:
             if total_bytes > MAX_INSTALL_TOTAL_BYTES:
                 raise SkillInstallError(f"Skill exceeds {MAX_INSTALL_TOTAL_BYTES} total bytes.")
             relative = (
-                source_entry.relative_to(source)
-                .as_posix()
-                .encode("utf-8", errors="surrogatepass")
+                source_entry.relative_to(source).as_posix().encode("utf-8", errors="surrogatepass")
             )
             digest.update(len(relative).to_bytes(4, "big"))
             digest.update(relative)
@@ -569,9 +567,7 @@ def _validate_install_request(request: SkillInstallRequest) -> SkillInstallReque
         raise SkillInstallError("Skill install force must be a boolean.")
     ref = _validate_ref(request.ref) if request.ref is not None else None
     subdirectory = (
-        _validate_subdirectory(request.subdirectory)
-        if request.subdirectory is not None
-        else None
+        _validate_subdirectory(request.subdirectory) if request.subdirectory is not None else None
     )
     return SkillInstallRequest(
         source=request.source,

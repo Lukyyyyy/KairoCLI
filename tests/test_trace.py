@@ -62,7 +62,7 @@ class TraceFailureClient(TraceClient):
             "state=visible",
         ),
         (
-            '{"OPENAI_API_KEY": "json-secret\\\"suffix"}',
+            '{"OPENAI_API_KEY": "json-secret\\"suffix"}',
             ("json-secret", "suffix"),
             "OPENAI_API_KEY",
         ),
@@ -147,9 +147,7 @@ async def test_trace_is_opt_in_and_never_records_prompt_or_answer(tmp_path: Path
 async def test_reasoning_trace_requires_second_opt_in_and_redacts_payloads(
     tmp_path: Path,
 ) -> None:
-    logger = LlmTraceLogger(
-        tmp_path / "traces", enabled=True, include_reasoning=True
-    )
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True, include_reasoning=True)
     agent = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
     await agent.run("request")
     raw = next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8")
@@ -168,14 +166,10 @@ async def test_error_trace_is_typed_redacted_and_diagnostics_never_break_agent(
     tmp_path: Path,
 ) -> None:
     logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
-    agent = Agent(
-        TraceFailureClient(), ToolRegistry(tmp_path), "system", trace_logger=logger
-    )
+    agent = Agent(TraceFailureClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
     with pytest.raises(LlmError, match="upstream-secret"):
         await agent.run("request")
-    event = json.loads(
-        next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8")
-    )
+    event = json.loads(next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8"))
     assert event["status"] == "error"
     assert event["error"] == {"type": "LlmError", "message": "failed token=***"}
     await agent.tools.close()
@@ -183,9 +177,7 @@ async def test_error_trace_is_typed_redacted_and_diagnostics_never_break_agent(
     blocked = tmp_path / "not-a-directory"
     blocked.write_text("file", encoding="utf-8")
     broken_logger = LlmTraceLogger(blocked, enabled=True)
-    healthy = Agent(
-        TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=broken_logger
-    )
+    healthy = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=broken_logger)
     assert await healthy.run("still succeeds") == "private answer body"
     await healthy.tools.close()
 
@@ -205,9 +197,7 @@ async def test_error_trace_survives_unprintable_exception(tmp_path: Path) -> Non
         tool_schema_count=0,
         error=UnprintableError(),
     )
-    event = json.loads(
-        next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8")
-    )
+    event = json.loads(next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8"))
     assert event["error"] == {
         "type": "UnprintableError",
         "message": "UnprintableError message unavailable",

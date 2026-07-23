@@ -603,8 +603,7 @@ class ToolRegistry:
                             raise ValueError
                         requested_mcp_timeout = (
                             raw_mcp_timeout / 1_000
-                            if name.startswith("mcp__chrome-devtools__")
-                            or raw_mcp_timeout > 300
+                            if name.startswith("mcp__chrome-devtools__") or raw_mcp_timeout > 300
                             else raw_mcp_timeout
                         )
                         timeout = min(

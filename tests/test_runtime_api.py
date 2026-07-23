@@ -67,15 +67,16 @@ def test_runtime_auth_and_events(tmp_path: Path) -> None:
             if line.startswith("id: ")
         ]
         assert event_ids == sorted(event_ids)
-        resumed = client.get(
-            f"/v1/threads/{thread}/events?after={event_ids[-2]}", headers=headers
-        )
+        resumed = client.get(f"/v1/threads/{thread}/events?after={event_ids[-2]}", headers=headers)
         assert resumed.text.count("id: ") == 1
         assert f"id: {event_ids[-1]}" in resumed.text
-        assert client.get(
-            f"/v1/threads/{thread}/events",
-            headers={**headers, "Last-Event-ID": str(event_ids[-1])},
-        ).text == ""
+        assert (
+            client.get(
+                f"/v1/threads/{thread}/events",
+                headers={**headers, "Last-Event-ID": str(event_ids[-1])},
+            ).text
+            == ""
+        )
         assert (
             client.get(
                 f"/v1/threads/{thread}/events",
@@ -174,9 +175,7 @@ async def test_runtime_shutdown_terminalizes_reserved_turn_before_agent_starts(
 
     assert state.store.turn_status(thread_id, turn_id) == "canceled"
     assert state.active_turn_ids == set()
-    assert [event.type for event in state.store.events(thread_id)] == [
-        "turn.canceled"
-    ]
+    assert [event.type for event in state.store.events(thread_id)] == ["turn.canceled"]
 
 
 async def test_runtime_shutdown_finishes_cleanup_before_propagating_cancel(
@@ -231,12 +230,14 @@ async def test_runtime_shutdown_finishes_cleanup_before_propagating_cancel(
 def test_runtime_bearer_scheme_is_case_insensitive(tmp_path: Path) -> None:
     app = create_app(lambda: None, "secret", tmp_path / "bearer-case.db")
     with TestClient(app) as client:
-        assert client.post(
-            "/v1/threads", headers={"Authorization": "bearer secret"}
-        ).status_code == 200
-        assert client.post(
-            "/v1/threads", headers={"Authorization": "BEARER   secret"}
-        ).status_code == 200
+        assert (
+            client.post("/v1/threads", headers={"Authorization": "bearer secret"}).status_code
+            == 200
+        )
+        assert (
+            client.post("/v1/threads", headers={"Authorization": "BEARER   secret"}).status_code
+            == 200
+        )
 
 
 def test_runtime_rejects_invalid_identifiers_before_store_access(
@@ -306,9 +307,7 @@ def test_runtime_rejects_event_cursors_outside_sqlite_integer_range(
     request_headers = {API_KEY_HEADER: "secret", **headers}
 
     with TestClient(app) as client:
-        response = client.get(
-            f"/v1/threads/thread_cursor/events{target}", headers=request_headers
-        )
+        response = client.get(f"/v1/threads/thread_cursor/events{target}", headers=request_headers)
 
     assert response.status_code in {400, 422}
 
@@ -323,9 +322,7 @@ def test_runtime_rejects_ambiguous_or_oversized_authorization(tmp_path: Path) ->
     )
     with TestClient(app) as client:
         for authorization in invalid:
-            response = client.post(
-                "/v1/threads", headers={"Authorization": authorization}
-            )
+            response = client.post("/v1/threads", headers={"Authorization": authorization})
             assert response.status_code == 401
             assert response.json() == {"detail": "Unauthorized"}
 
@@ -359,17 +356,13 @@ def test_runtime_turn_idempotency_prevents_duplicate_execution(tmp_path: Path) -
     headers = {API_KEY_HEADER: "secret", "Idempotency-Key": "request-1"}
     with TestClient(app) as client:
         thread = client.post("/v1/threads", headers=headers).json()["id"]
-        first = client.post(
-            f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"}
-        )
+        first = client.post(f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"})
         second = client.post(
             f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"}
         )
         assert first.status_code == second.status_code == 202
         assert first.json()["id"] == second.json()["id"]
-        events = client.get(
-            f"/v1/threads/{thread}/events", headers={API_KEY_HEADER: "secret"}
-        ).text
+        events = client.get(f"/v1/threads/{thread}/events", headers={API_KEY_HEADER: "secret"}).text
         assert events.count("event: turn.started") == 1
         assert events.count("event: turn.completed") == 1
         conflict = client.post(
@@ -381,9 +374,7 @@ def test_runtime_turn_idempotency_prevents_duplicate_execution(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("key", ["contains space", "x" * 201])
-def test_runtime_rejects_invalid_idempotency_keys(
-    tmp_path: Path, key: str
-) -> None:
+def test_runtime_rejects_invalid_idempotency_keys(tmp_path: Path, key: str) -> None:
     app = create_app(
         lambda: Agent(RuntimeClient(), ToolRegistry(tmp_path), "system"),
         "secret",
@@ -419,21 +410,13 @@ def test_runtime_turn_cancel_is_idempotent_and_terminal_state_is_cas(
         active = Agent(RuntimeClient(), ToolRegistry(tmp_path), "system")
         state.active_agents[turn_id] = active
 
-        first = client.post(
-            f"/v1/threads/{thread_id}/turns/{turn_id}/cancel", headers=headers
-        )
-        second = client.post(
-            f"/v1/threads/{thread_id}/turns/{turn_id}/cancel", headers=headers
-        )
+        first = client.post(f"/v1/threads/{thread_id}/turns/{turn_id}/cancel", headers=headers)
+        second = client.post(f"/v1/threads/{thread_id}/turns/{turn_id}/cancel", headers=headers)
 
         assert first.json()["status"] == second.json()["status"] == "canceled"
         assert active.cancel_event.is_set()
-        assert state.store.update_turn_status(
-            turn_id, "completed", response="late"
-        ) is False
-        events = client.get(
-            f"/v1/threads/{thread_id}/events", headers=headers
-        ).text
+        assert state.store.update_turn_status(turn_id, "completed", response="late") is False
+        events = client.get(f"/v1/threads/{thread_id}/events", headers=headers).text
         assert events.count("event: turn.canceled") == 1
         assert "event: turn.completed" not in events
 
@@ -587,9 +570,7 @@ def test_runtime_tool_cleanup_failure_does_not_erase_completion(tmp_path: Path) 
             headers=headers,
             json={"input": "hello"},
         )
-        events = client.get(
-            f"/v1/threads/{thread_id}/events", headers=headers
-        ).text
+        events = client.get(f"/v1/threads/{thread_id}/events", headers=headers).text
     assert response.status_code == 202
     assert "event: turn.completed" in events
     assert "event: turn.failed" not in events
@@ -618,16 +599,22 @@ def test_runtime_thread_restores_completed_conversation_context(tmp_path: Path) 
     headers = {API_KEY_HEADER: "secret"}
     with TestClient(app) as client:
         thread = client.post("/v1/threads", headers=headers).json()["id"]
-        assert client.post(
-            f"/v1/threads/{thread}/turns",
-            headers=headers,
-            json={"input": "first question"},
-        ).status_code == 202
-        assert client.post(
-            f"/v1/threads/{thread}/turns",
-            headers=headers,
-            json={"input": "second question"},
-        ).status_code == 202
+        assert (
+            client.post(
+                f"/v1/threads/{thread}/turns",
+                headers=headers,
+                json={"input": "first question"},
+            ).status_code
+            == 202
+        )
+        assert (
+            client.post(
+                f"/v1/threads/{thread}/turns",
+                headers=headers,
+                json={"input": "second question"},
+            ).status_code
+            == 202
+        )
 
     assert len(seen) == 2
     second_contents = [str(message.content) for message in seen[1]]
@@ -665,9 +652,7 @@ def test_runtime_store_serializes_turns_and_recovers_interrupted_work(
             (runtime_module.MAX_SQLITE_INTEGER, turn_id),
         )
     recovered = RuntimeThreadStore(database)
-    next_turn, status, next_created = recovered.reserve_turn(
-        "thread_test", "second", None
-    )
+    next_turn, status, next_created = recovered.reserve_turn("thread_test", "second", None)
     assert next_turn != turn_id
     assert status == "running"
     assert next_created is True
@@ -726,9 +711,7 @@ def test_runtime_streaming_coalesces_small_deltas_without_duplication(tmp_path: 
     headers = {API_KEY_HEADER: "secret"}
     with TestClient(app) as client:
         thread = client.post("/v1/threads", headers=headers).json()["id"]
-        client.post(
-            f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"}
-        )
+        client.post(f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"})
         events = client.get(f"/v1/threads/{thread}/events", headers=headers).text
 
     assert events.count("event: message.delta") == 1
@@ -755,9 +738,7 @@ def test_runtime_streaming_chunks_large_token_sequences(tmp_path: Path) -> None:
     headers = {API_KEY_HEADER: "secret"}
     with TestClient(app) as client:
         thread = client.post("/v1/threads", headers=headers).json()["id"]
-        client.post(
-            f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"}
-        )
+        client.post(f"/v1/threads/{thread}/turns", headers=headers, json={"input": "hello"})
         body = client.get(f"/v1/threads/{thread}/events", headers=headers).text
 
     delta_lines = [
@@ -807,9 +788,7 @@ def test_runtime_event_replay_is_byte_bounded_and_cursor_resumable(
             if response.headers["X-Kairo-CLI-Has-More"] == "false":
                 break
 
-        oversized_limit = client.get(
-            f"/v1/threads/{thread_id}/events?limit=1001", headers=headers
-        )
+        oversized_limit = client.get(f"/v1/threads/{thread_id}/events?limit=1001", headers=headers)
 
     assert seen == list(range(1, 8))
     assert oversized_limit.status_code == 422
@@ -824,13 +803,9 @@ def test_runtime_event_has_more_requires_an_additional_event(tmp_path: Path) -> 
     headers = {API_KEY_HEADER: "secret"}
 
     with TestClient(app) as client:
-        exact = client.get(
-            "/v1/threads/thread_exactpage/events?limit=2", headers=headers
-        )
+        exact = client.get("/v1/threads/thread_exactpage/events?limit=2", headers=headers)
         state.store.append("thread_exactpage", "test.event", {"index": 3})
-        additional = client.get(
-            "/v1/threads/thread_exactpage/events?limit=2", headers=headers
-        )
+        additional = client.get("/v1/threads/thread_exactpage/events?limit=2", headers=headers)
 
     assert exact.text.count("event: test.event") == 2
     assert exact.headers["X-Kairo-CLI-Has-More"] == "false"
@@ -913,9 +888,7 @@ def test_runtime_store_rejects_unsafe_event_type_atomically(tmp_path: Path) -> N
 def test_runtime_store_migrates_existing_turn_schema(tmp_path: Path) -> None:
     database = tmp_path / "legacy.db"
     with closing(sqlite3.connect(database)) as connection, connection:
-        connection.execute(
-            "CREATE TABLE threads (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)"
-        )
+        connection.execute("CREATE TABLE threads (id TEXT PRIMARY KEY, created_at TEXT NOT NULL)")
         connection.execute(
             "CREATE TABLE events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, "
             "thread_id TEXT NOT NULL, type TEXT NOT NULL, data TEXT NOT NULL, "
@@ -994,9 +967,7 @@ def test_runtime_event_size_and_errors_are_bounded_and_redacted(tmp_path: Path) 
         ),
     )
     with closing(sqlite3.connect(database)) as connection, connection:
-        error = connection.execute(
-            "SELECT error FROM turns WHERE id=?", (turn_id,)
-        ).fetchone()[0]
+        error = connection.execute("SELECT error FROM turns WHERE id=?", (turn_id,)).fetchone()[0]
     assert "top-secret" not in error
     assert "also-secret" not in error
     assert "url-secret" not in error
@@ -1014,14 +985,10 @@ def test_runtime_response_truncation_includes_marker_within_byte_budget(
     store.create("thread_response")
     turn_id, _, _ = store.reserve_turn("thread_response", "prompt", None)
 
-    assert store.update_turn_status(
-        turn_id, "completed", response="你" * 100
-    ) is True
+    assert store.update_turn_status(turn_id, "completed", response="你" * 100) is True
     with closing(sqlite3.connect(database)) as connection, connection:
         response = str(
-            connection.execute(
-                "SELECT response FROM turns WHERE id=?", (turn_id,)
-            ).fetchone()[0]
+            connection.execute("SELECT response FROM turns WHERE id=?", (turn_id,)).fetchone()[0]
         )
 
     assert response.endswith("[response truncated]")
@@ -1034,9 +1001,7 @@ def test_runtime_terminal_state_repairs_surrogate_and_unprintable_error(
     store = RuntimeThreadStore(tmp_path / "safe-terminal.db")
     store.create("thread_safe")
     completed_id, _, _ = store.reserve_turn("thread_safe", "prompt", None)
-    assert store.update_turn_status(
-        completed_id, "completed", response="answer\ud800"
-    )
+    assert store.update_turn_status(completed_id, "completed", response="answer\ud800")
     assert [message.content for message in store.completed_messages("thread_safe")] == [
         "prompt",
         "answer?",

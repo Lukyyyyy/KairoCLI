@@ -94,11 +94,7 @@ async def test_non_streaming_rejects_ambiguous_or_pathological_json(
         body = b'{"choices":[{"message":{"content":"ok"}}],"unknown":NaN}'
     else:
         body = (
-            '{"choices":[{"message":{"content":"ok"}}],"unknown":'
-            + "[" * 40
-            + "0"
-            + "]" * 40
-            + "}"
+            '{"choices":[{"message":{"content":"ok"}}],"unknown":' + "[" * 40 + "0" + "]" * 40 + "}"
         ).encode()
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -122,20 +118,14 @@ async def test_streaming_rejects_ambiguous_or_pathological_json(kind: str) -> No
         event = b'{"choices":[{"delta":{"content":"ok"}}],"unknown":NaN}'
     elif kind == "overdeep":
         event = (
-            '{"choices":[{"delta":{"content":"ok"}}],"unknown":'
-            + "[" * 40
-            + "0"
-            + "]" * 40
-            + "}"
+            '{"choices":[{"delta":{"content":"ok"}}],"unknown":' + "[" * 40 + "0" + "]" * 40 + "}"
         ).encode()
     else:
         event = b'{"choices":[{"delta":{"content":"\xff"}}]}'
     body = b"data: " + event + b"\n\n"
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, content=body, headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
 
     client = OpenAiCompatibleClient(
         "glm",
@@ -150,7 +140,7 @@ async def test_streaming_rejects_ambiguous_or_pathological_json(kind: str) -> No
 
 async def test_streaming_accepts_standard_multiline_sse_data_event() -> None:
     body = (
-        'event: message\r\n'
+        "event: message\r\n"
         'data: {"choices":[\r\n'
         'data: {"delta":{"content":"joined"}}]}\r\n'
         "\r\n"
@@ -158,9 +148,7 @@ async def test_streaming_accepts_standard_multiline_sse_data_event() -> None:
     )
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, text=body, headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
     client = OpenAiCompatibleClient(
         "glm",
@@ -324,11 +312,7 @@ async def test_non_streaming_response_contract_rejects_type_confusion(
             "ID delta must be text",
         ),
         (
-            {
-                "choices": [
-                    {"delta": {"tool_calls": [{"index": 0, "function": {"name": 1}}]}}
-                ]
-            },
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": 1}}]}}]},
             "name delta must be text",
         ),
         (
@@ -336,9 +320,7 @@ async def test_non_streaming_response_contract_rejects_type_confusion(
                 "choices": [
                     {
                         "delta": {
-                            "tool_calls": [
-                                {"index": 0, "function": {"arguments": {"path": "x"}}}
-                            ]
+                            "tool_calls": [{"index": 0, "function": {"arguments": {"path": "x"}}}]
                         }
                     }
                 ]
@@ -354,9 +336,7 @@ async def test_streaming_response_contract_rejects_type_confusion(
     body = f"data: {json.dumps(event)}\n\n"
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, text=body, headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
     client = OpenAiCompatibleClient(
         "glm",
@@ -376,9 +356,7 @@ async def test_streaming_malformed_tool_arguments_are_rejected() -> None:
     )
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, text=body, headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
     client = OpenAiCompatibleClient(
         "glm",
@@ -578,9 +556,7 @@ async def test_lora_header_is_never_forwarded_to_other_providers() -> None:
         ("agnes-ai", "agnes"),
     ],
 )
-def test_client_factory_resolves_reference_provider_aliases(
-    alias: str, canonical: str
-) -> None:
+def test_client_factory_resolves_reference_provider_aliases(alias: str, canonical: str) -> None:
     config = AppConfig(
         providers={
             canonical: ProviderConfig(
@@ -652,9 +628,7 @@ async def test_streaming_errors_are_visible(body: str, expected: str) -> None:
 
 async def test_http_error_includes_bounded_upstream_body() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            429, text='{"error":"rate limited"}', headers={"retry-after": "2"}
-        )
+        return httpx.Response(429, text='{"error":"rate limited"}', headers={"retry-after": "2"})
 
     client = OpenAiCompatibleClient(
         "glm",
@@ -747,9 +721,7 @@ async def test_streaming_model_response_and_event_are_bounded(
     body = f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n"
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200, text=body, headers={"content-type": "text/event-stream"}
-        )
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
 
     client = OpenAiCompatibleClient(
         "glm",

@@ -247,9 +247,7 @@ def test_config_rejects_symlinked_user_directory_without_external_writes(
     assert list(outside.iterdir()) == [sentinel]
 
 
-def test_config_ignores_symlinked_dotenv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_config_ignores_symlinked_dotenv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
     paths.workspace.mkdir(parents=True)
     outside = tmp_path / "outside.env"
@@ -377,25 +375,24 @@ def test_all_environment_overrides_remain_ephemeral_until_explicitly_changed(
     assert config.renderer == "plain"
     assert config.task_workers == 7
     assert config.providers["glm"].model == "runtime-model"
-    assert "saved" in handle_config_command(
-        "provider glm temperature 1.1", config, paths
-    ).casefold()
+    assert (
+        "saved" in handle_config_command("provider glm temperature 1.1", config, paths).casefold()
+    )
 
     stored = json.loads(paths.config_file.read_text(encoding="utf-8"))
     assert stored["default_provider"] == "glm"
     assert stored["renderer"] == "inline"
     assert stored["task_workers"] == 2
-    assert stored["providers"]["glm"]["base_url"] == (
-        "https://open.bigmodel.cn/api/coding/paas/v4"
-    )
+    assert stored["providers"]["glm"]["base_url"] == ("https://open.bigmodel.cn/api/coding/paas/v4")
     assert stored["providers"]["glm"]["model"] == "glm-5.1"
     assert stored["providers"]["glm"]["lora_id"] == ""
     assert stored["providers"]["glm"]["context_window"] == 0
     assert stored["providers"]["glm"]["temperature"] == 1.1
 
-    assert "saved" in handle_config_command(
-        "provider glm model runtime-model", config, paths
-    ).casefold()
+    assert (
+        "saved"
+        in handle_config_command("provider glm model runtime-model", config, paths).casefold()
+    )
     assert "saved" in handle_model_command("agnes", config, paths).casefold()
     stored = json.loads(paths.config_file.read_text(encoding="utf-8"))
     assert stored["providers"]["glm"]["model"] == "runtime-model"
@@ -441,12 +438,12 @@ def test_shared_model_and_config_commands_validate_and_mask(tmp_path: Path) -> N
     assert "context-window must" in handle_config_command(
         "provider glm context-window 7999", config, paths
     )
-    assert "saved" in handle_config_command(
-        "provider glm context-window 0", config, paths
-    ).casefold()
-    assert "saved" in handle_config_command(
-        "provider glm temperature 1.25", config, paths
-    ).casefold()
+    assert (
+        "saved" in handle_config_command("provider glm context-window 0", config, paths).casefold()
+    )
+    assert (
+        "saved" in handle_config_command("provider glm temperature 1.25", config, paths).casefold()
+    )
     assert config.providers["glm"].temperature == 1.25
     original_url = config.providers["glm"].base_url
     assert "credentials" in handle_config_command(
@@ -454,9 +451,10 @@ def test_shared_model_and_config_commands_validate_and_mask(tmp_path: Path) -> N
     )
     assert config.providers["glm"].base_url == original_url
     original_key = config.providers["glm"].api_key
-    assert "not saved" in handle_config_command(
-        "provider glm api-key bad key", config, paths
-    ).casefold()
+    assert (
+        "not saved"
+        in handle_config_command("provider glm api-key bad key", config, paths).casefold()
+    )
     assert config.providers["glm"].api_key == original_key
     assert "saved" in handle_model_command("moonshot", config, paths).casefold()
     assert config.default_provider == "kimi"
