@@ -6,6 +6,7 @@ on:
 
 jobs:
   quality:
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -23,5 +24,5 @@ jobs:
       - run: ruff format --check .
       - if: runner.os != 'Windows'
         run: mypy src/kairocli
-      - run: pytest
+      - run: pytest -vv
       - run: kairocli --version
