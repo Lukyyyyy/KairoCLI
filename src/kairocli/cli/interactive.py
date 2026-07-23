@@ -1940,7 +1940,7 @@ def _prompt_session(
 ) -> Any:
     try:
         from prompt_toolkit import PromptSession
-        from prompt_toolkit.completion import Completer, Completion
+        from prompt_toolkit.completion import Completer
         from prompt_toolkit.document import Document
         from prompt_toolkit.filters import Condition
         from prompt_toolkit.formatted_text import FormattedText
@@ -1973,29 +1973,30 @@ def _prompt_session(
                 skills=skill_names,
             )
 
+        def mention_candidates(text: str) -> list[str]:
+            word = _completion_word(text)
+            if not word.startswith("@"):
+                return []
+            candidates: list[str] = []
+            if mcp_manager is not None:
+                for value, _display, _description in mcp_manager.resource_mentions():
+                    if value.startswith(word):
+                        candidates.append(value)
+                    if len(candidates) >= 50:
+                        return candidates
+            remaining = 50 - len(candidates)
+            candidates.extend(
+                _local_path_completion_candidates(
+                    paths.workspace,
+                    word,
+                    max_results=remaining,
+                )
+            )
+            return list(dict.fromkeys(candidates))
+
         class KairoCompleter(Completer):
             def get_completions(self, document: Any, complete_event: Any) -> Any:
-                text = document.text_before_cursor
-                if text.startswith("/"):
-                    return
-                word = _completion_word(text)
-                if not word.startswith("@"):
-                    return
-                if mcp_manager is not None:
-                    emitted = 0
-                    for value, display, description in mcp_manager.resource_mentions():
-                        if value.startswith(word):
-                            yield Completion(
-                                value,
-                                start_position=-len(word),
-                                display=display,
-                                display_meta=description,
-                            )
-                            emitted += 1
-                            if emitted >= 50:
-                                break
-                for value in _local_path_completion_candidates(paths.workspace, word):
-                    yield Completion(value, start_position=-len(word))
+                return iter(())
 
         class KairoLexer(Lexer):
             def lex_document(self, document: Any) -> Any:
@@ -2036,29 +2037,34 @@ def _prompt_session(
             )
 
         session: Any = None
-        slash_query = ""
-        slash_selected_index = 0
+        menu_query = ""
+        menu_selected_index = 0
 
-        def slash_menu_state() -> tuple[str, list[str], int]:
-            nonlocal slash_query, slash_selected_index
+        def completion_menu_state() -> tuple[str, str, list[str], int]:
+            nonlocal menu_query, menu_selected_index
             if session is None:
-                return "", [], 0
+                return "", "", [], 0
             text = session.default_buffer.document.text_before_cursor
-            candidates = slash_candidates(text)
-            if text != slash_query:
-                slash_query = text
-                slash_selected_index = 0
-            if candidates:
-                slash_selected_index = min(slash_selected_index, len(candidates) - 1)
+            if text.startswith("/"):
+                kind = "slash"
+                candidates = slash_candidates(text)
             else:
-                slash_selected_index = 0
-            return text, candidates, slash_selected_index
+                kind = "mention"
+                candidates = mention_candidates(text)
+            if text != menu_query:
+                menu_query = text
+                menu_selected_index = 0
+            if candidates:
+                menu_selected_index = min(menu_selected_index, len(candidates) - 1)
+            else:
+                menu_selected_index = 0
+            return kind, text, candidates, menu_selected_index
 
-        def slash_menu_is_visible() -> bool:
-            return bool(slash_menu_state()[1])
+        def completion_menu_is_visible() -> bool:
+            return bool(completion_menu_state()[2])
 
-        def selected_slash_candidate() -> str | None:
-            _, candidates, selected = slash_menu_state()
+        def selected_completion_candidate() -> str | None:
+            _, _, candidates, selected = completion_menu_state()
             return candidates[selected] if candidates else None
 
         bindings = KeyBindings()
@@ -2096,42 +2102,56 @@ def _prompt_session(
                 thought_display.expanded = False
             event.current_buffer.validate_and_handle()
 
-        @bindings.add("down", filter=Condition(slash_menu_is_visible))
-        @bindings.add("c-n", filter=Condition(slash_menu_is_visible))
-        def select_next_slash(event: Any) -> None:
-            nonlocal slash_selected_index
-            _, candidates, selected = slash_menu_state()
-            slash_selected_index = min(selected + 1, len(candidates) - 1)
+        @bindings.add("down", filter=Condition(completion_menu_is_visible))
+        @bindings.add("c-n", filter=Condition(completion_menu_is_visible))
+        def select_next_completion(event: Any) -> None:
+            nonlocal menu_selected_index
+            _, _, candidates, selected = completion_menu_state()
+            menu_selected_index = min(selected + 1, len(candidates) - 1)
             event.app.invalidate()
 
-        @bindings.add("up", filter=Condition(slash_menu_is_visible))
-        @bindings.add("c-p", filter=Condition(slash_menu_is_visible))
-        def select_previous_slash(event: Any) -> None:
-            nonlocal slash_selected_index
-            _, _, selected = slash_menu_state()
-            slash_selected_index = max(0, selected - 1)
+        @bindings.add("up", filter=Condition(completion_menu_is_visible))
+        @bindings.add("c-p", filter=Condition(completion_menu_is_visible))
+        def select_previous_completion(event: Any) -> None:
+            nonlocal menu_selected_index
+            _, _, _, selected = completion_menu_state()
+            menu_selected_index = max(0, selected - 1)
             event.app.invalidate()
 
-        def slash_candidate_can_be_inserted() -> bool:
-            candidate = selected_slash_candidate()
+        def completion_candidate_can_be_inserted() -> bool:
+            candidate = selected_completion_candidate()
             if candidate is None or session is None:
                 return False
-            return bool(candidate != session.default_buffer.document.text_before_cursor)
+            kind, text, _, _ = completion_menu_state()
+            current = text if kind == "slash" else _completion_word(text)
+            return candidate != current
 
-        def insert_selected_slash(event: Any) -> None:
-            candidate = selected_slash_candidate()
-            if candidate is not None:
-                if thought_display is not None:
-                    thought_display.expanded = False
+        def insert_selected_completion(event: Any) -> None:
+            candidate = selected_completion_candidate()
+            if candidate is None:
+                return
+            if thought_display is not None:
+                thought_display.expanded = False
+            kind, _, _, _ = completion_menu_state()
+            if kind == "slash":
                 event.current_buffer.document = Document(candidate, cursor_position=len(candidate))
+                return
+            document = event.current_buffer.document
+            word = _completion_word(document.text_before_cursor)
+            start = document.cursor_position - len(word)
+            value = document.text[:start] + candidate + document.text[document.cursor_position :]
+            event.current_buffer.document = Document(
+                value,
+                cursor_position=start + len(candidate),
+            )
 
-        @bindings.add("tab", filter=Condition(slash_menu_is_visible))
-        def accept_slash_with_tab(event: Any) -> None:
-            insert_selected_slash(event)
+        @bindings.add("tab", filter=Condition(completion_menu_is_visible))
+        def accept_completion_with_tab(event: Any) -> None:
+            insert_selected_completion(event)
 
-        @bindings.add("enter", filter=Condition(slash_candidate_can_be_inserted))
-        def accept_slash_with_enter(event: Any) -> None:
-            insert_selected_slash(event)
+        @bindings.add("enter", filter=Condition(completion_candidate_can_be_inserted))
+        def accept_completion_with_enter(event: Any) -> None:
+            insert_selected_completion(event)
 
         session = PromptSession(
             message=FormattedText(
@@ -2218,34 +2238,39 @@ def _prompt_session(
                 )
             return FormattedText(fragments)
 
-        def slash_menu_height() -> Dimension:
-            return Dimension.exact(min(len(slash_menu_state()[1]), 8))
+        def completion_menu_height() -> Dimension:
+            return Dimension.exact(min(len(completion_menu_state()[2]), 8))
 
-        def render_slash_menu() -> FormattedText:
-            _, candidates, selected = slash_menu_state()
+        def render_completion_menu() -> FormattedText:
+            kind, _, candidates, selected = completion_menu_state()
             start = max(0, min(selected - 7, len(candidates) - 8))
             visible = candidates[start : start + 8]
             command_width = max(16, *(len(value) + 2 for value in visible))
             fragments: list[tuple[str, str]] = []
             for offset, value in enumerate(visible):
-                normalized_value = value.casefold()
-                command = normalized_value.split(" ", 1)[0]
-                description = SLASH_SUBCOMMAND_DESCRIPTIONS.get(
-                    normalized_value,
-                    SLASH_COMMAND_DESCRIPTIONS.get(
-                        normalized_value,
-                        SLASH_COMMAND_DESCRIPTIONS.get(command, ""),
-                    ),
-                )
                 is_current = start + offset == selected
                 command_style = (
                     "class:slash-menu.current" if is_current else "class:slash-menu.command"
                 )
-                description_style = (
-                    "class:slash-menu.current" if is_current else "class:slash-menu.description"
-                )
-                fragments.append((command_style, f"  {value:<{command_width}}"))
-                fragments.append((description_style, description))
+                if kind == "slash":
+                    normalized_value = value.casefold()
+                    command = normalized_value.split(" ", 1)[0]
+                    description = SLASH_SUBCOMMAND_DESCRIPTIONS.get(
+                        normalized_value,
+                        SLASH_COMMAND_DESCRIPTIONS.get(
+                            normalized_value,
+                            SLASH_COMMAND_DESCRIPTIONS.get(command, ""),
+                        ),
+                    )
+                    description_style = (
+                        "class:slash-menu.current"
+                        if is_current
+                        else "class:slash-menu.description"
+                    )
+                    fragments.append((command_style, f"  {value:<{command_width}}"))
+                    fragments.append((description_style, description))
+                else:
+                    fragments.append((command_style, f"  {value}"))
                 if offset + 1 < len(visible):
                     fragments.append(("", "\n"))
             return FormattedText(fragments)
@@ -2273,12 +2298,12 @@ def _prompt_session(
         prompt_container.alternative_content.content.children.append(
             ConditionalContainer(
                 Window(
-                    FormattedTextControl(render_slash_menu),
-                    height=slash_menu_height,
+                    FormattedTextControl(render_completion_menu),
+                    height=completion_menu_height,
                     style="bg:default",
                     dont_extend_height=True,
                 ),
-                filter=Condition(slash_menu_is_visible),
+                filter=Condition(completion_menu_is_visible),
             )
         )
         normal_container.children.append(
@@ -2293,7 +2318,7 @@ def _prompt_session(
                     style="class:bottom-toolbar",
                     dont_extend_height=True,
                 ),
-                filter=Condition(lambda: not slash_menu_is_visible()),
+                filter=Condition(lambda: not completion_menu_is_visible()),
             )
         )
         return session

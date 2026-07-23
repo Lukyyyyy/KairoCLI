@@ -168,6 +168,8 @@ Kairo CLI 默认使用 inline 渲染器。输入 `/help` 查看完整命令索�
 总结 @docs/feature-matrix.md 中仍需推进的能力
 ```
 
+输入 `@` 时会像 `/` 命令一样显示最多 8 行可滚动的纵向路径菜单；路径菜单不显示说明文字，可使用方向键选择，并用 `Tab` 或 `Enter` 补全。
+
 ### Plan 与 Team 模式
 
 交互模式下使用 `/plan` 或 `/team`；脚本中使用 `--mode`：

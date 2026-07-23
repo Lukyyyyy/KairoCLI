@@ -452,6 +452,46 @@ def test_prompt_slash_menu_shows_commands_with_short_descriptions(tmp_path: Path
     assert "connection and channel status" in menu_text
 
 
+async def test_prompt_mention_menu_shows_paths_without_descriptions_and_inserts_in_place(
+    tmp_path: Path,
+) -> None:
+    from prompt_toolkit.completion import CompleteEvent
+    from prompt_toolkit.document import Document
+
+    workspace = tmp_path / "KairoCLI"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("demo", encoding="utf-8")
+    (workspace / "docs").mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    session = _prompt_session(paths, lambda: "idle")
+
+    assert session is not None
+    native_completions = list(
+        session.completer.get_completions(Document("@"), CompleteEvent())
+    )
+    assert native_completions == []
+
+    session.default_buffer.document = Document("@", cursor_position=1)
+    prompt_container = session.app.layout.container.children[0]
+    menu_space = prompt_container.alternative_content.content.children[-1]
+    menu_text = "".join(fragment[1] for fragment in menu_space.content.content.text())
+    assert "@README.md" in menu_text
+    assert "@docs/" in menu_text
+    assert "command reference" not in menu_text
+    assert menu_space.content.height().min == 2
+    assert menu_space.content.height().max == 2
+
+    value = "review @READ after"
+    cursor = len("review @READ")
+    session.default_buffer.document = Document(value, cursor_position=cursor)
+    tab_binding = session.key_bindings.get_bindings_for_keys(("c-i",))[0]
+    tab_binding.handler(SimpleNamespace(current_buffer=session.default_buffer))
+    await asyncio.sleep(0)
+
+    assert session.default_buffer.text == "review @README.md after"
+    assert session.default_buffer.document.cursor_position == len("review @README.md")
+
+
 def test_terminal_background_block_fills_every_terminal_row() -> None:
     assert _terminal_background_block("Session demo", columns=16) == "Session demo    "
     assert _terminal_background_block("first\nsecond", columns=8) == ("first   \nsecond  ")
