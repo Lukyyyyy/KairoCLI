@@ -200,22 +200,16 @@ async def test_session_list_supports_default_filter_and_all_flag(tmp_path: Path)
     agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
     console = RecordingConsole()
 
-    await _handle_session_command(
-        "list", store, current.meta.id, paths, agent, console
-    )
+    await _handle_session_command("list", store, current.meta.id, paths, agent, console)
     assert current.meta.id in console.messages[-1]
     assert other.meta.id not in console.messages[-1]
     assert "/session list --all" in console.messages[-1]
 
-    await _handle_session_command(
-        "list --all", store, current.meta.id, paths, agent, console
-    )
+    await _handle_session_command("list --all", store, current.meta.id, paths, agent, console)
     assert current.meta.id in console.messages[-1]
     assert other.meta.id in console.messages[-1]
 
-    await _handle_session_command(
-        "list --unknown", store, current.meta.id, paths, agent, console
-    )
+    await _handle_session_command("list --unknown", store, current.meta.id, paths, agent, console)
     assert console.messages[-1] == "Usage: /session list [--all]"
 
 
@@ -248,9 +242,7 @@ async def test_session_delete_supports_empty_cleanup_and_multiple_ids(
     agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
     console = RecordingConsole()
 
-    await _handle_session_command(
-        "delete --empty", store, current.meta.id, paths, agent, console
-    )
+    await _handle_session_command("delete --empty", store, current.meta.id, paths, agent, console)
     assert console.messages[-1] == "Deleted 2 empty sessions."
     assert store.load(current.meta.id, workspace) is not None
     assert store.load(first_empty.meta.id, workspace) is None
@@ -580,9 +572,7 @@ async def test_prompt_mention_menu_shows_paths_without_descriptions_and_inserts_
     session = _prompt_session(paths, lambda: "idle")
 
     assert session is not None
-    native_completions = list(
-        session.completer.get_completions(Document("@"), CompleteEvent())
-    )
+    native_completions = list(session.completer.get_completions(Document("@"), CompleteEvent()))
     assert native_completions == []
 
     session.default_buffer.document = Document("@", cursor_position=1)

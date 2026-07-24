@@ -2282,9 +2282,7 @@ def _prompt_session(
                         ),
                     )
                     description_style = (
-                        "class:slash-menu.current"
-                        if is_current
-                        else "class:slash-menu.description"
+                        "class:slash-menu.current" if is_current else "class:slash-menu.description"
                     )
                     fragments.append((command_style, f"  {value:<{command_width}}"))
                     fragments.append((description_style, description))

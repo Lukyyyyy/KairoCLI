@@ -525,8 +525,7 @@ class SessionStore:
                 missing = [session_id for session_id in unique_ids if session_id not in found]
                 if missing:
                     raise ValueError(
-                        "Sessions were not found in the current workspace: "
-                        + ", ".join(missing)
+                        "Sessions were not found in the current workspace: " + ", ".join(missing)
                     )
                 cursor = connection.execute(
                     f"DELETE FROM sessions WHERE workspace = ? AND id IN ({placeholders})",
@@ -544,14 +543,12 @@ class SessionStore:
             with self._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 rows = connection.execute(
-                    "SELECT id FROM sessions WHERE workspace = ? "
-                    "AND message_count = 0 AND id != ?",
+                    "SELECT id FROM sessions WHERE workspace = ? AND message_count = 0 AND id != ?",
                     (expected_workspace, exclude_session_id),
                 ).fetchall()
                 deleted_ids = tuple(str(row["id"]) for row in rows)
                 cursor = connection.execute(
-                    "DELETE FROM sessions WHERE workspace = ? "
-                    "AND message_count = 0 AND id != ?",
+                    "DELETE FROM sessions WHERE workspace = ? AND message_count = 0 AND id != ?",
                     (expected_workspace, exclude_session_id),
                 )
             self._forget_deleted_sessions(deleted_ids, expected_workspace)
@@ -569,9 +566,7 @@ class SessionStore:
             self._forget_deleted_sessions((session_id,), expected_workspace)
         return cursor.rowcount == 1
 
-    def _forget_deleted_sessions(
-        self, session_ids: Sequence[str], expected_workspace: str
-    ) -> None:
+    def _forget_deleted_sessions(self, session_ids: Sequence[str], expected_workspace: str) -> None:
         for session_id in session_ids:
             self._message_revisions.pop((session_id, expected_workspace), None)
             self._committed_save_sequences.pop((session_id, expected_workspace), None)

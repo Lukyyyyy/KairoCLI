@@ -602,9 +602,7 @@ def run_tui(
                     log.write("Cannot delete the active session; start a new session first.")
                     return
                 try:
-                    deleted = await asyncio.to_thread(
-                        session_store.delete_many, targets, workspace
-                    )
+                    deleted = await asyncio.to_thread(session_store.delete_many, targets, workspace)
                 except ValueError as exc:
                     log.write(_safe_tui_error(exc))
                 else:

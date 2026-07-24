@@ -23,14 +23,10 @@ def format_session_list(
         return "No saved sessions."
 
     visible_candidates = [
-        item
-        for item in sessions
-        if show_all or item.message_count > 0 or item.id == current_id
+        item for item in sessions if show_all or item.message_count > 0 or item.id == current_id
     ]
     visible = visible_candidates[:DEFAULT_SESSION_LIST_LIMIT]
-    hidden_empty = sum(
-        item.message_count == 0 and item.id != current_id for item in sessions
-    )
+    hidden_empty = sum(item.message_count == 0 and item.id != current_id for item in sessions)
 
     if not visible:
         lines = ["No non-empty saved sessions."]
@@ -60,9 +56,7 @@ def format_session_list(
         if lines and lines[-1]:
             lines.append("")
         noun = "session" if hidden_empty == 1 else "sessions"
-        lines.append(
-            f"{hidden_empty} empty {noun} hidden · /session list --all"
-        )
+        lines.append(f"{hidden_empty} empty {noun} hidden · /session list --all")
     return "\n".join(lines)
 
 
