@@ -21,6 +21,26 @@ from kairocli.sessions import (
 )
 
 
+def test_session_title_removes_injected_file_and_resource_content() -> None:
+    messages = [
+        Message(
+            "user",
+            "@&lt;.env.example&gt;\n"
+            '<file path=".env.example">\nSECRET=value\n</file>\n'
+            "请解释配置\n"
+            '<resource server="docs" uri="guide://setup" mimeType="text/plain">\n'
+            "private resource content\n"
+            "</resource>",
+        )
+    ]
+
+    assert sessions_module._session_title(messages) == (
+        "@<.env.example> 请解释配置 @docs:guide://setup"
+    )
+    assert "SECRET" not in sessions_module._session_title(messages)
+    assert "private resource content" not in sessions_module._session_title(messages)
+
+
 def test_session_export_is_atomic_private_and_bounded(tmp_path: Path) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
     target = write_session_export(paths, "# Export\n\nprivate content\n")
@@ -206,6 +226,56 @@ def test_sessions_are_workspace_scoped_listed_and_deleted(tmp_path: Path) -> Non
     assert store.delete(first.meta.id, first_workspace) is True
     assert store.load(first.meta.id, first_workspace) is None
     assert store.load(second.meta.id, second_workspace) is not None
+
+
+def test_session_batch_delete_is_atomic_and_workspace_scoped(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    other_workspace = tmp_path / "other"
+    workspace.mkdir()
+    other_workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions.db")
+    first = store.create(workspace, "glm", "model")
+    second = store.create(workspace, "glm", "model")
+    other = store.create(other_workspace, "glm", "model")
+
+    with pytest.raises(ValueError, match="not found in the current workspace"):
+        store.delete_many(
+            [first.meta.id, "session_ffffffffffff"],
+            workspace,
+        )
+    assert store.load(first.meta.id, workspace) is not None
+
+    assert store.delete_many([first.meta.id, second.meta.id], workspace) == 2
+    assert store.load(first.meta.id, workspace) is None
+    assert store.load(second.meta.id, workspace) is None
+    assert store.load(other.meta.id, other_workspace) is not None
+
+
+def test_delete_empty_sessions_excludes_active_and_nonempty_sessions(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    other_workspace = tmp_path / "other"
+    workspace.mkdir()
+    other_workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions.db")
+    active = store.create(workspace, "glm", "model")
+    empty = store.create(workspace, "glm", "model")
+    nonempty = store.create(workspace, "glm", "model")
+    other = store.create(other_workspace, "glm", "model")
+    store.save(
+        nonempty.meta.id,
+        workspace,
+        "glm",
+        "model",
+        [Message("user", "keep this session")],
+    )
+
+    assert store.delete_empty(workspace, exclude_session_id=active.meta.id) == 1
+    assert store.load(active.meta.id, workspace) is not None
+    assert store.load(empty.meta.id, workspace) is None
+    assert store.load(nonempty.meta.id, workspace) is not None
+    assert store.load(other.meta.id, other_workspace) is not None
 
 
 def test_session_save_detects_stale_cross_process_revision(tmp_path: Path) -> None:

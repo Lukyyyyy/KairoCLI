@@ -217,7 +217,18 @@ kairocli --resume session_xxxxxxxxxxxx
 kairocli -p "记录本次检查结果" --save-session
 ```
 
-`--continue` 恢复当前工作区最近的非空会话；`--resume` 按 ID 恢复。交互式 CLI 可使用 `/session list` 查看会话。
+`--continue` 恢复当前工作区最近的非空会话；`--resume` 按 ID 恢复。交互式 CLI
+可使用 `/session list` 查看按最近更新时间排序的会话，当前会话以 `●` 标记。列表默认
+隐藏非当前的空会话；使用 `/session list --all` 查看全部会话。
+
+会话删除始终限制在当前工作区，且不能删除当前活动会话：
+
+```text
+/session delete --empty
+/session delete session_xxxxxxxxxxxx session_yyyyyyyyyyyy
+```
+
+`--empty` 删除全部非当前空会话；指定多个 ID 时会先校验全部会话，再执行原子批量删除。
 
 ### Runtime API
 

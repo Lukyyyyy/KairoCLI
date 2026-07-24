@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+import html
 import json
 import os
 import re
@@ -28,6 +29,16 @@ MAX_SESSION_CONTENT_PARTS = 100
 MAX_SESSION_TOOL_CALLS = 100
 MAX_SESSION_TOOL_ARGUMENT_BYTES = 1024 * 1024
 MAX_SESSION_COUNTER = 2**63 - 1
+_EXPANDED_RESOURCE_RE = re.compile(
+    r"<resource\b(?P<attributes>[^>]*?)(?:/\s*>|>.*?</resource\s*>)",
+    re.IGNORECASE | re.DOTALL,
+)
+_EXPANDED_CONTEXT_RE = re.compile(
+    r"<(?P<tag>file|directory|local-context|resource_error)\b[^>]*?"
+    r"(?:/\s*>|>.*?</(?P=tag)\s*>)",
+    re.IGNORECASE | re.DOTALL,
+)
+_RESOURCE_ATTRIBUTE_RE = re.compile(r'\b(server|uri)="([^"]*)"')
 MAX_SESSION_JSON_DEPTH = 32
 MAX_SESSION_JSON_NODES = 200_000
 MAX_TODOS = 50
@@ -490,6 +501,62 @@ class SessionStore:
         with self._state_lock:
             return self._delete_locked(session_id, workspace)
 
+    def delete_many(self, session_ids: Sequence[str], workspace: Path) -> int:
+        """Atomically delete existing sessions from one workspace."""
+
+        unique_ids = tuple(dict.fromkeys(session_ids))
+        if not unique_ids:
+            return 0
+        if len(unique_ids) > 100:
+            raise ValueError("Cannot delete more than 100 sessions at once")
+        for session_id in unique_ids:
+            _validate_session_id(session_id)
+
+        expected_workspace = str(workspace.resolve())
+        placeholders = ",".join("?" for _ in unique_ids)
+        with self._state_lock:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    f"SELECT id FROM sessions WHERE workspace = ? AND id IN ({placeholders})",
+                    (expected_workspace, *unique_ids),
+                ).fetchall()
+                found = {str(row["id"]) for row in rows}
+                missing = [session_id for session_id in unique_ids if session_id not in found]
+                if missing:
+                    raise ValueError(
+                        "Sessions were not found in the current workspace: "
+                        + ", ".join(missing)
+                    )
+                cursor = connection.execute(
+                    f"DELETE FROM sessions WHERE workspace = ? AND id IN ({placeholders})",
+                    (expected_workspace, *unique_ids),
+                )
+            self._forget_deleted_sessions(unique_ids, expected_workspace)
+        return cursor.rowcount
+
+    def delete_empty(self, workspace: Path, *, exclude_session_id: str) -> int:
+        """Atomically delete empty sessions except the active session."""
+
+        _validate_session_id(exclude_session_id)
+        expected_workspace = str(workspace.resolve())
+        with self._state_lock:
+            with self._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                rows = connection.execute(
+                    "SELECT id FROM sessions WHERE workspace = ? "
+                    "AND message_count = 0 AND id != ?",
+                    (expected_workspace, exclude_session_id),
+                ).fetchall()
+                deleted_ids = tuple(str(row["id"]) for row in rows)
+                cursor = connection.execute(
+                    "DELETE FROM sessions WHERE workspace = ? "
+                    "AND message_count = 0 AND id != ?",
+                    (expected_workspace, exclude_session_id),
+                )
+            self._forget_deleted_sessions(deleted_ids, expected_workspace)
+        return cursor.rowcount
+
     def _delete_locked(self, session_id: str, workspace: Path) -> bool:
         _validate_session_id(session_id)
         expected_workspace = str(workspace.resolve())
@@ -499,9 +566,15 @@ class SessionStore:
                 (session_id, expected_workspace),
             )
         if cursor.rowcount == 1:
+            self._forget_deleted_sessions((session_id,), expected_workspace)
+        return cursor.rowcount == 1
+
+    def _forget_deleted_sessions(
+        self, session_ids: Sequence[str], expected_workspace: str
+    ) -> None:
+        for session_id in session_ids:
             self._message_revisions.pop((session_id, expected_workspace), None)
             self._committed_save_sequences.pop((session_id, expected_workspace), None)
-        return cursor.rowcount == 1
 
     def list_todos(self, session_id: str, workspace: Path) -> builtins.list[TodoItem]:
         _validate_session_id(session_id)
@@ -847,10 +920,27 @@ def _session_title(messages: list[Message]) -> str:
                 if part.get("type") == "text"
                 and not str(part.get("text", "")).startswith("[Omitted ")
             )
-        normalized = re.sub(r"\s+", " ", value).strip()
+        normalized = _displayable_title_source(value)
         if normalized:
             return normalized[:80]
     return "New session"
+
+
+def _displayable_title_source(value: str) -> str:
+    """Remove injected context while retaining the user's visible mention."""
+
+    def resource_mention(match: re.Match[str]) -> str:
+        attributes = {
+            name.casefold(): html.unescape(content)
+            for name, content in _RESOURCE_ATTRIBUTE_RE.findall(match.group("attributes"))
+        }
+        server = attributes.get("server")
+        uri = attributes.get("uri")
+        return f"@{server}:{uri}" if server and uri else ""
+
+    without_resources = _EXPANDED_RESOURCE_RE.sub(resource_mention, value)
+    without_context = _EXPANDED_CONTEXT_RE.sub("", without_resources)
+    return re.sub(r"\s+", " ", html.unescape(without_context)).strip()
 
 
 def _meta(row: sqlite3.Row, message_count: int) -> SessionMeta:

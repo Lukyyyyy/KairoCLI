@@ -190,6 +190,120 @@ async def test_session_command_switches_without_losing_histories(tmp_path: Path)
     assert [message.content for message in second.messages] == ["second conversation"]
 
 
+async def test_session_list_supports_default_filter_and_all_flag(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    store = SessionStore(paths.session_database)
+    current = store.create(workspace, "glm", "session-model")
+    other = store.create(workspace, "glm", "session-model")
+    agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
+    console = RecordingConsole()
+
+    await _handle_session_command(
+        "list", store, current.meta.id, paths, agent, console
+    )
+    assert current.meta.id in console.messages[-1]
+    assert other.meta.id not in console.messages[-1]
+    assert "/session list --all" in console.messages[-1]
+
+    await _handle_session_command(
+        "list --all", store, current.meta.id, paths, agent, console
+    )
+    assert current.meta.id in console.messages[-1]
+    assert other.meta.id in console.messages[-1]
+
+    await _handle_session_command(
+        "list --unknown", store, current.meta.id, paths, agent, console
+    )
+    assert console.messages[-1] == "Usage: /session list [--all]"
+
+
+async def test_session_delete_supports_empty_cleanup_and_multiple_ids(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    store = SessionStore(paths.session_database)
+    current = store.create(workspace, "glm", "session-model")
+    first_empty = store.create(workspace, "glm", "session-model")
+    second_empty = store.create(workspace, "glm", "session-model")
+    first_saved = store.create(workspace, "glm", "session-model")
+    second_saved = store.create(workspace, "glm", "session-model")
+    store.save(
+        first_saved.meta.id,
+        workspace,
+        "glm",
+        "session-model",
+        [Message("user", "first")],
+    )
+    store.save(
+        second_saved.meta.id,
+        workspace,
+        "glm",
+        "session-model",
+        [Message("user", "second")],
+    )
+    agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
+    console = RecordingConsole()
+
+    await _handle_session_command(
+        "delete --empty", store, current.meta.id, paths, agent, console
+    )
+    assert console.messages[-1] == "Deleted 2 empty sessions."
+    assert store.load(current.meta.id, workspace) is not None
+    assert store.load(first_empty.meta.id, workspace) is None
+    assert store.load(second_empty.meta.id, workspace) is None
+
+    await _handle_session_command(
+        f"delete {first_saved.meta.id} {second_saved.meta.id}",
+        store,
+        current.meta.id,
+        paths,
+        agent,
+        console,
+    )
+    assert console.messages[-1] == "Deleted 2 sessions."
+    assert store.load(first_saved.meta.id, workspace) is None
+    assert store.load(second_saved.meta.id, workspace) is None
+
+
+async def test_session_batch_delete_rejects_active_and_invalid_ids_without_deleting(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    store = SessionStore(paths.session_database)
+    current = store.create(workspace, "glm", "session-model")
+    saved = store.create(workspace, "glm", "session-model")
+    agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
+    console = RecordingConsole()
+
+    await _handle_session_command(
+        f"delete {saved.meta.id} {current.meta.id}",
+        store,
+        current.meta.id,
+        paths,
+        agent,
+        console,
+    )
+    assert console.messages[-1].startswith("Cannot delete the active session")
+    assert store.load(saved.meta.id, workspace) is not None
+
+    await _handle_session_command(
+        f"delete {saved.meta.id} invalid",
+        store,
+        current.meta.id,
+        paths,
+        agent,
+        console,
+    )
+    assert console.messages[-1] == "Invalid session ID"
+    assert store.load(saved.meta.id, workspace) is not None
+
+
 def test_resume_flags_are_mutually_exclusive() -> None:
     parser = build_parser()
     assert parser.parse_args(["--continue"]).continue_session is True

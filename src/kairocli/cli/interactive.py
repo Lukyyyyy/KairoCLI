@@ -46,6 +46,7 @@ from ..paths import KairoPaths
 from ..plan import PlanReviewDecisionType, parse_plan_review_input
 from ..policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from ..prompts import initialize_project_memory
+from ..session_display import format_session_list
 from ..sessions import SessionStore, apply_session, write_session_export
 from ..skills import SkillRegistry, handle_skill_command
 from ..snapshot import SnapshotError, SnapshotService, turn_snapshot_messages
@@ -1244,15 +1245,19 @@ async def _handle_session_command(
                 )
         return current_id
     if operation == "list":
-        sessions = await asyncio.to_thread(store.list, paths.workspace, 20)
-        if not sessions:
-            console.print("No saved sessions.")
-        for item in sessions:
-            marker = "*" if item.id == current_id else " "
-            console.print(
-                f"{marker} {item.id} · {item.message_count} messages · "
-                f"{item.updated_at} · {item.title}"
+        list_argument = argument.strip()
+        if list_argument not in {"", "--all"}:
+            console.print("Usage: /session list [--all]")
+            return current_id
+        sessions = await asyncio.to_thread(store.list, paths.workspace, 100)
+        console.print(
+            format_session_list(
+                sessions,
+                current_id,
+                show_all=list_argument == "--all",
+                width=_terminal_columns(),
             )
+        )
         return current_id
     if operation == "new":
         await _save_session(store, current_id, paths, agent, console)
@@ -1288,20 +1293,34 @@ async def _handle_session_command(
             )
         return target_id
     if operation == "delete":
-        target_id = argument.strip()
-        if not target_id:
-            console.print("Usage: /session delete <SESSION_ID>")
-        elif target_id == current_id:
+        targets = argument.split()
+        if not targets:
+            console.print("Usage: /session delete <SESSION_ID...|--empty>")
+        elif targets == ["--empty"]:
+            deleted = await asyncio.to_thread(
+                store.delete_empty,
+                paths.workspace,
+                exclude_session_id=current_id,
+            )
+            if deleted:
+                noun = "session" if deleted == 1 else "sessions"
+                console.print(f"Deleted {deleted} empty {noun}.")
+            else:
+                console.print("No empty sessions to delete.")
+        elif any(target.startswith("--") for target in targets):
+            console.print("Usage: /session delete <SESSION_ID...|--empty>")
+        elif current_id in targets:
             console.print("Cannot delete the active session; start a new session first.")
         else:
             try:
-                deleted = await asyncio.to_thread(store.delete, target_id, paths.workspace)
+                deleted = await asyncio.to_thread(store.delete_many, targets, paths.workspace)
             except ValueError as exc:
                 console.print(_safe_cli_error(exc))
             else:
-                console.print("Session deleted." if deleted else "Session not found.")
+                noun = "session" if deleted == 1 else "sessions"
+                console.print(f"Deleted {deleted} {noun}.")
         return current_id
-    console.print("Usage: /session [status|save|list|new|resume ID|delete ID]")
+    console.print("Usage: /session [status|save|list|new|resume ID|delete ID...]")
     return current_id
 
 

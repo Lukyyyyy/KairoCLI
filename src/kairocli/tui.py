@@ -24,6 +24,7 @@ from .memory import handle_memory_command, handle_save_command
 from .plan import ExecutionPlan
 from .policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from .prompts import initialize_project_memory
+from .session_display import format_session_list
 from .sessions import SessionStore, apply_session, write_session_export
 from .skills import SkillRegistry, handle_skill_command
 from .snapshot import SnapshotError, turn_snapshot_messages
@@ -537,9 +538,19 @@ def run_tui(
                     )
                 return
             if operation == "list":
-                for item in await asyncio.to_thread(session_store.list, workspace, 20):
-                    marker = "*" if item.id == self.session_id else " "
-                    log.write(f"{marker} {item.id} · {item.message_count} · {item.title}")
+                list_argument = argument.strip()
+                if list_argument not in {"", "--all"}:
+                    log.write("Usage: /session list [--all]")
+                    return
+                sessions = await asyncio.to_thread(session_store.list, workspace, 100)
+                log.write(
+                    format_session_list(
+                        sessions,
+                        self.session_id,
+                        show_all=list_argument == "--all",
+                        width=88,
+                    )
+                )
                 return
             if operation == "new":
                 await self.save_session()
@@ -567,7 +578,40 @@ def run_tui(
                     todo_controller.attach(state.meta.id)
                 log.write(f"Resumed {state.meta.id} with {len(state.messages)} messages.")
                 return
-            log.write("Usage: /session [status|save|list|new|resume ID]")
+            if operation == "delete":
+                targets = argument.split()
+                if not targets:
+                    log.write("Usage: /session delete <SESSION_ID...|--empty>")
+                    return
+                if targets == ["--empty"]:
+                    deleted = await asyncio.to_thread(
+                        session_store.delete_empty,
+                        workspace,
+                        exclude_session_id=self.session_id,
+                    )
+                    if deleted:
+                        noun = "session" if deleted == 1 else "sessions"
+                        log.write(f"Deleted {deleted} empty {noun}.")
+                    else:
+                        log.write("No empty sessions to delete.")
+                    return
+                if any(target.startswith("--") for target in targets):
+                    log.write("Usage: /session delete <SESSION_ID...|--empty>")
+                    return
+                if self.session_id in targets:
+                    log.write("Cannot delete the active session; start a new session first.")
+                    return
+                try:
+                    deleted = await asyncio.to_thread(
+                        session_store.delete_many, targets, workspace
+                    )
+                except ValueError as exc:
+                    log.write(_safe_tui_error(exc))
+                else:
+                    noun = "session" if deleted == 1 else "sessions"
+                    log.write(f"Deleted {deleted} {noun}.")
+                return
+            log.write("Usage: /session [status|save|list|new|resume ID|delete ID...]")
 
         async def approve_tool(self, tool_name: str, arguments: dict[str, Any]) -> ApprovalResult:
             summary = json.dumps(arguments, ensure_ascii=False, default=str)
