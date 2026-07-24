@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     timeout-minutes: 10
@@ -24,5 +31,6 @@ jobs:
       - run: ruff format --check .
       - if: runner.os != 'Windows'
         run: mypy src/kairocli
-      - run: pytest -vv
+      - name: Run tests
+        run: python -m pytest --tb=short
       - run: kairocli --version
