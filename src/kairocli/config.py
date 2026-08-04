@@ -233,7 +233,7 @@ class AppConfig:
             raw = parsed
             if os.name == "posix":
                 paths.config_file.chmod(0o600)
-        dotenv = _read_dotenv(paths.home / ".env") | _read_dotenv(paths.workspace / ".env")
+        dotenv = _read_dotenv(paths.user_dotenv) | _read_dotenv(paths.workspace / ".env")
         env = dotenv | dict(os.environ)
         providers: dict[str, ProviderConfig] = {}
         persisted_values: dict[str, Any] = {}

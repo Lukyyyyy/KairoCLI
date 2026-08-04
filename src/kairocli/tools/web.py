@@ -560,7 +560,7 @@ def _load_web_environment(workspace: Path) -> dict[str, str]:
         "SERPAPI_KEY",
     }
     values: dict[str, str] = {}
-    for path in (Path.home() / ".env", workspace / ".env"):
+    for path in (Path.home() / ".kairocli" / ".env", workspace / ".env"):
         if path.is_symlink() or not path.is_file():
             continue
         try:

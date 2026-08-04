@@ -118,7 +118,16 @@ KAIROCLI_PROVIDER=glm
 | Agnes AI | `AGNES_API_KEY` | `agnes-2.0-flash` |
 
 > [!CAUTION]
-> `.env` 和真实密钥不得提交到版本库。Kairo CLI 会读取用户目录和当前项目中的 `.env`，环境变量优先于持久配置。
+> `.env` 和真实密钥不得提交到版本库。Kairo CLI 会读取全局的
+> `~/.kairocli/.env` 和当前项目的 `.env`，项目配置覆盖全局配置，进程环境变量优先于两者。
+
+若希望所有工作区共享同一套 Provider 配置，可创建 KairoCLI 专用的全局配置：
+
+```bash
+mkdir -p ~/.kairocli
+cp .env.example ~/.kairocli/.env
+chmod 600 ~/.kairocli/.env
+```
 
 ### 3. 启动
 
@@ -266,7 +275,7 @@ kairocli wechat daemon stop
 
 1. 内置默认值；
 2. `~/.kairocli/config.json`；
-3. `~/.env`；
+3. `~/.kairocli/.env`；
 4. 当前项目的 `.env`；
 5. 进程环境变量；
 6. CLI 参数。

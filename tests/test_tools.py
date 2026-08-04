@@ -1063,10 +1063,10 @@ async def test_python_grep_fallback_bounds_files_that_grow_after_stat(
         assert mode == "rb"
         return GrowingReader(b"needle!!!")
 
+    registry = ToolRegistry(tmp_path)
     monkeypatch.setattr(tools_module, "MAX_GREP_FILE_BYTES", 8)
     monkeypatch.setattr(tools_module.shutil, "which", lambda _name: None)
     monkeypatch.setattr(Path, "open", growing_open)
-    registry = ToolRegistry(tmp_path)
 
     result = json.loads(await registry.execute("grep_code", {"pattern": "needle"}))
 

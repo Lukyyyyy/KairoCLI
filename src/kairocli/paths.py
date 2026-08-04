@@ -29,6 +29,10 @@ class KairoPaths:
         return self.home / ".kairocli"
 
     @property
+    def user_dotenv(self) -> Path:
+        return self.user_dir / ".env"
+
+    @property
     def project_dir(self) -> Path:
         return self.workspace / PROJECT_DIR_NAME
 

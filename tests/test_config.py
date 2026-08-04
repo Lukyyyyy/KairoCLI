@@ -316,14 +316,14 @@ def test_failed_atomic_replace_preserves_previous_config(
     assert not list(paths.config_file.parent.glob(".config-*.tmp"))
 
 
-def test_workspace_dotenv_precedes_home_and_environment_secrets_are_not_copied(
+def test_workspace_dotenv_precedes_user_dotenv_and_environment_secrets_are_not_copied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
     paths.workspace.mkdir(parents=True)
-    paths.home.mkdir(parents=True)
-    (paths.home / ".env").write_text(
-        "GLM_MODEL=home-model\nGLM_API_KEY=home-secret\n", encoding="utf-8"
+    paths.user_dir.mkdir(parents=True)
+    paths.user_dotenv.write_text(
+        "GLM_MODEL=user-model\nGLM_API_KEY=user-secret\n", encoding="utf-8"
     )
     (paths.workspace / ".env").write_text(
         "export GLM_MODEL=workspace-model\nGLM_API_KEY=workspace-secret\n",

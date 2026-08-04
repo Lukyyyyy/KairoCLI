@@ -27,9 +27,9 @@ def test_web_environment_ignores_symlinked_dotenv_and_preserves_precedence(
 ) -> None:
     home = tmp_path / "home"
     workspace = tmp_path / "work"
-    home.mkdir()
+    (home / ".kairocli").mkdir(parents=True)
     workspace.mkdir()
-    (home / ".env").write_text("GLM_API_KEY=user\n", encoding="utf-8")
+    (home / ".kairocli" / ".env").write_text("GLM_API_KEY=user\n", encoding="utf-8")
     outside = tmp_path / "outside.env"
     outside.write_text("SERPAPI_API_KEY=external\n", encoding="utf-8")
     (workspace / ".env").symlink_to(outside)

@@ -281,7 +281,7 @@ def _mcp_state_file_lock(paths: KairoPaths) -> Iterator[None]:
 
 
 def _mcp_variables(paths: KairoPaths) -> dict[str, str]:
-    variables = _read_dotenv(paths.home / ".env") | _read_dotenv(paths.workspace / ".env")
+    variables = _read_dotenv(paths.user_dotenv) | _read_dotenv(paths.workspace / ".env")
     variables.update(os.environ)
     variables["HOME"] = str(paths.home)
     variables["PROJECT_DIR"] = str(paths.workspace)
