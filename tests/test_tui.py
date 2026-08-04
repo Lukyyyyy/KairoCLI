@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 from textual.app import App
-from textual.widgets import Button, DirectoryTree, Input, RichLog
+from textual.events import Paste
+from textual.widgets import Button, DirectoryTree, Input, RichLog, TextArea
 
 import kairocli.tui as tui_module
 from kairocli.agent import Agent
@@ -242,6 +243,50 @@ class UnsafeDisplayClient(LlmClient):
         return LlmResponse(content="[red]literal[/red]\x1b]52;c;clipboard-secret\x07")
 
 
+async def test_tui_composer_preserves_shift_enter_and_pasted_newlines(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    received: list[str] = []
+
+    class RecordingClient(LlmClient):
+        provider = "test"
+        model = "recording"
+
+        async def complete(
+            self, messages: list[Message], tools: list[dict[str, Any]] | None = None
+        ) -> LlmResponse:
+            received.append(str(messages[-1].content))
+            return LlmResponse(content="done")
+
+    agent = Agent(RecordingClient(), ToolRegistry(tmp_path), "system")
+    captured: list[App[Any]] = []
+    monkeypatch.setattr(App, "run", lambda self: captured.append(self))
+    run_tui(agent)
+
+    async with captured[0].run_test() as pilot:
+        composer = captured[0].query_one(TextArea)
+        composer.focus()
+        composer.text = "first"
+        composer.cursor_location = (0, 5)
+        await pilot.press("shift+enter")
+        composer.insert("second")
+        assert composer.text == "first\nsecond"
+
+        composer.text = ""
+        composer.cursor_location = (0, 0)
+        captured[0].post_message(Paste("pasted first\npasted second"))
+        await pilot.pause()
+        assert composer.text == "pasted first\npasted second"
+
+        await pilot.press("enter")
+        for _ in range(50):
+            if received:
+                break
+            await asyncio.sleep(0.01)
+        assert received == ["pasted first\npasted second"]
+        assert composer.text == ""
+
+
 async def test_tui_treats_model_markup_as_text_and_removes_terminal_controls(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
@@ -251,7 +296,7 @@ async def test_tui_treats_model_markup_as_text_and_removes_terminal_controls(
     run_tui(agent)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "render safely"
         await pilot.press("enter")
@@ -277,7 +322,7 @@ async def test_tui_busy_input_does_not_implicitly_cancel_active_turn(
     app = captured[0]
 
     async with app.run_test() as pilot:
-        input_widget = app.query_one(Input)
+        input_widget = app.query_one(TextArea)
         input_widget.focus()
         await pilot.pause()
         input_widget.value = "first task"
@@ -345,7 +390,7 @@ async def test_tui_starts_mcp_and_expands_local_and_resource_mentions(
 
     async with captured[0].run_test() as pilot:
         await asyncio.wait_for(manager.started.wait(), 1)
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "read @note.txt and @demo:demo://x"
         await pilot.press("enter")
@@ -445,7 +490,7 @@ async def test_tui_task_command_runs_and_persists_background_work(
     run_tui(main_agent, task_store=store, task_manager=manager)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "/task add background work"
         await pilot.press("enter")
@@ -471,7 +516,7 @@ async def test_tui_index_and_search_are_management_commands(
     run_tui(agent)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "/index"
         await pilot.press("enter")
@@ -525,7 +570,7 @@ async def test_tui_mcp_management_uses_shared_commands(tmp_path: Path, monkeypat
     run_tui(agent, mcp_manager=manager)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "/mcp resources demo"
         await pilot.press("enter")
@@ -546,7 +591,7 @@ async def test_tui_plan_requires_explicit_review(tmp_path: Path, monkeypatch: An
     run_tui(agent)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "/plan inspect behavior"
         await pilot.press("enter")
@@ -573,7 +618,7 @@ async def test_tui_team_command_reaches_orchestrator(tmp_path: Path, monkeypatch
     run_tui(agent)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         input_widget.value = "/team inspect behavior"
         await pilot.press("enter")
@@ -612,7 +657,7 @@ async def test_tui_memory_skill_and_unknown_slash_stay_local(
     run_tui(agent, workspace=paths.workspace, skill_registry=skills)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         for command in (
             "/init",
@@ -654,7 +699,7 @@ async def test_tui_model_and_config_are_local_and_secret_safe(
     run_tui(agent, workspace=paths.workspace, app_config=config)
 
     async with captured[0].run_test() as pilot:
-        input_widget = captured[0].query_one(Input)
+        input_widget = captured[0].query_one(TextArea)
         input_widget.focus()
         for command in (
             "/config provider glm api-key top-secret-value",

@@ -1964,7 +1964,9 @@ def _prompt_session(
         from prompt_toolkit.filters import Condition
         from prompt_toolkit.formatted_text import FormattedText
         from prompt_toolkit.history import FileHistory, InMemoryHistory
+        from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
         from prompt_toolkit.layout import Dimension
         from prompt_toolkit.layout.containers import (
             ConditionalContainer,
@@ -1977,6 +1979,12 @@ def _prompt_session(
         from prompt_toolkit.styles import Style
 
         commands = list(SLASH_COMMAND_DESCRIPTIONS)
+
+        # prompt_toolkit currently collapses xterm's modified Shift+Enter into
+        # a plain Enter, and does not recognize the equivalent CSI-u sequence.
+        # Preserve both as Control-J, which the composer binds to a newline.
+        ANSI_SEQUENCES["\x1b[27;2;13~"] = Keys.ControlJ
+        ANSI_SEQUENCES["\x1b[13;2u"] = Keys.ControlJ
 
         def slash_candidates(text: str) -> list[str]:
             if not text.startswith("/"):
@@ -2082,6 +2090,18 @@ def _prompt_session(
         def completion_menu_is_visible() -> bool:
             return bool(completion_menu_state()[2])
 
+        def multiline_input_navigation() -> bool:
+            return bool(
+                session is not None
+                and session.default_buffer.document.line_count > 1
+                and not completion_menu_is_visible()
+            )
+
+        def composer_overflows() -> bool:
+            return bool(
+                session is not None and session.default_buffer.document.line_count > 7
+            )
+
         def selected_completion_candidate() -> str | None:
             _, _, candidates, selected = completion_menu_state()
             return candidates[selected] if candidates else None
@@ -2097,6 +2117,11 @@ def _prompt_session(
         @bindings.add("enter", filter=Condition(input_is_blank), eager=True)
         def ignore_blank_submission(_event: Any) -> None:
             return None
+
+        @bindings.add("c-j")
+        @bindings.add("escape", "enter")
+        def insert_newline(event: Any) -> None:
+            event.current_buffer.insert_text("\n")
 
         @bindings.add("c-o")
         def toggle_thought(event: Any) -> None:
@@ -2136,6 +2161,22 @@ def _prompt_session(
             _, _, _, selected = completion_menu_state()
             menu_selected_index = max(0, selected - 1)
             event.app.invalidate()
+
+        @bindings.add("up", filter=Condition(multiline_input_navigation))
+        def move_cursor_up_in_composer(event: Any) -> None:
+            event.current_buffer.cursor_up()
+
+        @bindings.add("down", filter=Condition(multiline_input_navigation))
+        def move_cursor_down_in_composer(event: Any) -> None:
+            event.current_buffer.cursor_down()
+
+        @bindings.add("pageup", filter=Condition(multiline_input_navigation))
+        def move_cursor_page_up_in_composer(event: Any) -> None:
+            event.current_buffer.cursor_up(count=7)
+
+        @bindings.add("pagedown", filter=Condition(multiline_input_navigation))
+        def move_cursor_page_down_in_composer(event: Any) -> None:
+            event.current_buffer.cursor_down(count=7)
 
         def completion_candidate_can_be_inserted() -> bool:
             candidate = selected_completion_candidate()
@@ -2183,9 +2224,11 @@ def _prompt_session(
             completer=KairoCompleter(),
             key_bindings=bindings,
             lexer=KairoLexer(),
+            prompt_continuation=FormattedText([("class:composer.input", "  ")]),
             complete_while_typing=True,
             reserve_space_for_menu=0,
             output=prompt_output,
+            mouse_support=Condition(composer_overflows),
             color_depth=ColorDepth.TRUE_COLOR,
             style=Style.from_dict(
                 {
@@ -2292,7 +2335,11 @@ def _prompt_session(
                     fragments.append(("", "\n"))
             return FormattedText(fragments)
 
-        session.app.layout.current_window.height = Dimension.exact(2)
+        def composer_height() -> Dimension:
+            line_count = len(session.default_buffer.document.lines)
+            return Dimension.exact(min(max(line_count + 1, 2), 8))
+
+        session.app.layout.current_window.height = composer_height
         session.app.layout.current_window.style = "class:composer.input"
         prompt_container.alternative_content.content.children.insert(
             0,
@@ -2346,7 +2393,19 @@ def _prompt_session(
 async def _read_input(session: Any) -> str:
     if session is None:
         return await asyncio.to_thread(input, "❯ ")
-    return str(await session.prompt_async())
+    output = session.app.output
+    try:
+        # Ask modern terminals to preserve modifier information for keys that
+        # would otherwise collapse to the same control byte. xterm/iTerm-style
+        # terminals use modifyOtherKeys; Kitty-compatible terminals use CSI-u.
+        output.write_raw("\x1b[>4;1m\x1b[>1u")
+        output.flush()
+        return str(await session.prompt_async())
+    finally:
+        # Both protocols are stack/reset based. Always restore them, including
+        # cancellation and EOF paths, so the parent shell keeps its key setup.
+        output.write_raw("\x1b[<u\x1b[>4m")
+        output.flush()
 
 
 async def _read_approval_input(session: Any, prompt: str = "Decision  › ") -> str:

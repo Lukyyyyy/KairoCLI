@@ -151,7 +151,9 @@ def run_tui(
     try:
         from rich.text import Text
         from textual.app import App, ComposeResult
+        from textual.binding import Binding
         from textual.containers import Horizontal, Vertical
+        from textual.message import Message
         from textual.screen import ModalScreen
         from textual.widgets import (
             Button,
@@ -161,6 +163,7 @@ def run_tui(
             Input,
             RichLog,
             Static,
+            TextArea,
         )
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("Install Kairo CLI dependencies for full-screen TUI") from exc
@@ -198,6 +201,41 @@ def run_tui(
                     continue
                 selected.append(path)
             return selected
+
+    class Composer(TextArea):
+        """Multiline task composer that keeps Enter as the submit shortcut."""
+
+        BINDINGS = [
+            Binding("enter", "submit", show=False, priority=True),
+            Binding("shift+enter", "newline", show=False, priority=True),
+        ]
+
+        class Submitted(Message):
+            def __init__(self, composer: Composer, value: str) -> None:
+                self.composer = composer
+                self.value = value
+                super().__init__()
+
+            @property
+            def control(self) -> Composer:
+                return self.composer
+
+        @property
+        def value(self) -> str:
+            return self.text
+
+        @value.setter
+        def value(self, value: str) -> None:
+            self.text = value
+            self.move_cursor((value.count("\n"), len(value.rsplit("\n", 1)[-1])))
+
+        def action_submit(self) -> None:
+            self.post_message(self.Submitted(self, self.text))
+
+        def action_newline(self) -> None:
+            start, end = self.selection
+            result = self.replace("\n", start, end, maintain_selection_offset=False)
+            self.move_cursor(result.end_location)
 
     class ConfigScreen(ModalScreen[None]):
         BINDINGS = [("escape", "close", "Close")]
@@ -343,7 +381,7 @@ def run_tui(
         }
         #log { height: 1fr; margin: 0 1; }
         #prompt {
-            height: 3;
+            height: 7;
             margin: 0 1;
             border-top: solid #808080;
             border-bottom: solid #808080;
@@ -376,9 +414,10 @@ def run_tui(
                         id="welcome",
                     )
                     yield TerminalSafeRichLog(id="log", markup=False)
-                    yield Input(
+                    yield Composer(
                         placeholder="Message Kairo CLI · @path · @image · @resource",
                         id="prompt",
+                        compact=True,
                     )
                     yield Static("ReAct · idle · ? for shortcuts", id="status")
             yield Footer()
@@ -400,7 +439,7 @@ def run_tui(
                 if any(character.isspace() for character in relative)
                 else f"@{relative}"
             )
-            prompt = self.query_one("#prompt", Input)
+            prompt = self.query_one("#prompt", Composer)
             separator = " " if prompt.value and not prompt.value.endswith(" ") else ""
             prompt.value += separator + mention
             prompt.focus()
@@ -637,9 +676,9 @@ def run_tui(
                 return
             self.write_untrusted(log, await agent.tools.execute(name, arguments))
 
-        async def on_input_submitted(self, event: Input.Submitted) -> None:
+        async def on_composer_submitted(self, event: Composer.Submitted) -> None:
             log = self.query_one("#log", RichLog)
-            event.input.value = ""
+            event.composer.value = ""
             try:
                 prompt = normalize_interactive_submission(event.value)
             except UserInputError as exc:

@@ -26,6 +26,7 @@ from kairocli.cli import (
     _print_answer_prefix,
     _print_command_output,
     _prompt_session,
+    _read_input,
     _resume_session_hint,
     _session_startup_notice,
     _slash_completion_candidates,
@@ -362,12 +363,26 @@ def test_prompt_uses_gray_block_composer(tmp_path: Path) -> None:
     assert session.reserve_space_for_menu == 0
     assert session.rprompt is None
     assert session.bottom_toolbar is None
+    continuation = session._get_continuation(2, 1, 0)
+    assert "".join(fragment[1] for fragment in continuation) == "  "
     assert session.app.color_depth.value == "DEPTH_24_BIT"
     assert session.app.output.responds_to_cpr is False
     prompt_container = session.app.layout.container.children[0]
     assert prompt_container.alternative_content.style == "class:composer.input"
-    assert session.app.layout.current_window.height.min == 2
-    assert session.app.layout.current_window.height.max == 2
+    composer_height = session.app.layout.current_window.height
+    assert callable(composer_height)
+    assert composer_height().min == 2
+    assert composer_height().max == 2
+    session.default_buffer._set_text("one\ntwo\nthree\nfour\nfive")
+    assert composer_height().min == 6
+    assert composer_height().max == 6
+    session.default_buffer._set_text("one")
+    assert composer_height().min == 2
+    assert composer_height().max == 2
+    session.default_buffer._set_text("\n".join(str(index) for index in range(10)))
+    assert composer_height().min == 8
+    assert composer_height().max == 8
+    session.default_buffer._set_text("")
     assert session.app.layout.current_window.style == "class:composer.input"
     menu_space = prompt_container.alternative_content.content.children[-1]
     assert menu_space.filter() is False
@@ -409,6 +424,39 @@ def test_prompt_bottom_status_updates_when_plan_mode_is_armed(tmp_path: Path) ->
 
     mode[0] = "plan"
     assert status.content.content.text() == "  Plan · deepseek/model "
+
+
+def test_multiline_composer_supports_keyboard_and_mouse_scrolling(tmp_path: Path) -> None:
+    workspace = tmp_path / "KairoCLI"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    session = _prompt_session(paths, lambda: "idle")
+    buffer = session.default_buffer
+
+    buffer._set_text("\n".join(str(index) for index in range(10)))
+    buffer._set_cursor_position(len(buffer.text))
+    assert session.mouse_support() is True
+
+    def active_binding(key: str):
+        return next(
+            binding
+            for binding in session.key_bindings.get_bindings_for_keys((key,))
+            if binding.filter()
+        )
+
+    event = SimpleNamespace(current_buffer=buffer)
+    active_binding("up").handler(event)
+    assert buffer.document.cursor_position_row == 8
+    active_binding("pageup").handler(event)
+    assert buffer.document.cursor_position_row == 1
+    active_binding("pagedown").handler(event)
+    assert buffer.document.cursor_position_row == 8
+    active_binding("down").handler(event)
+    assert buffer.document.cursor_position_row == 9
+
+    buffer._set_text("one line")
+    buffer._set_cursor_position(len(buffer.text))
+    assert session.mouse_support() is False
 
 
 def test_prompt_ctrl_o_toggles_the_latest_thought(tmp_path: Path) -> None:
@@ -1221,6 +1269,78 @@ async def test_prompt_ignores_blank_enter_without_finishing_input_session(
             pipe_input.send_bytes(b"\x15")
             pipe_input.send_text("actual task\r")
             assert await asyncio.wait_for(read_task, 0.5) == "actual task"
+
+
+async def test_inline_prompt_preserves_shift_enter_and_pasted_newlines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import prompt_toolkit.output
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    workspace = tmp_path / "KairoCLI"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    output = DummyOutput()
+    monkeypatch.setattr(prompt_toolkit.output, "create_output", lambda: output)
+
+    with create_pipe_input() as pipe_input:
+        with create_app_session(input=pipe_input, output=output):
+            session = _prompt_session(paths, lambda: "idle")
+            read_task = asyncio.create_task(session.prompt_async())
+            await asyncio.sleep(0.02)
+            pipe_input.send_text("first")
+            pipe_input.send_bytes(b"\x1b\r")
+            pipe_input.send_text("second")
+            await asyncio.sleep(0.02)
+            assert session.default_buffer.text == "first\nsecond"
+            pipe_input.send_text("\r")
+            assert await asyncio.wait_for(read_task, 0.5) == "first\nsecond"
+
+            read_task = asyncio.create_task(session.prompt_async())
+            await asyncio.sleep(0.02)
+            pipe_input.send_text("xterm")
+            pipe_input.send_bytes(b"\x1b[27;2;13~")
+            pipe_input.send_text("csi-u")
+            pipe_input.send_bytes(b"\x1b[13;2u")
+            pipe_input.send_text("done")
+            await asyncio.sleep(0.02)
+            assert session.default_buffer.text == "xterm\ncsi-u\ndone"
+            pipe_input.send_text("\r")
+            assert await asyncio.wait_for(read_task, 0.5) == "xterm\ncsi-u\ndone"
+
+            read_task = asyncio.create_task(session.prompt_async())
+            await asyncio.sleep(0.02)
+            pipe_input.send_bytes(b"\x1b[200~pasted first\npasted second\x1b[201~")
+            await asyncio.sleep(0.02)
+            assert session.default_buffer.text == "pasted first\npasted second"
+            pipe_input.send_text("\r")
+            assert await asyncio.wait_for(read_task, 0.5) == "pasted first\npasted second"
+
+
+async def test_inline_input_enables_and_restores_modified_key_reporting() -> None:
+    writes: list[str] = []
+    flushes = 0
+
+    class Output:
+        def write_raw(self, value: str) -> None:
+            writes.append(value)
+
+        def flush(self) -> None:
+            nonlocal flushes
+            flushes += 1
+
+    class Session:
+        app = SimpleNamespace(output=Output())
+
+        async def prompt_async(self) -> str:
+            assert writes == ["\x1b[>4;1m\x1b[>1u"]
+            return "task"
+
+    assert await _read_input(Session()) == "task"
+    assert writes == ["\x1b[>4;1m\x1b[>1u", "\x1b[<u\x1b[>4m"]
+    assert flushes == 2
 
 
 async def test_ctrl_c_remains_responsive_with_slash_menu_open(
