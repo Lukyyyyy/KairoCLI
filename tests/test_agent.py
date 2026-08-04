@@ -264,10 +264,12 @@ class BudgetClient(LlmClient):
 
     def __init__(self, response: LlmResponse) -> None:
         self.response = response
+        self.messages: list[Message] = []
 
     async def complete(
         self, messages: list[Message], tools: list[dict[str, Any]] | None = None
     ) -> LlmResponse:
+        self.messages = messages
         return self.response
 
 
@@ -659,7 +661,7 @@ async def test_plan_agent_falls_back_from_oversized_or_unsafe_plan_schema(
     plan = await planner.create_plan("safe fallback")
 
     assert list(plan.tasks) == ["task-1"]
-    assert plan.tasks["task-1"].description == "Execute the requested work and verify the result"
+    assert plan.tasks["task-1"].description == "执行用户请求的工作并验证结果"
 
 
 async def test_plan_fallback_does_not_echo_an_oversized_user_request(
@@ -671,7 +673,7 @@ async def test_plan_fallback_does_not_echo_an_oversized_user_request(
     plan = await planner.create_plan("界" * 100_000)
     description = plan.tasks["task-1"].description
 
-    assert description == "Execute the requested work and verify the result"
+    assert description == "执行用户请求的工作并验证结果"
     assert "界" not in description
 
 
@@ -689,7 +691,24 @@ async def test_plan_rewrites_a_verbatim_question_as_an_action(tmp_path: Path) ->
 
     plan = await planner.create_plan(question)
 
-    assert plan.tasks["weather"].description == "Execute the requested work and verify the result"
+    assert plan.tasks["weather"].description == "执行用户请求的工作并验证结果"
+
+
+async def test_plan_prompt_requires_chinese_step_descriptions(tmp_path: Path) -> None:
+    client = BudgetClient(
+        LlmResponse(
+            content=(
+                '{"tasks":[{"id":"inspect","description":"检查项目",'
+                '"dependencies":[]}]}'
+            )
+        )
+    )
+    planner = PlanExecuteAgent(Agent(client, ToolRegistry(tmp_path), "system"))
+
+    await planner.create_plan("inspect project", "keep it minimal")
+
+    assert "description 必须使用简体中文" in str(client.messages[0].content)
+    assert client.messages[1].content == "任务：inspect project\n审阅反馈：keep it minimal"
 
 
 def test_team_review_rejects_ambiguous_or_structured_approval_fields() -> None:

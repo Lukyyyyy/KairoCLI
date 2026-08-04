@@ -178,18 +178,19 @@ class PlanExecuteAgent:
     ) -> ExecutionPlan:
         system = Message(
             "system",
-            "You are the Kairo CLI planner. Return only JSON with a tasks array. Each task has "
-            "id, description, and dependencies (an array of task IDs). Make tasks executable, "
-            "dependency-aware, and minimal. Every description must be an imperative operation "
-            "that explains what to do; never copy the user's question as a step.",
+            "你是 Kairo CLI planner（规划器）。只返回包含 tasks 数组的 JSON。每个任务必须包含 "
+            "id、description 和 dependencies（任务 ID 数组）。"
+            "任务应当可执行、依赖关系明确且数量精简。"
+            "每个 description 必须使用简体中文，以祈使句说明要执行的操作；"
+            "不得直接复制用户的问题作为步骤描述。",
         )
         bounded_task = _truncate_orchestration_text(task, MAX_ORCHESTRATION_GOAL_BYTES)
         prompt = (
             bounded_task
             if not feedback
-            else "Task: "
+            else "任务："
             + bounded_task
-            + "\nReview feedback: "
+            + "\n审阅反馈："
             + _truncate_orchestration_text(feedback, MAX_ORCHESTRATION_REVIEW_BYTES)
         )
         response = await self.agent.complete_auxiliary(
@@ -216,7 +217,7 @@ class PlanExecuteAgent:
 
 
 def _fallback_plan_description() -> str:
-    return "Execute the requested work and verify the result"
+    return "执行用户请求的工作并验证结果"
 
 
 def _extract_json(content: str) -> dict[str, Any]:
