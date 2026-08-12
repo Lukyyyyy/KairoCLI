@@ -86,16 +86,67 @@ class WebApprover:
             self._pending.set()
 
 
+class WebPlanReviewer:
+    """Per-turn plan reviewer: pauses the plan agent and waits for user decision."""
+
+    TIMEOUT_SECONDS = 600.0
+
+    def __init__(self, thread_id: str, turn_id: str, state: RuntimeState) -> None:
+        self.thread_id = thread_id
+        self.turn_id = turn_id
+        self.state = state
+        self._pending: asyncio.Event | None = None
+        self._result: str | bool = ""
+
+    async def __call__(self, plan: Any) -> str | bool:
+        tasks = [
+            {
+                "id": t.id,
+                "description": t.description,
+                "dependencies": list(t.dependencies),
+            }
+            for t in plan.tasks.values()
+        ]
+        self.state.event(
+            self.thread_id,
+            "plan.review_request",
+            {"turn_id": self.turn_id, "tasks": tasks},
+        )
+        self._pending = asyncio.Event()
+        self._result = ""
+        try:
+            await asyncio.wait_for(self._pending.wait(), timeout=self.TIMEOUT_SECONDS)
+        except TimeoutError:
+            self.state.event(
+                self.thread_id,
+                "plan.review_timeout",
+                {"turn_id": self.turn_id},
+            )
+        return self._result
+
+    def respond(self, action: str, feedback: str = "") -> None:
+        if action == "cancel":
+            self._result = False
+        elif action == "supplement" and feedback.strip():
+            self._result = feedback.strip()
+        else:
+            self._result = ""
+        if self._pending is not None:
+            self._pending.set()
+
+
 class WebRuntimeState(RuntimeState):
-    """Extends RuntimeState with per-turn approver tracking."""
+    """Extends RuntimeState with per-turn approver and plan reviewer tracking."""
 
     def __init__(self, agent_factory: Any, store: RuntimeThreadStore) -> None:
         super().__init__(agent_factory, store)
         self.active_approvers: dict[str, WebApprover] = {}
+        self.active_plan_reviewers: dict[str, WebPlanReviewer] = {}
 
     def refresh_owner_identity(self) -> None:
         super().refresh_owner_identity()
         self.active_approvers.clear()
+        self.active_plan_reviewers.clear()
 
 
 def create_web_app(
@@ -105,6 +156,7 @@ def create_web_app(
     users_database: Path,
     jwt_secret_path: Path,
     allow_origins: list[str] | None = None,
+    model_info: dict[str, str] | None = None,
 ) -> FastAPI:
     user_store = WebUserStore(users_database)
     jwt_secret = JwtSecretStore(jwt_secret_path).load_or_generate()
@@ -152,6 +204,9 @@ def create_web_app(
                     approver = state.active_approvers.pop(turn_id, None)
                     if approver is not None:
                         approver.respond(False)
+                    reviewer = state.active_plan_reviewers.pop(turn_id, None)
+                    if reviewer is not None:
+                        reviewer.respond("cancel")
                 active_tasks = tuple(state.active_turn_tasks)
                 for task in active_tasks:
                     task.cancel()
@@ -172,6 +227,7 @@ def create_web_app(
             await _await_runtime_shutdown(shutdown_task)
 
     app = FastAPI(title="Kairo CLI Web", version="1", lifespan=lifespan)
+    app.state.runtime = state
 
     from fastapi.middleware.cors import CORSMiddleware
 
@@ -273,6 +329,10 @@ def create_web_app(
 
     # ── User-scoped v1 endpoints ─────────────────────────────────────────────
 
+    @app.get("/v1/info")
+    async def get_info(_user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        return model_info or {"provider": "unknown", "model": "unknown"}
+
     @app.delete("/v1/threads/{thread_id}")
     async def delete_thread(
         thread_id: str,
@@ -311,6 +371,7 @@ def create_web_app(
         prompt: str,
         turn_id: str,
         approver: WebApprover,
+        mode: str = "agent",
     ) -> None:
         current_task = asyncio.current_task()
         if current_task is not None:
@@ -325,6 +386,36 @@ def create_web_app(
                 chunk = delta_buffer[:RUNTIME_DELTA_CHARS]
                 delta_buffer = delta_buffer[len(chunk):]
                 state.event(thread_id, "message.delta", {"turn_id": turn_id, "delta": chunk})
+
+        def emit_plan_events(plan: Any) -> None:
+            tasks = [
+                {"id": t.id, "description": t.description, "dependencies": list(t.dependencies)}
+                for t in plan.tasks.values()
+            ]
+            state.event(
+                thread_id,
+                "plan.created",
+                {"turn_id": turn_id, "tasks": tasks, "mode": mode},
+            )
+
+        def emit_task_started(task: Any) -> None:
+            state.event(
+                thread_id,
+                "plan.task.started",
+                {"turn_id": turn_id, "task_id": task.id, "description": task.description},
+            )
+
+        def emit_task_completed(task: Any, success: bool) -> None:
+            state.event(
+                thread_id,
+                "plan.task.completed",
+                {
+                    "turn_id": turn_id,
+                    "task_id": task.id,
+                    "success": success,
+                    "status": task.status.value,
+                },
+            )
 
         try:
             if state.store.turn_status(thread_id, turn_id) != "running":
@@ -372,7 +463,26 @@ def create_web_app(
             agent.on_reasoning_delta = emit_reasoning_delta
             agent.on_tool_calls = emit_tool_calls
             agent.on_tool_results = emit_tool_results
-            answer = await agent.run(prompt)
+
+            if mode == "plan":
+                from .agent import PlanExecuteAgent
+                reviewer = WebPlanReviewer(thread_id, turn_id, state)
+                state.active_plan_reviewers[turn_id] = reviewer
+                plan_agent = PlanExecuteAgent(agent, review_handler=reviewer)
+                plan_agent.on_plan_created = emit_plan_events
+                plan_agent.on_task_started = emit_task_started
+                plan_agent.on_task_completed = emit_task_completed
+                answer = await plan_agent.run(prompt)
+            elif mode == "team":
+                from .agent import AgentOrchestrator
+                team_agent = AgentOrchestrator(agent)
+                team_agent.on_plan_created = emit_plan_events
+                team_agent.on_task_started = emit_task_started
+                team_agent.on_task_completed = emit_task_completed
+                answer = await team_agent.run(prompt)
+            else:
+                answer = await agent.run(prompt)
+
             if answer and not emitted_delta:
                 emit_delta(answer)
             flush_delta(final=True)
@@ -415,6 +525,7 @@ def create_web_app(
         finally:
             state.active_agents.pop(turn_id, None)
             state.active_approvers.pop(turn_id, None)
+            state.active_plan_reviewers.pop(turn_id, None)
             state.active_turn_ids.discard(turn_id)
             if current_task is not None:
                 state.active_turn_tasks.discard(current_task)
@@ -443,6 +554,8 @@ def create_web_app(
             raise HTTPException(status_code=422, detail="input must be a string")
         if not raw_prompt:
             raise HTTPException(status_code=422, detail="input is required")
+        raw_mode = str(payload.get("mode", "agent")).lower().strip()
+        turn_mode = raw_mode if raw_mode in {"agent", "plan", "team"} else "agent"
         try:
             prompt = normalize_user_input(raw_prompt)
         except UserInputError as exc:
@@ -464,7 +577,7 @@ def create_web_app(
                 owner_token=state.owner_token,
                 owner_pid=state.owner_pid,
                 event_type="turn.started",
-                event_data={"input": prompt},
+                event_data={"input": prompt, "mode": turn_mode},
             )
         except ValueError as exc:
             raise HTTPException(
@@ -481,7 +594,7 @@ def create_web_app(
         approver = WebApprover(thread_id, turn_id, state)
         state.active_approvers[turn_id] = approver
         state.active_turn_ids.add(turn_id)
-        background.add_task(execute_turn, thread_id, prompt, turn_id, approver)
+        background.add_task(execute_turn, thread_id, prompt, turn_id, approver, turn_mode)
         return {"id": turn_id, "object": "turn", "status": "running"}
 
     @app.post("/v1/threads/{thread_id}/turns/{turn_id}/cancel")
@@ -531,6 +644,27 @@ def create_web_app(
         if approver is None:
             raise HTTPException(status_code=404, detail="No pending approval for this turn")
         approver.respond(bool(payload.get("approved", False)))
+        return {"status": "ok"}
+
+    @app.post("/v1/threads/{thread_id}/turns/{turn_id}/plan_review")
+    async def respond_to_plan_review(
+        thread_id: str,
+        turn_id: str,
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not state.store.exists_for_user(thread_id, user.id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not _valid_identifier(turn_id, _TURN_ID):
+            raise HTTPException(status_code=404, detail="Turn not found")
+        reviewer = state.active_plan_reviewers.get(turn_id)
+        if reviewer is None:
+            raise HTTPException(status_code=404, detail="No pending plan review for this turn")
+        action = str(payload.get("action", "approve"))
+        feedback = str(payload.get("feedback", ""))
+        reviewer.respond(action, feedback)
         return {"status": "ok"}
 
     @app.get("/v1/threads/{thread_id}/events", response_class=PlainTextResponse)

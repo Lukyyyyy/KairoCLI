@@ -76,6 +76,7 @@ def run_web_server(
 ) -> int:
     if type(port) is not int or not 1 <= port <= 65_535:
         raise ValueError("Web server port must be an integer from 1 to 65535")
+    from ..llm import create_llm_client
     from ..policy import ApprovalPolicy as _ApprovalPolicy
     from ..web_app import create_web_app
 
@@ -92,11 +93,18 @@ def run_web_server(
             approver=approver,
         )
 
+    try:
+        _llm = create_llm_client(config, provider)
+        _model_info: dict[str, str] | None = {"provider": _llm.provider, "model": _llm.model or ""}
+    except Exception:
+        _model_info = None
+
     app = create_web_app(
         agent_factory,
         runtime_database=paths.runtime_dir / "runtime.db",
         users_database=paths.user_dir / "web" / "users.db",
         jwt_secret_path=paths.user_dir / "web" / "jwt_secret.bin",
+        model_info=_model_info,
     )
     try:
         import uvicorn
