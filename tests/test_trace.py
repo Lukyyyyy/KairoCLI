@@ -1,6 +1,4 @@
-import json
 import os
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +8,10 @@ from kairocli.agent import Agent
 from kairocli.cli import _handle_trace
 from kairocli.commands import CommandType, parse_command
 from kairocli.llm import LlmClient, LlmError
-from kairocli.models import LlmResponse, Message, Usage
+from kairocli.memory import MemoryStore
+from kairocli.models import LlmResponse, Message, ToolCall, ToolOutput, Usage
 from kairocli.paths import KairoPaths
-from kairocli.tools import ToolRegistry
+from kairocli.tools import ToolDefinition, ToolRegistry
 from kairocli.trace import LlmTraceLogger, redact_sensitive_text
 
 
@@ -24,29 +23,46 @@ class RecordingConsole:
         self.messages.append(message)
 
 
-class TraceClient(LlmClient):
+class SimpleClient(LlmClient):
     provider = "test"
-    model = "trace-model"
+    model = "test-model"
+
+    def __init__(self, content: str = "hello", reasoning: str | None = None) -> None:
+        self._content = content
+        self._reasoning = reasoning
 
     async def complete(
         self, messages: list[Message], tools: list[dict[str, Any]] | None = None
     ) -> LlmResponse:
         return LlmResponse(
-            content="private answer body",
-            reasoning_content=(
-                "analysis GLM_API_KEY=super-secret Authorization: Bearer abc.def "
-                "data:image/png;base64," + "A" * 300
-            ),
-            usage=Usage(12, 4, 3),
+            content=self._content,
+            reasoning_content=self._reasoning,
+            usage=Usage(10, 5, 2),
         )
 
 
-class TraceFailureClient(TraceClient):
+class FailureClient(SimpleClient):
     async def complete(
         self, messages: list[Message], tools: list[dict[str, Any]] | None = None
     ) -> LlmResponse:
-        raise LlmError("failed token=upstream-secret")
+        raise LlmError("upstream failure token=leaked-secret")
 
+
+class CredentialClient(SimpleClient):
+    async def complete(
+        self, messages: list[Message], tools: list[dict[str, Any]] | None = None
+    ) -> LlmResponse:
+        return LlmResponse(
+            content="api_key=super-secret answer",
+            reasoning_content=(
+                "thinking GLM_API_KEY=top-secret Authorization: Bearer abc.def "
+                "data:image/png;base64," + "A" * 300
+            ),
+            usage=Usage(10, 5, 2),
+        )
+
+
+# ── redaction tests (these do not depend on the session format) ──────────────
 
 @pytest.mark.parametrize(
     ("value", "secrets", "preserved"),
@@ -113,95 +129,173 @@ def test_shared_redactor_preserves_similar_noncredential_text() -> None:
     assert redact_sensitive_text(value) == value
 
 
-async def test_trace_is_opt_in_and_never_records_prompt_or_answer(tmp_path: Path) -> None:
-    disabled = LlmTraceLogger(tmp_path / "disabled", enabled=False)
-    agent = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=disabled)
-    assert await agent.run("private user prompt") == "private answer body"
-    assert not (tmp_path / "disabled").exists()
+# ── session lifecycle tests ───────────────────────────────────────────────────
+
+async def test_trace_disabled_creates_no_files(tmp_path: Path) -> None:
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=False)
+    agent = Agent(SimpleClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
+    assert await agent.run("hello") == "hello"
+    assert not (tmp_path / "traces").exists()
     await agent.tools.close()
 
-    enabled = LlmTraceLogger(tmp_path / "enabled", enabled=True)
-    agent = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=enabled)
-    await agent.run("private user prompt")
-    trace_file = next((tmp_path / "enabled").glob("*.jsonl"))
-    raw = trace_file.read_text(encoding="utf-8")
-    event = json.loads(raw)
 
-    assert "private user prompt" not in raw
-    assert "private answer body" not in raw
-    assert "super-secret" not in raw
-    assert "reasoning" not in event
-    assert event["status"] == "success"
-    assert event["response"]["content_chars"] == len("private answer body")
-    assert event["usage"] == {
-        "input_tokens": 12,
-        "output_tokens": 4,
-        "cached_tokens": 3,
-    }
+async def test_trace_records_full_session_content(tmp_path: Path) -> None:
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
+    agent = Agent(
+        SimpleClient("the answer"),
+        ToolRegistry(tmp_path),
+        "sys-prompt",
+        trace_logger=logger,
+    )
+    await agent.run("user-question")
+
+    files = list((tmp_path / "traces").glob("sess-*.log"))
+    assert len(files) == 1
+    raw = files[0].read_text(encoding="utf-8")
+
+    # Session structure markers
+    assert "KAIRO TRACE" in raw
+    assert "DONE" in raw
+    assert "[REQUEST #1]" in raw
+    assert "[MESSAGE #1 SYSTEM]" in raw
+    assert "[MESSAGE #2 USER]" in raw
+    assert "[TOOL SCHEMAS]" in raw
+    assert "[CALL #1]" in raw
+    assert "[ASSISTANT]" in raw
+
+    # Content is recorded
+    assert "sys-prompt" in raw
+    assert "user-question" in raw
+    assert "the answer" in raw
+
+    # Reasoning not present when not enabled
+    assert "[REASONING]" not in raw
+
+    # File permissions
     if os.name == "posix":
-        assert (trace_file.stat().st_mode & 0o777) == 0o600
-        assert ((tmp_path / "enabled").stat().st_mode & 0o777) == 0o700
+        assert (files[0].stat().st_mode & 0o777) == 0o600
+        assert ((tmp_path / "traces").stat().st_mode & 0o777) == 0o700
+
     await agent.tools.close()
 
 
-async def test_reasoning_trace_requires_second_opt_in_and_redacts_payloads(
-    tmp_path: Path,
-) -> None:
-    logger = LlmTraceLogger(tmp_path / "traces", enabled=True, include_reasoning=True)
-    agent = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
-    await agent.run("request")
-    raw = next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8")
-    event = json.loads(raw)
+async def test_trace_records_complete_model_request_context(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    memory = MemoryStore(paths)
+    memory.save("用户偏好使用 Java 开发", "global")
+    tools = ToolRegistry(paths.workspace)
 
-    assert event["reasoning"].startswith("analysis GLM_API_KEY=***")
+    async def inspect_memory(arguments: dict[str, Any]) -> str:
+        return str(arguments)
+
+    tools.register(
+        ToolDefinition(
+            "inspect_memory",
+            "Inspect injected memory context",
+            {"type": "object", "properties": {"query": {"type": "string"}}},
+            inspect_memory,
+        )
+    )
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
+    agent = Agent(
+        SimpleClient("answer"),
+        tools,
+        "base instructions",
+        memory_store=memory,
+        trace_logger=logger,
+    )
+    agent.history.extend(
+        [
+            Message("user", "较早的短期记忆"),
+            Message("assistant", "较早的回答"),
+            Message("tool", "历史工具结果", tool_call_id="call_old"),
+        ]
+    )
+
+    await agent.run("Java 偏好")
+    raw = next((tmp_path / "traces").glob("sess-*.log")).read_text(encoding="utf-8")
+
+    assert "[REQUEST #1]" in raw
+    assert "<relevant_long_term_memory>" in raw
+    assert "用户偏好使用 Java 开发" in raw
+    assert "较早的短期记忆" in raw
+    assert "较早的回答" in raw
+    assert "历史工具结果" in raw
+    assert "tool_call_id=call_old" in raw
+    assert "Java 偏好" in raw
+    assert "[TOOL SCHEMAS]" in raw
+    assert "inspect_memory" in raw
+    assert "Inspect injected memory context" in raw
+
+    await agent.tools.close()
+
+
+async def test_trace_redacts_credentials_in_content(tmp_path: Path) -> None:
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
+    agent = Agent(CredentialClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
+    await agent.run("request with api_key=leaked-key")
+
+    raw = list((tmp_path / "traces").glob("sess-*.log"))[0].read_text(encoding="utf-8")
+
+    # Secrets must not appear anywhere
     assert "super-secret" not in raw
+    assert "top-secret" not in raw
+    assert "leaked-key" not in raw
     assert "abc.def" not in raw
     assert "data:image" not in raw
     assert "A" * 240 not in raw
+
+    # Safe content survives
+    assert "KAIRO TRACE" in raw
+    assert "[ASSISTANT]" in raw
+
+    await agent.tools.close()
+
+
+async def test_trace_reasoning_requires_opt_in(tmp_path: Path) -> None:
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True, include_reasoning=True)
+    agent = Agent(
+        CredentialClient(), ToolRegistry(tmp_path), "system", trace_logger=logger
+    )
+    await agent.run("request")
+
+    raw = list((tmp_path / "traces").glob("sess-*.log"))[0].read_text(encoding="utf-8")
+
+    assert "[REASONING]" in raw
+    assert "thinking GLM_API_KEY=***" in raw   # key redacted but prefix preserved
+    assert "top-secret" not in raw
+    assert "abc.def" not in raw
     assert "<image-data-redacted>" in raw
+
     await agent.tools.close()
 
 
-async def test_error_trace_is_typed_redacted_and_diagnostics_never_break_agent(
-    tmp_path: Path,
-) -> None:
+async def test_trace_error_session_is_recorded(tmp_path: Path) -> None:
     logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
-    agent = Agent(TraceFailureClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
-    with pytest.raises(LlmError, match="upstream-secret"):
+    agent = Agent(FailureClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
+
+    with pytest.raises(LlmError):
         await agent.run("request")
-    event = json.loads(next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8"))
-    assert event["status"] == "error"
-    assert event["error"] == {"type": "LlmError", "message": "failed token=***"}
+
+    files = list((tmp_path / "traces").glob("sess-*.log"))
+    assert len(files) == 1
+    raw = files[0].read_text(encoding="utf-8")
+
+    assert "[ERROR]" in raw
+    assert "LlmError" in raw
+    assert "leaked-secret" not in raw   # redacted
+    assert "ABORTED" in raw
+
     await agent.tools.close()
 
+
+async def test_trace_survives_broken_directory_without_breaking_agent(tmp_path: Path) -> None:
     blocked = tmp_path / "not-a-directory"
     blocked.write_text("file", encoding="utf-8")
-    broken_logger = LlmTraceLogger(blocked, enabled=True)
-    healthy = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=broken_logger)
-    assert await healthy.run("still succeeds") == "private answer body"
-    await healthy.tools.close()
-
-
-async def test_error_trace_survives_unprintable_exception(tmp_path: Path) -> None:
-    class UnprintableError(RuntimeError):
-        def __str__(self) -> str:
-            raise KeyboardInterrupt
-
-    logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
-    await logger.record_error(
-        scope="react",
-        provider="test",
-        model="test",
-        duration_ms=1,
-        message_count=1,
-        tool_schema_count=0,
-        error=UnprintableError(),
-    )
-    event = json.loads(next((tmp_path / "traces").glob("*.jsonl")).read_text(encoding="utf-8"))
-    assert event["error"] == {
-        "type": "UnprintableError",
-        "message": "UnprintableError message unavailable",
-    }
+    logger = LlmTraceLogger(blocked, enabled=True)
+    agent = Agent(SimpleClient("ok"), ToolRegistry(tmp_path), "system", trace_logger=logger)
+    assert await agent.run("still works") == "ok"
+    await agent.tools.close()
 
 
 async def test_trace_rejects_symlinked_user_container_without_external_writes(
@@ -212,88 +306,75 @@ async def test_trace_rejects_symlinked_user_container_without_external_writes(
     outside = tmp_path / "outside-state"
     traces = outside / "traces"
     traces.mkdir(parents=True)
-    sentinel = traces / "sentinel.jsonl"
+    sentinel = traces / "sentinel.log"
     sentinel.write_text("external-secret\n", encoding="utf-8")
     paths.user_dir.symlink_to(outside, target_is_directory=True)
     logger = LlmTraceLogger.from_environment(paths)
     logger.enabled = True
 
-    await logger.record_error(
-        scope="react",
-        provider="test",
-        model="test",
+    session_id = logger.open_session(scope="test", provider="test", model="test")
+    await logger.record_llm_request(
+        session_id=session_id,
+        turn=1,
+        messages=[Message("system", "sys"), Message("user", "input")],
+        tools=[],
+    )
+    await logger.close_session(
+        session_id=session_id,
         duration_ms=1,
-        message_count=1,
-        tool_schema_count=0,
-        error=RuntimeError("local failure"),
+        total_calls=0,
+        total_input=0,
+        total_output=0,
+        total_cached=0,
     )
 
     assert sentinel.read_text(encoding="utf-8") == "external-secret\n"
     assert list(traces.iterdir()) == [sentinel]
 
 
-async def test_trace_rejects_symlinked_daily_file_without_external_writes(
+async def test_trace_rejects_symlinked_session_file_without_external_writes(
     tmp_path: Path,
 ) -> None:
     directory = tmp_path / "traces"
     directory.mkdir()
-    outside = tmp_path / "outside.jsonl"
+    outside = tmp_path / "outside.log"
     outside.write_text("external-secret\n", encoding="utf-8")
-    target = directory / f"llm-trace-{date.today().isoformat()}.jsonl"
-    target.symlink_to(outside)
-    logger = LlmTraceLogger(directory, enabled=True)
+    fake_session = directory / "sess-2099-01-01T00-00-00-aabbccdd1122.log"
+    fake_session.symlink_to(outside)
 
-    await logger.record_error(
-        scope="react",
-        provider="test",
-        model="test",
-        duration_ms=1,
-        message_count=1,
-        tool_schema_count=0,
-        error=RuntimeError("local failure"),
+    logger = LlmTraceLogger(directory, enabled=True)
+    logger._session_files["fakeid"] = fake_session
+    await logger.record_llm_request(
+        session_id="fakeid",
+        turn=1,
+        messages=[Message("system", "sys"), Message("user", "input")],
+        tools=[],
     )
 
     assert outside.read_text(encoding="utf-8") == "external-secret\n"
 
 
-async def test_trace_rejects_nonfinite_event_without_creating_invalid_json(
-    tmp_path: Path,
-) -> None:
-    directory = tmp_path / "traces"
-    logger = LlmTraceLogger(directory, enabled=True)
+async def test_trace_prunes_excess_session_files(tmp_path: Path) -> None:
+    from kairocli.trace import MAX_TRACE_FILES
 
-    await logger._append({"timestamp": "now", "score": float("nan")})
-
-    assert not directory.exists()
-
-
-async def test_trace_lock_symlink_prevents_external_access(tmp_path: Path) -> None:
     directory = tmp_path / "traces"
     directory.mkdir()
-    outside = tmp_path / "outside-trace-lock"
-    outside.write_text("sentinel", encoding="utf-8")
-    (directory / ".trace.lock").symlink_to(outside)
+    # Create MAX_TRACE_FILES + 5 dummy session files
+    for i in range(MAX_TRACE_FILES + 5):
+        (directory / f"sess-2020-01-{i:02d}T00-00-00-{i:012d}.log").write_text("x")
+
     logger = LlmTraceLogger(directory, enabled=True)
+    logger._prune()
 
-    await logger.record_error(
-        scope="react",
-        provider="test",
-        model="test",
-        duration_ms=1,
-        message_count=1,
-        tool_schema_count=0,
-        error=RuntimeError("failure"),
-    )
-
-    assert outside.read_text(encoding="utf-8") == "sentinel"
-    assert list(directory.glob("*.jsonl")) == []
+    remaining = list(directory.glob("sess-*.log"))
+    assert len(remaining) == MAX_TRACE_FILES
 
 
 async def test_trace_slash_command_requires_explicit_reasoning_toggle(
     tmp_path: Path,
 ) -> None:
     logger = LlmTraceLogger(tmp_path / "traces")
-    agent = Agent(TraceClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
+    agent = Agent(SimpleClient(), ToolRegistry(tmp_path), "system", trace_logger=logger)
     console = RecordingConsole()
     assert parse_command("/trace status").type == CommandType.TRACE
 
@@ -307,3 +388,29 @@ async def test_trace_slash_command_requires_explicit_reasoning_toggle(
     assert logger.include_reasoning is False
     assert str(tmp_path / "traces") in console.messages[-1]
     await agent.tools.close()
+
+
+async def test_trace_records_tool_calls_and_results(tmp_path: Path) -> None:
+    logger = LlmTraceLogger(tmp_path / "traces", enabled=True)
+    session_id = logger.open_session(scope="test", provider="p", model="m")
+    assert session_id is not None
+
+    calls = [ToolCall(id="call_001", name="read_file", arguments={"path": "/tmp/x.py"})]
+    results = [ToolOutput(text="file content here", elapsed_ms=42)]
+
+    await logger.record_tool_results(session_id=session_id, calls=calls, results=results)
+    await logger.close_session(
+        session_id=session_id,
+        duration_ms=500,
+        total_calls=1,
+        total_input=10,
+        total_output=5,
+        total_cached=0,
+    )
+
+    raw = list((tmp_path / "traces").glob("sess-*.log"))[0].read_text(encoding="utf-8")
+    assert "[TOOL RESULT]  read_file" in raw
+    assert "id=call_001" in raw
+    assert "elapsed=42ms" in raw
+    assert "file content here" in raw
+    assert "DONE" in raw

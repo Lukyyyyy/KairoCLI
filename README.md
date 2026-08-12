@@ -290,7 +290,7 @@ kairocli wechat daemon stop
 | `KAIROCLI_RUNTIME_API_KEY` | 空 | Runtime API 鉴权密钥 |
 | `KAIROCLI_NO_TUI` | `false` | 禁止使用全屏 TUI |
 | `KAIROCLI_LOG_ENABLED` | `true` | 启用脱敏后的应用日志 |
-| `KAIROCLI_TRACE_ENABLED` | `false` | 启用私有模型诊断 trace |
+| `KAIROCLI_TRACE_ENABLED` | `false` | 启用私有模型诊断 trace，记录每次模型请求的消息、工具 schema 与响应 |
 | `KAIROCLI_TRACE_REASONING` | `false` | 在 trace 中额外记录 reasoning，需显式开启 |
 
 在交互式 CLI 中可查看或修改 Provider 配置：
@@ -326,6 +326,7 @@ Kairo CLI 的默认安全边界包括：
 - Shell 命令运行在独立进程组中，取消或超时会清理子进程树；
 - Provider、MCP、工具和终端错误在输出前执行凭据脱敏和大小限制；
 - 应用日志只记录脱敏后的生命周期元数据，不记录 prompt、工具参数、回答正文、图片或 reasoning；
+- 私有模型 trace 仅在用户明确开启时记录实际请求上下文与响应，并持续脱敏凭据、以占位符替代图片数据；
 - reasoning 仅在用户同时明确开启 trace 与 reasoning trace 时保存。
 
 安全边界降低误操作风险，但不能代替代码审查、最小权限凭据、隔离环境或可靠备份。执行来自不可信来源的 Skill、MCP 服务或 Shell 命令前，请先审查其内容。

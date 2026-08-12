@@ -401,20 +401,17 @@ character summaries are rejected. Compaction snapshots message identities and co
 is unchanged while awaiting the model; manual compaction, clear and system-context mutation share the
 Agent active-run exclusion boundary.
 
-All model call sites share scoped diagnostics: ReAct, planner, plan/team workers, step reviewers and
-compaction. Tracing is off by default. The first opt-in records only request/response shape, latency
-and usage; a second independent opt-in permits bounded reasoning text. Prompt bodies, images and
-answer content are never directly serialized. Reasoning and upstream error strings redact credential
-assignments including quoted JSON/CLI flags/provider prefixes, credential URLs/query parameters,
-Bearer/Basic headers, private keys, JWTs, common vendor token prefixes, data images and long base64.
-JSONL files live in a private user directory,
-rotate at 10 MiB with ten-file retention, and trace I/O failures are swallowed so observability cannot
-change execution semantics. Trace directories, daily files and pruning candidates reject every
-symlink component. A private regular-file cross-process lock serializes target selection, no-follow
-append/fsync and pruning, preventing concurrent runtimes from deleting or overfilling each other's
-active trace. Compaction now records its actual
-model usage instead of undercounting
-calls and tokens.
+Model tracing is off by default. When explicitly enabled, each ReAct run writes one human-readable
+private session log. Immediately before every model call the trace captures the complete logical
+request: the effective system prompt (including retrieved long-term memory), the current short-term
+history or compacted summary, tool messages and the available tool schemas. It then records model
+responses, tool calls/results, latency and usage. Image payloads are represented by placeholders. A
+second independent opt-in permits bounded reasoning text, including historical assistant reasoning.
+All recorded text passes credential redaction for quoted JSON/CLI assignments, credential URLs/query
+parameters, Bearer/Basic headers, private keys, JWTs, common vendor token prefixes, data images and
+long base64. Session files live in a private user directory with 50-file retention; trace I/O failures
+are swallowed so observability cannot change execution semantics. Trace directories, session files
+and pruning candidates reject every symlink component.
 
 Long-term memory is queried per user turn instead of being injected wholesale at startup. Search
 uses CJK phrase fragments plus complete Latin words, relevance coverage and time decay. Only global

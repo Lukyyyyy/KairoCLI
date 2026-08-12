@@ -192,135 +192,173 @@ class Agent:
                 ],
             ]
         self.history.append(Message("user", user_content))
+        session_id: str | None = None
+        session_start = time.monotonic()
+        if self.trace_logger is not None:
+            session_id = self.trace_logger.open_session(
+                scope=self.trace_scope,
+                provider=self.llm.provider,
+                model=self.llm.model,
+            )
         fingerprints: list[str] = []
         run_input_start = self.total_input_tokens
         run_output_start = self.total_output_tokens
-        for _ in range(self.budget.max_iterations):
-            raise_if_canceled(self.cancel_event)
-            await self._compact_if_needed()
-            messages = [Message("system", self.system_prompt), *self.history]
-            tool_schemas = self.tools.schemas()
-            request_started = time.monotonic()
-            try:
-                async with self._budget_request() as shared_budget:
-                    response = await self._complete_streaming_with_retry(
-                        messages,
-                        tool_schemas,
-                        self.cancel_event,
-                        run_generation,
+        run_cached_start = self.total_cached_tokens
+        turn = 0
+        run_error: BaseException | None = None
+        try:
+            for _ in range(self.budget.max_iterations):
+                raise_if_canceled(self.cancel_event)
+                await self._compact_if_needed()
+                messages = [Message("system", self.system_prompt), *self.history]
+                tool_schemas = self.tools.schemas()
+                turn += 1
+                if self.trace_logger is not None:
+                    await self.trace_logger.record_llm_request(
+                        session_id=session_id,
+                        turn=turn,
+                        messages=messages,
+                        tools=tool_schemas,
+                    )
+                request_started = time.monotonic()
+                try:
+                    async with self._budget_request() as shared_budget:
+                        response = await self._complete_streaming_with_retry(
+                            messages,
+                            tool_schemas,
+                            self.cancel_event,
+                            run_generation,
+                        )
+                        raise_if_canceled(self.cancel_event)
+                        self.record_usage(response)
+                        if shared_budget is not None:
+                            shared_budget.charge(response)
+                except Exception as exc:
+                    if self.trace_logger is not None:
+                        await self.trace_logger.record_llm_error(
+                            session_id=session_id,
+                            turn=turn,
+                            error=exc,
+                            duration_ms=int((time.monotonic() - request_started) * 1_000),
+                            msg_count=len(messages),
+                            tool_count=len(tool_schemas),
+                        )
+                    raise
+                if self.trace_logger is not None:
+                    await self.trace_logger.record_llm_turn(
+                        session_id=session_id,
+                        turn=turn,
+                        response=response,
+                        duration_ms=int((time.monotonic() - request_started) * 1_000),
+                        msg_count=len(messages),
+                        tool_count=len(tool_schemas),
+                    )
+                self.last_response_streamed = response.streamed
+                if not response.reasoning_streamed:
+                    await self._emit_reasoning(response.reasoning_content)
+                assistant = Message(
+                    "assistant",
+                    response.content,
+                    tool_calls=response.tool_calls,
+                    reasoning_content=response.reasoning_content,
+                )
+                if not response.tool_calls:
+                    self.history.append(assistant)
+                    return response.content
+                run_tokens = self._current_run_tokens(run_input_start, run_output_start)
+                if self.budget.token_budget is not None and run_tokens >= self.budget.token_budget:
+                    raise RuntimeError(
+                        "Agent token budget exceeded "
+                        f"({run_tokens} / {self.budget.token_budget}); "
+                        "additional tool calls were not executed"
+                    )
+                fingerprint = json.dumps(
+                    [(call.name, call.arguments) for call in response.tool_calls], sort_keys=True
+                )
+                fingerprints.append(fingerprint)
+                if (
+                    len(fingerprints) >= self.budget.stagnation_window
+                    and len(set(fingerprints[-self.budget.stagnation_window :])) == 1
+                ):
+                    raise RuntimeError(
+                        "Agent stopped after "
+                        f"{self.budget.stagnation_window} repeated identical tool-call rounds"
+                    )
+                tool_round_start = len(self.history)
+                self.history.append(assistant)
+                try:
+                    await self._emit_tool_calls(response.tool_calls)
+                    results = await self.tools.execute_many_outputs(
+                        [(call.name, call.arguments) for call in response.tool_calls],
+                        cancel_event=self.cancel_event,
                     )
                     raise_if_canceled(self.cancel_event)
-                    self.record_usage(response)
-                    if shared_budget is not None:
-                        shared_budget.charge(response)
-            except Exception as exc:
+                    await self._emit_tool_results(response.tool_calls, results)
+                    raise_if_canceled(self.cancel_event)
+                except (AgentCanceled, asyncio.CancelledError):
+                    # A mutating handler may already have committed before cancellation.
+                    # Preserve a valid provider protocol and make that ambiguity explicit
+                    # instead of erasing evidence that the tool call ever happened.
+                    canceled_results = [_canceled_tool_result(call) for call in response.tool_calls]
+                    for call, canceled_result in zip(
+                        response.tool_calls, canceled_results, strict=True
+                    ):
+                        self.history.append(
+                            Message(
+                                "tool",
+                                canceled_result.text,
+                                tool_call_id=call.id,
+                            )
+                        )
+                    raise
+                except BaseException:
+                    # Unknown failures before a complete result batch retain the old
+                    # rollback behavior; unlike cancellation, no stable outcome exists.
+                    del self.history[tool_round_start:]
+                    raise
                 if self.trace_logger is not None:
-                    await self.trace_logger.record_error(
-                        scope=self.trace_scope,
-                        provider=self.llm.provider,
-                        model=self.llm.model,
-                        duration_ms=int((time.monotonic() - request_started) * 1_000),
-                        message_count=len(messages),
-                        tool_schema_count=len(tool_schemas),
-                        error=exc,
+                    await self.trace_logger.record_tool_results(
+                        session_id=session_id,
+                        calls=response.tool_calls,
+                        results=results,
                     )
-                raise
-            if self.trace_logger is not None:
-                await self.trace_logger.record_success(
-                    scope=self.trace_scope,
-                    provider=self.llm.provider,
-                    model=self.llm.model,
-                    duration_ms=int((time.monotonic() - request_started) * 1_000),
-                    message_count=len(messages),
-                    tool_schema_count=len(tool_schemas),
-                    response=response,
-                )
-            self.last_response_streamed = response.streamed
-            if not response.reasoning_streamed:
-                await self._emit_reasoning(response.reasoning_content)
-            assistant = Message(
-                "assistant",
-                response.content,
-                tool_calls=response.tool_calls,
-                reasoning_content=response.reasoning_content,
-            )
-            if not response.tool_calls:
-                self.history.append(assistant)
-                return response.content
-            run_tokens = self._current_run_tokens(run_input_start, run_output_start)
-            if self.budget.token_budget is not None and run_tokens >= self.budget.token_budget:
-                raise RuntimeError(
-                    "Agent token budget exceeded "
-                    f"({run_tokens} / {self.budget.token_budget}); "
-                    "additional tool calls were not executed"
-                )
-            fingerprint = json.dumps(
-                [(call.name, call.arguments) for call in response.tool_calls], sort_keys=True
-            )
-            fingerprints.append(fingerprint)
-            if (
-                len(fingerprints) >= self.budget.stagnation_window
-                and len(set(fingerprints[-self.budget.stagnation_window :])) == 1
-            ):
-                raise RuntimeError(
-                    "Agent stopped after "
-                    f"{self.budget.stagnation_window} repeated identical tool-call rounds"
-                )
-            tool_round_start = len(self.history)
-            self.history.append(assistant)
-            try:
-                await self._emit_tool_calls(response.tool_calls)
-                results = await self.tools.execute_many_outputs(
-                    [(call.name, call.arguments) for call in response.tool_calls],
-                    cancel_event=self.cancel_event,
-                )
-                raise_if_canceled(self.cancel_event)
-                await self._emit_tool_results(response.tool_calls, results)
-                raise_if_canceled(self.cancel_event)
-            except (AgentCanceled, asyncio.CancelledError):
-                # A mutating handler may already have committed before cancellation.
-                # Preserve a valid provider protocol and make that ambiguity explicit
-                # instead of erasing evidence that the tool call ever happened.
-                canceled_results = [_canceled_tool_result(call) for call in response.tool_calls]
-                for call, canceled_result in zip(
-                    response.tool_calls, canceled_results, strict=True
-                ):
-                    self.history.append(
-                        Message(
-                            "tool",
-                            canceled_result.text,
-                            tool_call_id=call.id,
-                        )
-                    )
-                raise
-            except BaseException:
-                # Unknown failures before a complete result batch retain the old
-                # rollback behavior; unlike cancellation, no stable outcome exists.
-                del self.history[tool_round_start:]
-                raise
-            for call, result in zip(response.tool_calls, results, strict=True):
-                self.history.append(Message("tool", result.text, tool_call_id=call.id))
-            for call, result in zip(response.tool_calls, results, strict=True):
-                if result.has_images:
-                    self.history.append(
-                        Message(
-                            "user",
-                            [
-                                {
-                                    "type": "text",
-                                    "text": (
-                                        f"Tool {call.name} returned image content. Analyze the "
-                                        "attached image together with its tool result text."
-                                    ),
-                                },
-                                *[
-                                    {"type": "image_url", "image_url": {"url": image_url}}
-                                    for image_url in result.image_urls
+                for call, result in zip(response.tool_calls, results, strict=True):
+                    self.history.append(Message("tool", result.text, tool_call_id=call.id))
+                for call, result in zip(response.tool_calls, results, strict=True):
+                    if result.has_images:
+                        self.history.append(
+                            Message(
+                                "user",
+                                [
+                                    {
+                                        "type": "text",
+                                        "text": (
+                                            f"Tool {call.name} returned image content. Analyze the "
+                                            "attached image together with its tool result text."
+                                        ),
+                                    },
+                                    *[
+                                        {"type": "image_url", "image_url": {"url": image_url}}
+                                        for image_url in result.image_urls
+                                    ],
                                 ],
-                            ],
+                            )
                         )
-                    )
-        raise RuntimeError(f"Agent iteration limit exceeded ({self.budget.max_iterations})")
+            raise RuntimeError(f"Agent iteration limit exceeded ({self.budget.max_iterations})")
+        except BaseException as exc:
+            run_error = exc
+            raise
+        finally:
+            if self.trace_logger is not None:
+                await self.trace_logger.close_session(
+                    session_id=session_id,
+                    duration_ms=int((time.monotonic() - session_start) * 1_000),
+                    total_calls=turn,
+                    total_input=self.total_input_tokens - run_input_start,
+                    total_output=self.total_output_tokens - run_output_start,
+                    total_cached=self.total_cached_tokens - run_cached_start,
+                    error=run_error,
+                )
 
     async def _emit_tool_calls(self, calls: list[ToolCall]) -> None:
         callback = self.on_tool_calls
@@ -370,7 +408,6 @@ class Agent:
         scope: str,
         cancel_event: asyncio.Event | None = None,
     ) -> LlmResponse:
-        request_started = time.monotonic()
         event = cancel_event or self.cancel_event
         try:
             async with self._budget_request() as shared_budget:
@@ -382,28 +419,8 @@ class Agent:
                 self.record_usage(response)
                 if shared_budget is not None:
                     shared_budget.charge(response)
-        except Exception as exc:
-            if self.trace_logger is not None:
-                await self.trace_logger.record_error(
-                    scope=scope,
-                    provider=self.llm.provider,
-                    model=self.llm.model,
-                    duration_ms=int((time.monotonic() - request_started) * 1_000),
-                    message_count=len(messages),
-                    tool_schema_count=0,
-                    error=exc,
-                )
+        except Exception:
             raise
-        if self.trace_logger is not None:
-            await self.trace_logger.record_success(
-                scope=scope,
-                provider=self.llm.provider,
-                model=self.llm.model,
-                duration_ms=int((time.monotonic() - request_started) * 1_000),
-                message_count=len(messages),
-                tool_schema_count=0,
-                response=response,
-            )
         return response
 
     @asynccontextmanager
