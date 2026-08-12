@@ -64,6 +64,16 @@ def build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="start the local Runtime API")
     serve.add_argument("--http", action="store_true", required=True)
     serve.add_argument("--port", type=runtime_port, default=8080)
+    serve.add_argument(
+        "--web",
+        action="store_true",
+        help="start multi-user web UI instead of bare Runtime API",
+    )
+    serve.add_argument(
+        "--lan",
+        action="store_true",
+        help="bind to 0.0.0.0 for LAN access (requires --web)",
+    )
     wechat = subparsers.add_parser("wechat", help="manage the WeChat channel")
     wechat.set_defaults(daemon_action=None)
     wechat_actions = wechat.add_subparsers(dest="action", required=True)

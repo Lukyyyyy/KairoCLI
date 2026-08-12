@@ -405,6 +405,18 @@ def test_serve_parser_rejects_invalid_ports(port: str, capsys: Any) -> None:
     assert "port must be an integer from 1 to 65535" in captured.err
 
 
+def test_serve_parser_accepts_web_options() -> None:
+    args = build_parser().parse_args(
+        ["serve", "--http", "--web", "--lan", "--port", "9090"]
+    )
+
+    assert args.subcommand == "serve"
+    assert args.http is True
+    assert args.web is True
+    assert args.lan is True
+    assert args.port == 9090
+
+
 def test_run_server_rejects_invalid_programmatic_port(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     with pytest.raises(ValueError, match="port must be an integer from 1 to 65535"):

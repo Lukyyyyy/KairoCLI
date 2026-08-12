@@ -252,6 +252,16 @@ KAIROCLI_RUNTIME_API_KEY=local-secret \
 
 客户端可通过 `X-Kairo-CLI-API-Key` 或 `Authorization: Bearer <key>` 鉴权。Runtime API 提供 thread 创建、turn 执行与取消，以及支持游标恢复的 SSE 事件流；持久化数据库位于 `~/.kairocli/runtime/runtime.db`。
 
+如需带登录、会话列表、流式对话和工具审批的多用户 Web 界面，可运行：
+
+```bash
+kairocli serve --http --web --port 8080
+```
+
+Web 服务默认仅监听 `127.0.0.1`；需要在可信局域网内访问时额外传入 `--lan`，绑定到
+`0.0.0.0`。首次启动会在终端输出临时管理员密码，用户与 JWT 密钥保存在
+`~/.kairocli/web/`。
+
 ### 微信通道
 
 ```bash

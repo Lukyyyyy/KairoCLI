@@ -1,0 +1,592 @@
+# FastAPI intentionally declares dependency providers in callable defaults.
+# ruff: noqa: B008
+
+from __future__ import annotations
+
+import asyncio
+import json
+import secrets
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.security import OAuth2PasswordRequestForm
+
+from .agent import AgentCanceled
+from .runtime_api import (
+    _IDEMPOTENCY_KEY,
+    _THREAD_ID,
+    _TURN_ID,
+    MAX_RUNTIME_EVENT_RESPONSE_BYTES,
+    MAX_SQLITE_INTEGER,
+    RUNTIME_DELTA_CHARS,
+    RUNTIME_SHUTDOWN_GRACE_SECONDS,
+    RuntimeState,
+    RuntimeThreadStore,
+    _await_runtime_shutdown,
+    _finish_detached_runtime_task,
+    _valid_identifier,
+)
+from .trace import safe_redacted_text
+from .user_input import UserInputError, normalize_user_input
+from .web_auth import (
+    JwtSecretStore,
+    LoginRateLimiter,
+    WebUser,
+    WebUserStore,
+    create_access_token,
+    make_get_current_user,
+    make_require_admin,
+    verify_password,
+)
+
+_DETACHED_WEB_TASKS: set[asyncio.Task[Any]] = set()
+
+
+class WebApprover:
+    """Per-turn approver: pauses the agent and waits for the web user's decision."""
+
+    TIMEOUT_SECONDS = 300.0
+
+    def __init__(self, thread_id: str, turn_id: str, state: RuntimeState) -> None:
+        self.thread_id = thread_id
+        self.turn_id = turn_id
+        self.state = state
+        self._pending: asyncio.Event | None = None
+        self._result: bool = False
+
+    async def __call__(self, tool_name: str, arguments: dict[str, Any]) -> bool:
+        self.state.event(
+            self.thread_id,
+            "tool.approval_request",
+            {
+                "turn_id": self.turn_id,
+                "tool_name": tool_name,
+                "arguments": arguments,
+            },
+        )
+        self._pending = asyncio.Event()
+        self._result = False
+        try:
+            await asyncio.wait_for(self._pending.wait(), timeout=self.TIMEOUT_SECONDS)
+        except TimeoutError:
+            self.state.event(
+                self.thread_id,
+                "tool.approval_timeout",
+                {"turn_id": self.turn_id, "tool_name": tool_name},
+            )
+        return self._result
+
+    def respond(self, approved: bool) -> None:
+        self._result = approved
+        if self._pending is not None:
+            self._pending.set()
+
+
+class WebRuntimeState(RuntimeState):
+    """Extends RuntimeState with per-turn approver tracking."""
+
+    def __init__(self, agent_factory: Any, store: RuntimeThreadStore) -> None:
+        super().__init__(agent_factory, store)
+        self.active_approvers: dict[str, WebApprover] = {}
+
+    def refresh_owner_identity(self) -> None:
+        super().refresh_owner_identity()
+        self.active_approvers.clear()
+
+
+def create_web_app(
+    agent_factory: Any,
+    *,
+    runtime_database: Path,
+    users_database: Path,
+    jwt_secret_path: Path,
+    allow_origins: list[str] | None = None,
+) -> FastAPI:
+    user_store = WebUserStore(users_database)
+    jwt_secret = JwtSecretStore(jwt_secret_path).load_or_generate()
+    store = RuntimeThreadStore(runtime_database)
+    state = WebRuntimeState(agent_factory, store)
+    get_current_user = make_get_current_user(user_store, jwt_secret)
+    require_admin = make_require_admin(get_current_user)
+    rate_limiter = LoginRateLimiter()
+
+    if user_store.count() == 0:
+        temp_password = secrets.token_urlsafe(16)
+        user_store.create_user("admin", temp_password, is_admin=True)
+        print(
+            f"\n[KairoCLI Web] First run — admin account created.\n"
+            f"  Username : admin\n"
+            f"  Password : {temp_password}\n"
+            f"  Please change this password after first login.\n",
+            flush=True,
+        )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> Any:
+        state.refresh_owner_identity()
+        try:
+            yield
+        finally:
+            async def finish_shutdown() -> None:
+                for turn_id in tuple(state.active_turn_ids):
+                    active_agent = state.active_agents.get(turn_id)
+                    if active_agent is not None:
+                        try:
+                            active_agent.cancel()
+                        except Exception:
+                            pass
+                    try:
+                        state.store.update_turn_status(
+                            turn_id,
+                            "canceled",
+                            owner_token=state.owner_token,
+                            event_type="turn.canceled",
+                            event_data={"turn_id": turn_id},
+                        )
+                    except Exception:
+                        pass
+                    approver = state.active_approvers.pop(turn_id, None)
+                    if approver is not None:
+                        approver.respond(False)
+                active_tasks = tuple(state.active_turn_tasks)
+                for task in active_tasks:
+                    task.cancel()
+                if active_tasks:
+                    done, pending = await asyncio.wait(
+                        active_tasks, timeout=RUNTIME_SHUTDOWN_GRACE_SECONDS
+                    )
+                    if done:
+                        await asyncio.gather(*done, return_exceptions=True)
+                    for task in pending:
+                        _DETACHED_WEB_TASKS.add(task)
+                        task.add_done_callback(_finish_detached_runtime_task)
+                state.active_agents.clear()
+                state.active_turn_ids.clear()
+                state.active_turn_tasks.clear()
+
+            shutdown_task = asyncio.create_task(finish_shutdown(), name="kairo-web-shutdown")
+            await _await_runtime_shutdown(shutdown_task)
+
+    app = FastAPI(title="Kairo CLI Web", version="1", lifespan=lifespan)
+
+    from fastapi.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allow_origins or [],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "PUT"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "Last-Event-ID"],
+    )
+
+    # ── Auth endpoints ───────────────────────────────────────────────────────
+
+    @app.post("/auth/login")
+    async def login(
+        request: Request,
+        form: OAuth2PasswordRequestForm = Depends(),
+    ) -> dict[str, str]:
+        ip = request.client.host if request.client else "unknown"
+        rate_limiter.check_and_record(ip)
+        user = user_store.get_by_username(form.username)
+        if user is None or not verify_password(form.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Incorrect username or password")
+        token = create_access_token(user.id, user.username, user.is_admin, jwt_secret)
+        return {"access_token": token, "token_type": "bearer"}
+
+    @app.get("/auth/me")
+    async def me(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        return {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+
+    @app.post("/auth/logout")
+    async def logout(_user: WebUser = Depends(get_current_user)) -> dict[str, str]:
+        return {"status": "ok"}
+
+    # ── Admin endpoints ──────────────────────────────────────────────────────
+
+    @app.get("/admin/users")
+    async def list_users(
+        _admin: WebUser = Depends(require_admin),
+    ) -> dict[str, Any]:
+        users = user_store.list_users()
+        return {
+            "object": "list",
+            "data": [
+                {
+                    "id": u.id,
+                    "username": u.username,
+                    "is_admin": u.is_admin,
+                    "created_at": u.created_at,
+                }
+                for u in users
+            ],
+        }
+
+    @app.post("/admin/users", status_code=201)
+    async def create_user(
+        payload: dict[str, Any],
+        _admin: WebUser = Depends(require_admin),
+    ) -> dict[str, Any]:
+        username = payload.get("username", "")
+        password = payload.get("password", "")
+        is_admin = bool(payload.get("is_admin", False))
+        if not username or not password:
+            raise HTTPException(status_code=422, detail="username and password are required")
+        try:
+            user = user_store.create_user(str(username), str(password), is_admin=is_admin)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+
+    @app.put("/admin/users/{user_id}/password")
+    async def reset_password(
+        user_id: str,
+        payload: dict[str, Any],
+        admin: WebUser = Depends(require_admin),
+    ) -> dict[str, str]:
+        new_password = payload.get("password", "")
+        if not new_password:
+            raise HTTPException(status_code=422, detail="password is required")
+        try:
+            ok = user_store.update_password(user_id, str(new_password))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        if not ok:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"status": "ok"}
+
+    @app.delete("/admin/users/{user_id}")
+    async def delete_user(
+        user_id: str,
+        admin: WebUser = Depends(require_admin),
+    ) -> dict[str, str]:
+        if user_id == admin.id:
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+        ok = user_store.delete_user(user_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"status": "ok"}
+
+    # ── User-scoped v1 endpoints ─────────────────────────────────────────────
+
+    @app.delete("/v1/threads/{thread_id}")
+    async def delete_thread(
+        thread_id: str,
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if state.active_turn_ids & {
+            t for t in state.active_turn_ids
+            if state.store.exists_for_user(thread_id, user.id)
+        }:
+            pass  # allow deletion even with running turns; cancel is separate
+        ok = state.store.delete_thread(thread_id, user.id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return {"status": "ok"}
+
+    @app.post("/v1/threads")
+    async def create_thread(user: WebUser = Depends(get_current_user)) -> dict[str, str]:
+        thread_id = f"thread_{uuid.uuid4().hex[:12]}"
+        state.store.create(
+            thread_id,
+            owner_user_id=user.id,
+            event_type="thread.created",
+            event_data={"thread_id": thread_id},
+        )
+        return {"id": thread_id, "object": "thread"}
+
+    @app.get("/v1/threads")
+    async def list_threads(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        threads = state.store.list_threads(user.id)
+        return {"object": "list", "data": threads}
+
+    async def execute_turn(
+        thread_id: str,
+        prompt: str,
+        turn_id: str,
+        approver: WebApprover,
+    ) -> None:
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            state.active_turn_tasks.add(current_task)
+        agent = None
+        delta_buffer = ""
+        emitted_delta = False
+
+        def flush_delta(*, final: bool = False) -> None:
+            nonlocal delta_buffer
+            while len(delta_buffer) >= RUNTIME_DELTA_CHARS or (final and delta_buffer):
+                chunk = delta_buffer[:RUNTIME_DELTA_CHARS]
+                delta_buffer = delta_buffer[len(chunk):]
+                state.event(thread_id, "message.delta", {"turn_id": turn_id, "delta": chunk})
+
+        try:
+            if state.store.turn_status(thread_id, turn_id) != "running":
+                return
+            agent = agent_factory(approver=approver)
+            state.active_agents[turn_id] = agent
+            agent.history = state.store.completed_messages(thread_id, before_turn_id=turn_id)
+
+            def emit_delta(delta: str) -> None:
+                nonlocal delta_buffer, emitted_delta
+                if not delta:
+                    return
+                emitted_delta = True
+                delta_buffer += delta
+                flush_delta()
+
+            agent.on_content_delta = emit_delta
+
+            def emit_reasoning_delta(delta: str) -> None:
+                if delta:
+                    state.event(thread_id, "reasoning.delta", {"turn_id": turn_id, "delta": delta})
+
+            def emit_tool_calls(calls: list[Any]) -> None:
+                state.event(
+                    thread_id,
+                    "tool.calls",
+                    {
+                        "turn_id": turn_id,
+                        "calls": [
+                            {"id": c.id, "name": c.name, "arguments": c.arguments}
+                            for c in calls
+                        ],
+                    },
+                )
+
+            def emit_tool_results(calls: list[Any], results: list[Any]) -> None:
+                state.event(thread_id, "tool.results", {
+                    "turn_id": turn_id,
+                    "results": [
+                        {"id": c.id, "name": c.name, "text": r.text[:2000]}
+                        for c, r in zip(calls, results, strict=True)
+                    ],
+                })
+
+            agent.on_reasoning_delta = emit_reasoning_delta
+            agent.on_tool_calls = emit_tool_calls
+            agent.on_tool_results = emit_tool_results
+            answer = await agent.run(prompt)
+            if answer and not emitted_delta:
+                emit_delta(answer)
+            flush_delta(final=True)
+            state.store.update_turn_status(
+                turn_id,
+                "completed",
+                response=answer,
+                owner_token=state.owner_token,
+                event_type="turn.completed",
+                event_data={"turn_id": turn_id},
+            )
+        except AgentCanceled:
+            state.store.update_turn_status(
+                turn_id,
+                "canceled",
+                owner_token=state.owner_token,
+                event_type="turn.canceled",
+                event_data={"turn_id": turn_id},
+            )
+        except asyncio.CancelledError:
+            state.store.update_turn_status(
+                turn_id,
+                "canceled",
+                owner_token=state.owner_token,
+                event_type="turn.canceled",
+                event_data={"turn_id": turn_id},
+            )
+            raise
+        except Exception as exc:
+            flush_delta(final=True)
+            error = safe_redacted_text(exc, 2_000, "...[runtime error truncated]")
+            state.store.update_turn_status(
+                turn_id,
+                "failed",
+                error=error,
+                owner_token=state.owner_token,
+                event_type="turn.failed",
+                event_data={"turn_id": turn_id, "error": error},
+            )
+        finally:
+            state.active_agents.pop(turn_id, None)
+            state.active_approvers.pop(turn_id, None)
+            state.active_turn_ids.discard(turn_id)
+            if current_task is not None:
+                state.active_turn_tasks.discard(current_task)
+            if agent is not None:
+                try:
+                    await agent.tools.close()
+                except Exception:
+                    pass
+
+    @app.post("/v1/threads/{thread_id}/turns", status_code=202)
+    async def create_turn(
+        thread_id: str,
+        payload: dict[str, Any],
+        background: BackgroundTasks,
+        user: WebUser = Depends(get_current_user),
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    ) -> dict[str, str]:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not state.store.exists_for_user(thread_id, user.id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        raw_prompt = payload.get("input") if "input" in payload else payload.get("prompt")
+        if raw_prompt is None:
+            raise HTTPException(status_code=422, detail="input is required")
+        if not isinstance(raw_prompt, str):
+            raise HTTPException(status_code=422, detail="input must be a string")
+        if not raw_prompt:
+            raise HTTPException(status_code=422, detail="input is required")
+        try:
+            prompt = normalize_user_input(raw_prompt)
+        except UserInputError as exc:
+            raise HTTPException(
+                status_code=413,
+                detail=safe_redacted_text(exc, 4_000, "...[runtime error truncated]"),
+            ) from None
+        if not prompt.strip():
+            raise HTTPException(status_code=422, detail="input is required")
+        if idempotency_key is not None:
+            if not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):
+                raise HTTPException(status_code=422, detail="Invalid Idempotency-Key")
+        state.refresh_owner_identity()
+        try:
+            turn_id, status_str, created = state.store.reserve_turn(
+                thread_id,
+                prompt,
+                idempotency_key,
+                owner_token=state.owner_token,
+                owner_pid=state.owner_pid,
+                event_type="turn.started",
+                event_data={"input": prompt},
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=safe_redacted_text(exc, 4_000, "...[runtime error truncated]"),
+            ) from None
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=safe_redacted_text(exc, 4_000, "...[runtime error truncated]"),
+            ) from None
+        if not created:
+            return {"id": turn_id, "object": "turn", "status": status_str}
+        approver = WebApprover(thread_id, turn_id, state)
+        state.active_approvers[turn_id] = approver
+        state.active_turn_ids.add(turn_id)
+        background.add_task(execute_turn, thread_id, prompt, turn_id, approver)
+        return {"id": turn_id, "object": "turn", "status": "running"}
+
+    @app.post("/v1/threads/{thread_id}/turns/{turn_id}/cancel")
+    async def cancel_turn(
+        thread_id: str,
+        turn_id: str,
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not state.store.exists_for_user(thread_id, user.id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not _valid_identifier(turn_id, _TURN_ID):
+            raise HTTPException(status_code=404, detail="Turn not found")
+        turn_status = state.store.turn_status(thread_id, turn_id)
+        if turn_status is None:
+            raise HTTPException(status_code=404, detail="Turn not found")
+        if turn_status == "running" and state.store.update_turn_status(
+            turn_id,
+            "canceled",
+            event_type="turn.canceled",
+            event_data={"turn_id": turn_id},
+        ):
+            active = state.active_agents.get(turn_id)
+            if active is not None:
+                active.cancel()
+            approver = state.active_approvers.pop(turn_id, None)
+            if approver is not None:
+                approver.respond(False)
+            turn_status = "canceled"
+        return {"id": turn_id, "object": "turn", "status": turn_status}
+
+    @app.post("/v1/threads/{thread_id}/turns/{turn_id}/approval")
+    async def respond_to_approval(
+        thread_id: str,
+        turn_id: str,
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not state.store.exists_for_user(thread_id, user.id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not _valid_identifier(turn_id, _TURN_ID):
+            raise HTTPException(status_code=404, detail="Turn not found")
+        approver = state.active_approvers.get(turn_id)
+        if approver is None:
+            raise HTTPException(status_code=404, detail="No pending approval for this turn")
+        approver.respond(bool(payload.get("approved", False)))
+        return {"status": "ok"}
+
+    @app.get("/v1/threads/{thread_id}/events", response_class=PlainTextResponse)
+    async def events(
+        thread_id: str,
+        user: WebUser = Depends(get_current_user),
+        after: int = Query(default=0, ge=0, le=MAX_SQLITE_INTEGER),
+        limit: int = Query(default=100, ge=1, le=1_000),
+        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    ) -> PlainTextResponse:
+        if not _valid_identifier(thread_id, _THREAD_ID):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        if not state.store.exists_for_user(thread_id, user.id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        cursor = after
+        if after == 0 and last_event_id:
+            try:
+                from .runtime_api import _last_event_cursor
+                cursor = _last_event_cursor(last_event_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid Last-Event-ID") from None
+        chunks: list[str] = []
+        response_bytes = 0
+        next_event_id = cursor
+        selected = state.store.events(thread_id, cursor, limit + 1)
+        has_more = len(selected) > limit
+        for event in selected[:limit]:
+            chunk = (
+                f"id: {event.id}\nevent: {event.type}\n"
+                f"data: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+            )
+            chunk_bytes = len(chunk.encode("utf-8"))
+            if chunks and response_bytes + chunk_bytes > MAX_RUNTIME_EVENT_RESPONSE_BYTES:
+                has_more = True
+                break
+            chunks.append(chunk)
+            response_bytes += chunk_bytes
+            next_event_id = event.id
+        body = "".join(chunks)
+        return PlainTextResponse(
+            body,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "X-Kairo-CLI-Next-Event-ID": str(next_event_id),
+                "X-Kairo-CLI-Has-More": str(has_more).lower(),
+            },
+        )
+
+    # ── SPA fallback (must be last) ──────────────────────────────────────────
+
+    _static_index = Path(__file__).parent / "web_static" / "index.html"
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_catchall(full_path: str) -> FileResponse:
+        return FileResponse(_static_index)
+
+    return app

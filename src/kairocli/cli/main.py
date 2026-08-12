@@ -66,6 +66,48 @@ def run_server(paths: KairoPaths, config: AppConfig, provider: str | None, port:
     return 0
 
 
+def run_web_server(
+    paths: KairoPaths,
+    config: AppConfig,
+    provider: str | None,
+    port: int,
+    *,
+    lan: bool = False,
+) -> int:
+    if type(port) is not int or not 1 <= port <= 65_535:
+        raise ValueError("Web server port must be an integer from 1 to 65535")
+    from ..policy import ApprovalPolicy as _ApprovalPolicy
+    from ..web_app import create_web_app
+
+    # Each web turn gets its own agent instance with a WebApprover injected by web_app.
+    # Two independent RuntimeState instances against the same DB are safe (WAL mode,
+    # stale-owner recovery), but do not run the raw API server and the web server
+    # simultaneously against the same runtime.db.
+    def agent_factory(approver: Any = None) -> Any:
+        return make_agent(
+            paths,
+            config,
+            provider,
+            approval_policy=_ApprovalPolicy(enabled=True),
+            approver=approver,
+        )
+
+    app = create_web_app(
+        agent_factory,
+        runtime_database=paths.runtime_dir / "runtime.db",
+        users_database=paths.user_dir / "web" / "users.db",
+        jwt_secret_path=paths.user_dir / "web" / "jwt_secret.bin",
+    )
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise RuntimeError("Install Kairo CLI dependencies to run the server") from exc
+    host = "0.0.0.0" if lan else "127.0.0.1"
+    print(f"[KairoCLI Web] Listening on http://{host}:{port}", flush=True)
+    uvicorn.run(app, host=host, port=port)
+    return 0
+
+
 async def handle_wechat(
     paths: KairoPaths,
     config: AppConfig,
@@ -244,7 +286,10 @@ def main(argv: list[str] | None = None) -> None:
                 )
             )
         elif args.subcommand == "serve":
-            code = run_server(paths, config, args.provider, args.port)
+            if args.web:
+                code = run_web_server(paths, config, args.provider, args.port, lan=args.lan)
+            else:
+                code = run_server(paths, config, args.provider, args.port)
         elif args.subcommand == "wechat":
             code = asyncio.run(handle_wechat(paths, config, args.action, args.daemon_action))
         elif renderer.mode == "tui":

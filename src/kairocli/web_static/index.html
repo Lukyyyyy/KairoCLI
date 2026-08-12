@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kairo CLI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:         #080c14;
+      --bg-s:       #0c1220;
+      --bg-e:       #111a2a;
+      --bg-h:       #162036;
+      --border:     rgba(255,255,255,0.07);
+      --border-s:   rgba(255,255,255,0.12);
+      --accent:     #38bdf8;
+      --accent-dim: rgba(56,189,248,0.12);
+      --accent-2:   #818cf8;
+      --text-1:     #dde6f0;
+      --text-2:     #7a90aa;
+      --text-3:     #3d5068;
+      --green:      #34d399;
+      --red:        #f87171;
+      --yellow:     #fbbf24;
+      --orange:     #fb923c;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; overflow: hidden; }
+    body {
+      background: var(--bg);
+      color: var(--text-1);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13.5px;
+      line-height: 1.6;
+    }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+    /* ── typography ── */
+    .mono { font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace; }
+
+    /* ── prose ── */
+    .prose { line-height: 1.72; }
+    .prose h1, .prose h2, .prose h3 { font-weight: 600; margin: 0.9em 0 0.35em; color: var(--text-1); }
+    .prose h1 { font-size: 1.18em; }
+    .prose h2 { font-size: 1.07em; }
+    .prose h3 { font-size: 1em; }
+    .prose p { margin: 0.45em 0; }
+    .prose ul, .prose ol { margin: 0.45em 0; padding-left: 1.4em; }
+    .prose li { margin: 0.2em 0; }
+    .prose pre {
+      background: #0d1117 !important;
+      border: 1px solid var(--border-s);
+      border-radius: 6px;
+      padding: 0.75em 1em;
+      overflow-x: auto;
+      margin: 0.55em 0;
+      font-size: 0.81em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .prose code {
+      background: rgba(56,189,248,0.1);
+      color: #62cff4;
+      border-radius: 3px;
+      padding: 0.12em 0.38em;
+      font-size: 0.84em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .prose pre code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+    .prose blockquote {
+      border-left: 2px solid var(--accent);
+      padding-left: 0.85em;
+      color: var(--text-2);
+      margin: 0.5em 0;
+      font-style: italic;
+    }
+    .prose table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 0.88em; }
+    .prose th, .prose td { border: 1px solid var(--border-s); padding: 0.38em 0.65em; }
+    .prose th { background: var(--bg-e); color: var(--text-2); font-weight: 500; }
+    .prose a { color: var(--accent); text-decoration: none; }
+    .prose a:hover { text-decoration: underline; }
+    .prose strong { color: var(--text-1); font-weight: 600; }
+    .prose hr { border: none; border-top: 1px solid var(--border-s); margin: 0.8em 0; }
+
+    /* ── animations ── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    @keyframes blink { 0%,80%,100%{opacity:0;transform:scale(0.8)} 40%{opacity:1;transform:scale(1)} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes slideUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .spin { animation: spin 0.9s linear infinite; display: inline-block; }
+    .fade-in { animation: fadeIn 0.18s ease forwards; }
+    .slide-up { animation: slideUp 0.22s ease forwards; }
+
+    .typing-dot {
+      display: inline-block; width: 5px; height: 5px;
+      border-radius: 50%; background: var(--accent);
+      margin: 0 1.5px; vertical-align: middle;
+      animation: blink 1.4s infinite;
+    }
+    .typing-dot:nth-child(2) { animation-delay: 0.16s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
+    /* ── form inputs ── */
+    .k-input {
+      width: 100%; background: var(--bg-e);
+      border: 1px solid var(--border-s);
+      color: var(--text-1); border-radius: 7px;
+      padding: 8px 12px; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      font-family: inherit; font-size: 13.5px;
+    }
+    .k-input::placeholder { color: var(--text-3); }
+    .k-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.08);
+    }
+
+    /* ── buttons ── */
+    .btn-primary {
+      background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+      color: #fff; border: none; border-radius: 7px;
+      padding: 9px 20px; font-weight: 500; cursor: pointer;
+      font-family: inherit; font-size: 13.5px;
+      transition: filter 0.15s, transform 0.1s;
+      position: relative; overflow: hidden;
+    }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-primary:active { transform: scale(0.97); }
+
+    .btn-ghost {
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border-s); border-radius: 6px;
+      padding: 5px 12px; cursor: pointer;
+      font-family: inherit; font-size: 12px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .btn-ghost:hover { background: var(--bg-h); color: var(--text-1); border-color: var(--border-s); }
+
+    .btn-danger {
+      background: transparent; color: var(--red);
+      border: 1px solid rgba(248,113,113,0.25); border-radius: 6px;
+      padding: 4px 10px; cursor: pointer; font-size: 11.5px;
+      font-family: inherit;
+      transition: background 0.15s;
+    }
+    .btn-danger:hover { background: rgba(248,113,113,0.09); }
+
+    .btn-icon {
+      background: transparent; color: var(--text-2);
+      border: none; border-radius: 5px;
+      padding: 4px 6px; cursor: pointer;
+      font-size: 13px; line-height: 1;
+      transition: background 0.12s, color 0.12s;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .btn-icon:hover { background: var(--bg-h); color: var(--text-1); }
+
+    /* ── sidebar ── */
+    #sidebar {
+      width: 240px; min-width: 240px;
+      background: var(--bg-s);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; height: 100%;
+    }
+    .sidebar-brand {
+      padding: 16px 14px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 9px;
+    }
+    .brand-icon {
+      width: 28px; height: 28px; border-radius: 7px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 14px; color: white; flex-shrink: 0;
+    }
+    .brand-name { font-weight: 600; font-size: 14px; color: var(--text-1); letter-spacing: -0.01em; }
+    .brand-tag {
+      font-size: 10px; color: var(--accent);
+      background: var(--accent-dim); border: 1px solid rgba(56,189,248,0.2);
+      border-radius: 3px; padding: 1px 5px; font-weight: 500;
+      letter-spacing: 0.03em;
+    }
+
+    .sidebar-actions { padding: 10px 10px 6px; }
+    #new-chat-btn {
+      width: 100%; display: flex; align-items: center; gap: 7px;
+      background: var(--accent-dim); color: var(--accent);
+      border: 1px solid rgba(56,189,248,0.2); border-radius: 7px;
+      padding: 7px 10px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+      font-family: inherit; transition: background 0.15s, border-color 0.15s;
+    }
+    #new-chat-btn:hover { background: rgba(56,189,248,0.18); border-color: rgba(56,189,248,0.35); }
+    .new-chat-icon {
+      width: 18px; height: 18px; background: var(--accent);
+      border-radius: 4px; display: flex; align-items: center;
+      justify-content: center; color: #0a0c14; font-size: 13px; font-weight: 700; flex-shrink: 0;
+    }
+
+    .sidebar-section-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-3);
+      padding: 8px 14px 4px;
+    }
+
+    #thread-list { flex: 1; overflow-y: auto; padding: 0 6px 6px; }
+    .thread-item {
+      display: flex; align-items: center; gap: 6px;
+      width: 100%; text-align: left;
+      padding: 6px 10px; border-radius: 6px; cursor: pointer;
+      color: var(--text-2); font-size: 12.5px;
+      border: 1px solid transparent;
+      transition: background 0.12s, color 0.12s;
+      position: relative; overflow: hidden;
+    }
+    .thread-item:hover { background: var(--bg-h); color: var(--text-1); }
+    .thread-item.active {
+      background: var(--accent-dim); color: var(--accent);
+      border-color: rgba(56,189,248,0.15);
+    }
+    .thread-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--text-3); flex-shrink: 0;
+      transition: background 0.12s;
+    }
+    .thread-item.active .thread-dot { background: var(--accent); }
+    .thread-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .thread-del {
+      display: none; background: none; border: none; cursor: pointer;
+      color: var(--text-3); font-size: 12px; padding: 0 2px; line-height: 1;
+      border-radius: 3px; flex-shrink: 0;
+      transition: color 0.12s, background 0.12s;
+    }
+    .thread-item:hover .thread-del { display: block; }
+    .thread-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+    .sidebar-footer {
+      padding: 10px 12px; border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .user-avatar {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: linear-gradient(135deg, #334155, #475569);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 600; color: var(--text-1); flex-shrink: 0;
+    }
+    #username-badge { flex: 1; font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .footer-btns { display: flex; align-items: center; gap: 2px; }
+
+    /* ── main area ── */
+    #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    /* header */
+    #chat-header {
+      height: 48px; padding: 0 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      background: var(--bg-s); flex-shrink: 0;
+    }
+    #header-title { font-size: 13.5px; font-weight: 500; color: var(--text-1); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .header-badge {
+      font-size: 10px; font-weight: 500; letter-spacing: 0.04em;
+      padding: 2px 7px; border-radius: 3px; border: 1px solid;
+    }
+    .status-ready { color: var(--green); border-color: rgba(52,211,153,0.25); background: rgba(52,211,153,0.08); }
+    .status-running { color: var(--yellow); border-color: rgba(251,191,36,0.25); background: rgba(251,191,36,0.08); }
+    .status-idle { color: var(--text-3); border-color: var(--border); background: transparent; }
+
+    /* ── messages ── */
+    #messages { flex: 1; overflow-y: auto; padding: 20px 16px; }
+    .msg-group { margin-bottom: 20px; animation: fadeIn 0.18s ease forwards; }
+
+    .msg-user {
+      display: flex; justify-content: flex-end; margin-bottom: 6px;
+    }
+    .bubble-user {
+      max-width: 72%; background: linear-gradient(135deg, #0c4a85 0%, #312e81 100%);
+      color: #dde6f0; border-radius: 14px 14px 3px 14px;
+      padding: 10px 14px; font-size: 13.5px; line-height: 1.62;
+      white-space: pre-wrap; word-break: break-word;
+      border: 1px solid rgba(99,102,241,0.25);
+    }
+
+    .msg-assistant { display: flex; align-items: flex-start; gap: 10px; }
+    .assistant-avatar {
+      width: 26px; height: 26px; flex-shrink: 0; border-radius: 7px; margin-top: 3px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; color: white;
+    }
+    .bubble-assistant {
+      flex: 1; min-width: 0; background: var(--bg-e);
+      border: 1px solid var(--border-s);
+      border-radius: 3px 14px 14px 14px;
+      padding: 10px 14px;
+      position: relative;
+    }
+    .bubble-content { min-height: 22px; }
+
+    /* message actions (copy, etc.) */
+    .msg-actions {
+      display: flex; gap: 4px; margin-top: 8px; opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .msg-assistant:hover .msg-actions { opacity: 1; }
+
+    /* ── tool call blocks ── */
+    .tool-block {
+      margin: 8px 0; border: 1px solid var(--border-s);
+      border-radius: 6px; overflow: hidden; font-size: 12px;
+    }
+    .tool-block summary {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 10px; cursor: pointer; user-select: none;
+      background: var(--bg-s); list-style: none;
+      transition: background 0.12s;
+    }
+    .tool-block summary::-webkit-details-marker { display: none; }
+    .tool-block summary:hover { background: var(--bg-h); }
+    .tool-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; font-weight: 500; letter-spacing: 0.04em;
+      padding: 2px 6px; border-radius: 3px;
+    }
+    .tool-bash { color: var(--green); background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.2); }
+    .tool-read  { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(56,189,248,0.2); }
+    .tool-write { color: var(--yellow); background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.2); }
+    .tool-edit  { color: var(--orange); background: rgba(251,146,60,0.1); border: 1px solid rgba(251,146,60,0.2); }
+    .tool-search { color: var(--accent-2); background: rgba(129,140,248,0.1); border: 1px solid rgba(129,140,248,0.2); }
+    .tool-default { color: var(--text-2); background: var(--bg-h); border: 1px solid var(--border-s); }
+    .tool-name { color: var(--text-2); font-family: 'JetBrains Mono', monospace; }
+    .tool-chevron { margin-left: auto; color: var(--text-3); font-size: 10px; transition: transform 0.15s; }
+    details[open] .tool-chevron { transform: rotate(90deg); }
+    .tool-body { padding: 8px 10px; background: var(--bg); }
+    .tool-body pre {
+      margin: 0; padding: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px; color: var(--text-2);
+      white-space: pre-wrap; word-break: break-all;
+      max-height: 180px; overflow-y: auto;
+    }
+    .tool-result {
+      margin-top: 6px; padding-top: 6px;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px; color: var(--text-3);
+      max-height: 100px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .tool-pending::after {
+      content: ' …'; color: var(--text-3); animation: pulse 1.2s infinite;
+    }
+
+    /* ── reasoning block ── */
+    .reasoning-block {
+      margin-bottom: 8px; border: 1px solid rgba(129,140,248,0.2);
+      border-radius: 6px; overflow: hidden;
+    }
+    .reasoning-block summary {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 10px; cursor: pointer; list-style: none;
+      font-size: 11.5px; color: var(--text-3);
+      background: rgba(129,140,248,0.06);
+      user-select: none; transition: color 0.12s;
+    }
+    .reasoning-block summary::-webkit-details-marker { display: none; }
+    .reasoning-block summary:hover { color: var(--text-2); }
+    .reasoning-icon { font-size: 12px; }
+    .reasoning-label { flex: 1; }
+    .reasoning-body {
+      padding: 8px 10px; font-size: 12px; color: var(--text-2);
+      max-height: 220px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-word;
+      line-height: 1.65; border-top: 1px solid rgba(129,140,248,0.15);
+      background: var(--bg);
+    }
+
+    /* ── confirm modal ── */
+    #confirm-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(8,12,20,0.75); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; z-index: 60;
+    }
+    #confirm-modal.visible { display: flex; }
+    .confirm-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 10px; padding: 20px 22px; width: 100%; max-width: 340px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: slideUp 0.18s ease forwards;
+    }
+    .confirm-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: rgba(248,113,113,0.1); border: 1px solid rgba(248,113,113,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; margin-bottom: 12px;
+    }
+    .confirm-title { font-weight: 600; font-size: 14px; color: var(--text-1); margin-bottom: 5px; }
+    #confirm-msg { font-size: 13px; color: var(--text-2); margin-bottom: 18px; line-height: 1.55; }
+    .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── input area ──*/
+    #input-bar {
+      padding: 12px 16px; border-top: 1px solid var(--border);
+      background: var(--bg-s); flex-shrink: 0;
+    }
+    .input-wrap {
+      max-width: 860px; margin: 0 auto;
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 10px; display: flex; align-items: flex-end; gap: 0;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input-wrap:focus-within {
+      border-color: rgba(56,189,248,0.4);
+      box-shadow: 0 0 0 3px rgba(56,189,248,0.07);
+    }
+    #prompt-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: var(--text-1); padding: 10px 12px; resize: none;
+      font-family: inherit; font-size: 13.5px; line-height: 1.55;
+      min-height: 42px; max-height: 160px; overflow-y: auto;
+    }
+    #prompt-input::placeholder { color: var(--text-3); }
+    .input-btns { display: flex; align-items: flex-end; gap: 4px; padding: 6px 8px; }
+
+    #send-btn {
+      width: 32px; height: 32px; border-radius: 7px; cursor: pointer;
+      border: none; display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: white; font-size: 14px; flex-shrink: 0;
+      transition: filter 0.15s, transform 0.1s;
+    }
+    #send-btn:hover { filter: brightness(1.1); }
+    #send-btn:active { transform: scale(0.94); }
+    #send-btn:disabled { opacity: 0.4; cursor: default; }
+
+    #cancel-btn {
+      width: 32px; height: 32px; border-radius: 7px; cursor: pointer;
+      border: 1px solid rgba(248,113,113,0.3);
+      display: none; align-items: center; justify-content: center;
+      background: rgba(248,113,113,0.1);
+      color: var(--red); font-size: 13px; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    #cancel-btn.visible { display: flex; }
+    #cancel-btn:hover { background: rgba(248,113,113,0.2); }
+
+    .input-hint {
+      text-align: center; font-size: 11px; color: var(--text-3);
+      margin-top: 6px; max-width: 860px; margin-left: auto; margin-right: auto;
+    }
+    .input-hint kbd {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 3px; padding: 1px 4px; font-family: inherit;
+      font-size: 10px; color: var(--text-2);
+    }
+
+    /* ── empty state ── */
+    #empty-state {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: var(--text-3); gap: 8px; padding: 20px;
+      pointer-events: none;
+    }
+    .empty-icon {
+      width: 52px; height: 52px; border-radius: 14px;
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 4px;
+    }
+    .empty-title { font-size: 15px; font-weight: 600; color: var(--text-2); }
+    .empty-desc { font-size: 12.5px; color: var(--text-3); text-align: center; max-width: 260px; }
+
+    /* ── approval overlay ── */
+    #approval-overlay {
+      display: none; position: absolute; inset: 0;
+      background: rgba(8,12,20,0.75);
+      backdrop-filter: blur(6px);
+      align-items: flex-end; justify-content: center;
+      padding-bottom: 100px; z-index: 30;
+    }
+    #approval-overlay.visible { display: flex; }
+    .approval-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 12px; padding: 18px 20px;
+      width: 100%; max-width: 560px; margin: 0 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: slideUp 0.22s ease forwards;
+    }
+    .approval-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+    .approval-warn-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .approval-title { font-weight: 600; font-size: 13.5px; color: var(--text-1); flex: 1; }
+    #approval-countdown { font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; }
+    .approval-body {
+      background: var(--bg-s); border: 1px solid var(--border);
+      border-radius: 7px; padding: 10px 12px; margin-bottom: 14px;
+    }
+    .approval-tool-row { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+    .approval-tool-label { font-size: 11px; color: var(--text-3); }
+    #approval-tool-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-1); }
+    #approval-args {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11.5px; color: var(--text-2);
+      white-space: pre-wrap; word-break: break-all;
+      margin: 0; max-height: 140px; overflow-y: auto;
+    }
+    .approval-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── login ── */
+    #login-view {
+      display: none; position: fixed; inset: 0;
+      background: var(--bg); z-index: 50;
+      align-items: center; justify-content: center;
+    }
+    #login-view.visible { display: flex; }
+    .login-grid {
+      position: absolute; inset: 0; opacity: 0.4;
+      background-image:
+        linear-gradient(rgba(56,189,248,0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56,189,248,0.06) 1px, transparent 1px);
+      background-size: 44px 44px;
+    }
+    .login-glow {
+      position: absolute; width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 70%);
+      top: 50%; left: 50%; transform: translate(-50%, -60%);
+      pointer-events: none;
+    }
+    .login-card {
+      position: relative; z-index: 1;
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 14px; padding: 32px 28px;
+      width: 100%; max-width: 360px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(56,189,248,0.05);
+      animation: slideUp 0.28s ease forwards;
+    }
+    .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+    .login-brand-icon {
+      width: 36px; height: 36px; border-radius: 9px;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 17px; color: white;
+    }
+    .login-brand-text { }
+    .login-brand-name { font-weight: 700; font-size: 16px; color: var(--text-1); letter-spacing: -0.02em; }
+    .login-brand-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+    .login-title { font-size: 17px; font-weight: 600; color: var(--text-1); margin-bottom: 4px; }
+    .login-sub { font-size: 12px; color: var(--text-3); margin-bottom: 22px; }
+    .form-field { margin-bottom: 14px; }
+    .form-label { font-size: 12px; color: var(--text-2); font-weight: 500; margin-bottom: 6px; display: block; }
+    #login-error {
+      display: none; font-size: 12px; color: var(--red);
+      background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+      border-radius: 6px; padding: 7px 10px; margin-bottom: 14px;
+    }
+    #login-error.visible { display: block; }
+
+    /* ── admin modal ── */
+    #admin-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(8,12,20,0.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; z-index: 40;
+    }
+    #admin-modal.visible { display: flex; }
+    .admin-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 12px; width: 100%; max-width: 560px;
+      max-height: 80vh; display: flex; flex-direction: column;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      animation: slideUp 0.22s ease forwards;
+    }
+    .admin-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+    }
+    .admin-title { font-weight: 600; font-size: 14px; color: var(--text-1); }
+    .admin-body { flex: 1; overflow-y: auto; padding: 14px 20px; }
+    .admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .admin-table th {
+      text-align: left; color: var(--text-3); font-weight: 500;
+      font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
+      padding: 0 0 8px; border-bottom: 1px solid var(--border);
+    }
+    .admin-table td { padding: 8px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .admin-table tr:last-child td { border-bottom: none; }
+    .role-badge {
+      font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 3px;
+      letter-spacing: 0.03em;
+    }
+    .role-admin { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(56,189,248,0.2); }
+    .role-user { color: var(--text-3); background: var(--bg-h); border: 1px solid var(--border); }
+
+    .admin-add { padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-s); border-radius: 0 0 12px 12px; }
+    .admin-add-title { font-size: 12px; font-weight: 500; color: var(--text-2); margin-bottom: 8px; }
+    .admin-add-row { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
+    .admin-add-row input { font-size: 12px !important; padding: 6px 10px !important; }
+    .admin-add-row .k-input { flex: 1; min-width: 100px; }
+    #admin-error {
+      display: none; font-size: 11.5px; color: var(--red); margin-top: 6px;
+    }
+    #admin-error.visible { display: block; }
+
+    /* ── app layout ── */
+    #app-view {
+      display: none; height: 100vh;
+      flex-direction: row;
+    }
+    #app-view.visible { display: flex; }
+
+    /* main content area */
+    #chat-area {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+      position: relative;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ LOGIN -->
+<div id="login-view">
+  <div class="login-grid"></div>
+  <div class="login-glow"></div>
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="login-brand-icon">K</div>
+      <div class="login-brand-text">
+        <div class="login-brand-name">Kairo CLI</div>
+        <div class="login-brand-sub">Web Interface</div>
+      </div>
+    </div>
+    <div class="login-title">欢迎回来</div>
+    <div class="login-sub">登录以访问 AI 代理控制台</div>
+    <div id="login-error"></div>
+    <form id="login-form">
+      <div class="form-field">
+        <label class="form-label" for="login-username">用户名</label>
+        <input id="login-username" type="text" autocomplete="username"
+          class="k-input" placeholder="输入用户名" />
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="login-password">密码</label>
+        <input id="login-password" type="password" autocomplete="current-password"
+          class="k-input" placeholder="输入密码" />
+      </div>
+      <button type="submit" class="btn-primary" style="width:100%; margin-top:4px;">
+        登录
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ APP -->
+<div id="app-view">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">K</div>
+      <div style="flex:1; min-width:0;">
+        <div class="brand-name">Kairo CLI</div>
+      </div>
+      <div class="brand-tag">WEB</div>
+    </div>
+
+    <div class="sidebar-actions">
+      <button id="new-chat-btn">
+        <div class="new-chat-icon">+</div>
+        <span>新建对话</span>
+      </button>
+    </div>
+
+    <div class="sidebar-section-label">近期对话</div>
+    <div id="thread-list"></div>
+
+    <div class="sidebar-footer">
+      <div class="user-avatar" id="user-avatar">U</div>
+      <span id="username-badge"></span>
+      <div class="footer-btns">
+        <button id="admin-btn" class="btn-icon" title="用户管理" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+        </button>
+        <button id="logout-btn" class="btn-icon" title="退出登录">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main chat area -->
+  <div id="main">
+
+    <!-- Header -->
+    <div id="chat-header">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" style="flex-shrink:0">
+        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+      </svg>
+      <div id="header-title" style="color:var(--text-3);">选择或新建对话</div>
+      <div id="status-badge" class="header-badge status-idle">IDLE</div>
+    </div>
+
+    <div id="chat-area">
+      <!-- Messages -->
+      <div id="messages" style="flex:1; overflow-y:auto; padding:20px 20px;"></div>
+
+      <!-- Empty state (inside chat-area, overlay) -->
+      <div id="empty-state">
+        <div class="empty-icon">⌨</div>
+        <div class="empty-title">Kairo CLI Web</div>
+        <div class="empty-desc">选择左侧对话，或新建一个开始与 AI 代理交互</div>
+      </div>
+
+      <!-- Approval overlay -->
+      <div id="approval-overlay">
+        <div class="approval-card">
+          <div class="approval-header">
+            <div class="approval-warn-icon">⚠</div>
+            <div class="approval-title">工具执行请求确认</div>
+            <div id="approval-countdown" class="mono"></div>
+          </div>
+          <div class="approval-body">
+            <div class="approval-tool-row">
+              <span class="approval-tool-label">工具：</span>
+              <span id="approval-tool-name"></span>
+            </div>
+            <pre id="approval-args"></pre>
+          </div>
+          <div class="approval-actions">
+            <button id="approval-deny-btn" class="btn-danger" style="padding:7px 16px; font-size:13px;">拒绝</button>
+            <button id="approval-approve-btn" class="btn-primary" style="padding:7px 16px; font-size:13px;">批准执行</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input bar -->
+    <div id="input-bar">
+      <div class="input-wrap">
+        <textarea id="prompt-input" rows="1" placeholder="输入消息，与 AI 代理对话…"></textarea>
+        <div class="input-btns">
+          <button id="cancel-btn" title="停止生成">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+            </svg>
+          </button>
+          <button id="send-btn" title="发送 (Ctrl+Enter)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="input-hint">
+        <kbd>Enter</kbd> 发送 &nbsp;·&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ ADMIN -->
+<div id="admin-modal">
+  <div class="admin-card">
+    <div class="admin-header">
+      <div class="admin-title">用户管理</div>
+      <button id="admin-modal-close" class="btn-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <div class="admin-body">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th style="width:40%">用户名</th>
+            <th style="width:20%">角色</th>
+            <th style="width:25%">创建时间</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="admin-user-list"></tbody>
+      </table>
+    </div>
+    <div class="admin-add">
+      <div class="admin-add-title">添加用户</div>
+      <div class="admin-add-row">
+        <input id="new-user-name" type="text" placeholder="用户名" class="k-input" />
+        <input id="new-user-pwd" type="password" placeholder="密码（≥8位）" class="k-input" />
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer;">
+          <input id="new-user-admin" type="checkbox" style="accent-color:var(--accent);width:13px;height:13px;" />
+          管理员
+        </label>
+        <button id="new-user-btn" class="btn-primary" style="padding:6px 14px;font-size:12px;white-space:nowrap;">添加</button>
+      </div>
+      <div id="admin-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ CONFIRM -->
+<div id="confirm-modal">
+  <div class="confirm-card">
+    <div class="confirm-icon">⚠</div>
+    <div class="confirm-title">确认操作</div>
+    <div id="confirm-msg"></div>
+    <div class="confirm-actions">
+      <button id="confirm-cancel" class="btn-ghost">取消</button>
+      <button id="confirm-ok" class="btn-danger" style="padding:6px 14px;font-size:13px;">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+// ─── marked + highlight.js ────────────────────────────────────────────────────
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+  highlight: function (code, lang) {
+    if (lang && hljs.getLanguage(lang)) {
+      try { return hljs.highlight(code, { language: lang }).value; } catch {}
+    }
+    try { return hljs.highlightAuto(code).value; } catch {}
+    return code;
+  },
+});
+
+// ─── state ────────────────────────────────────────────────────────────────────
+const state = {
+  token: localStorage.getItem('kairo_token'),
+  currentUser: null,
+  threads: [],
+  activeThreadId: null,
+  threadLabels: {},
+  eventCursor: 0,
+  pollTimer: null,
+  pendingApproval: null,
+  approvalCountdownTimer: null,
+  isStreaming: false,
+  activeTurnId: null,
+};
+
+// ─── DOM refs ─────────────────────────────────────────────────────────────────
+const loginView      = document.getElementById('login-view');
+const appView        = document.getElementById('app-view');
+const loginForm      = document.getElementById('login-form');
+const loginUsername  = document.getElementById('login-username');
+const loginPassword  = document.getElementById('login-password');
+const loginError     = document.getElementById('login-error');
+const threadList     = document.getElementById('thread-list');
+const newChatBtn     = document.getElementById('new-chat-btn');
+const messages       = document.getElementById('messages');
+const emptyState     = document.getElementById('empty-state');
+const promptInput    = document.getElementById('prompt-input');
+const sendBtn        = document.getElementById('send-btn');
+const cancelBtn      = document.getElementById('cancel-btn');
+const usernameBadge  = document.getElementById('username-badge');
+const userAvatar     = document.getElementById('user-avatar');
+const adminBtn       = document.getElementById('admin-btn');
+const logoutBtn      = document.getElementById('logout-btn');
+const approvalOverlay      = document.getElementById('approval-overlay');
+const approvalToolName     = document.getElementById('approval-tool-name');
+const approvalArgs         = document.getElementById('approval-args');
+const approvalCountdown    = document.getElementById('approval-countdown');
+const approvalApproveBtn   = document.getElementById('approval-approve-btn');
+const approvalDenyBtn      = document.getElementById('approval-deny-btn');
+const adminModal           = document.getElementById('admin-modal');
+const adminModalClose      = document.getElementById('admin-modal-close');
+const adminUserList        = document.getElementById('admin-user-list');
+const adminError           = document.getElementById('admin-error');
+const newUserName          = document.getElementById('new-user-name');
+const newUserPwd           = document.getElementById('new-user-pwd');
+const newUserAdmin         = document.getElementById('new-user-admin');
+const newUserBtn           = document.getElementById('new-user-btn');
+const headerTitle          = document.getElementById('header-title');
+const statusBadge          = document.getElementById('status-badge');
+const confirmModal         = document.getElementById('confirm-modal');
+const confirmMsg           = document.getElementById('confirm-msg');
+const confirmOk            = document.getElementById('confirm-ok');
+const confirmCancel        = document.getElementById('confirm-cancel');
+
+// ─── confirm dialog ──────────────────────────────────────────────────────────
+function showConfirm(msg, okLabel = '确认删除') {
+  return new Promise(resolve => {
+    confirmMsg.textContent = msg;
+    confirmOk.textContent = okLabel;
+    confirmModal.classList.add('visible');
+    const cleanup = () => {
+      confirmModal.classList.remove('visible');
+      confirmOk.removeEventListener('click', onOk);
+      confirmCancel.removeEventListener('click', onCancel);
+      confirmModal.removeEventListener('click', onBg);
+    };
+    const onOk     = () => { cleanup(); resolve(true); };
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onBg     = (e) => { if (e.target === confirmModal) { cleanup(); resolve(false); } };
+    confirmOk.addEventListener('click', onOk);
+    confirmCancel.addEventListener('click', onCancel);
+    confirmModal.addEventListener('click', onBg);
+  });
+}
+
+// ─── typewriter ───────────────────────────────────────────────────────────────
+const typewriters = {}; // turnId → { buffer, cursor, rafId }
+
+function typewriterPush(turnId, delta) {
+  if (!typewriters[turnId]) typewriters[turnId] = { buffer: '', cursor: 0, rafId: null };
+  typewriters[turnId].buffer += delta;
+  if (typewriters[turnId].rafId === null) {
+    typewriters[turnId].rafId = requestAnimationFrame(() => typewriterStep(turnId));
+  }
+}
+
+function typewriterStep(turnId) {
+  const tw = typewriters[turnId];
+  if (!tw) return;
+  tw.rafId = null;
+  const speed = 20; // chars per frame (~1200 chars/s at 60fps)
+  tw.cursor = Math.min(tw.cursor + speed, tw.buffer.length);
+  renderBubble(turnId, tw.buffer.slice(0, tw.cursor), false);
+  if (tw.cursor < tw.buffer.length) {
+    tw.rafId = requestAnimationFrame(() => typewriterStep(turnId));
+  }
+}
+
+function typewriterFlush(turnId) {
+  const tw = typewriters[turnId];
+  if (!tw) return;
+  if (tw.rafId !== null) { cancelAnimationFrame(tw.rafId); tw.rafId = null; }
+  renderBubble(turnId, tw.buffer, true);
+  delete typewriters[turnId];
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (!(opts.body instanceof URLSearchParams)) {
+    headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  }
+  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) { clearAuth(); showLogin(); }
+  return res;
+}
+
+async function apiJson(path, opts = {}) {
+  const res = await apiFetch(path, opts);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try { const j = await res.json(); detail = j.detail || detail; } catch {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+// ─── auth ─────────────────────────────────────────────────────────────────────
+function clearAuth() {
+  state.token = null;
+  state.currentUser = null;
+  localStorage.removeItem('kairo_token');
+}
+
+function showLogin() {
+  appView.classList.remove('visible');
+  loginView.classList.add('visible');
+  loginUsername.focus();
+}
+
+function showApp() {
+  loginView.classList.remove('visible');
+  appView.classList.add('visible');
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  loginError.classList.remove('visible');
+  const body = new URLSearchParams({
+    username: loginUsername.value,
+    password: loginPassword.value,
+  });
+  try {
+    const res = await fetch('/auth/login', { method: 'POST', body });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      loginError.textContent = j.detail || '登录失败，请检查用户名和密码';
+      loginError.classList.add('visible');
+      return;
+    }
+    const data = await res.json();
+    state.token = data.access_token;
+    localStorage.setItem('kairo_token', state.token);
+    await initApp();
+  } catch (err) {
+    loginError.textContent = '网络错误：' + err.message;
+    loginError.classList.add('visible');
+  }
+});
+
+logoutBtn.addEventListener('click', async () => {
+  await apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
+  clearAuth();
+  messages.innerHTML = '';
+  threadList.innerHTML = '';
+  state.threads = [];
+  state.activeThreadId = null;
+  state.threadLabels = {};
+  showLogin();
+});
+
+// ─── init ─────────────────────────────────────────────────────────────────────
+async function initApp() {
+  try {
+    const me = await apiJson('/auth/me');
+    state.currentUser = me;
+  } catch { clearAuth(); showLogin(); return; }
+
+  const u = state.currentUser;
+  usernameBadge.textContent = u.username;
+  userAvatar.textContent = u.username.charAt(0).toUpperCase();
+  if (u.is_admin) adminBtn.style.display = '';
+
+  showApp();
+  await loadThreads();
+  if (state.threads.length > 0) selectThread(state.threads[0].id);
+}
+
+// ─── streaming state ─────────────────────────────────────────────────────────
+function setStreaming(turnId) {
+  state.isStreaming = true;
+  state.activeTurnId = turnId;
+  sendBtn.disabled = true;
+  cancelBtn.classList.add('visible');
+  setStatusBadge('running');
+}
+
+function clearStreaming() {
+  state.isStreaming = false;
+  state.activeTurnId = null;
+  sendBtn.disabled = false;
+  cancelBtn.classList.remove('visible');
+  setStatusBadge('ready');
+}
+
+function setStatusBadge(s) {
+  statusBadge.className = 'header-badge status-' + s;
+  const labels = { ready: 'READY', running: 'RUNNING', idle: 'IDLE' };
+  statusBadge.textContent = labels[s] || s.toUpperCase();
+}
+
+cancelBtn.addEventListener('click', async () => {
+  const { activeThreadId, activeTurnId } = state;
+  if (!activeThreadId || !activeTurnId) return;
+  try {
+    await apiJson(`/v1/threads/${activeThreadId}/turns/${activeTurnId}/cancel`, { method: 'POST' });
+  } catch {}
+  clearStreaming();
+});
+
+// ─── threads ─────────────────────────────────────────────────────────────────
+async function loadThreads() {
+  try {
+    const data = await apiJson('/v1/threads');
+    state.threads = data.data || [];
+    for (const t of state.threads) {
+      if (t.title && !state.threadLabels[t.id]) {
+        state.threadLabels[t.id] = t.title;
+      }
+    }
+    renderThreadList();
+  } catch {}
+}
+
+function renderThreadList() {
+  threadList.innerHTML = '';
+  if (!state.threads.length) {
+    threadList.innerHTML = '<div style="padding:8px 14px;font-size:11.5px;color:var(--text-3);">暂无对话</div>';
+    return;
+  }
+  state.threads.forEach(t => {
+    const btn = document.createElement('button');
+    btn.className = 'thread-item' + (t.id === state.activeThreadId ? ' active' : '');
+    const label = state.threadLabels[t.id] || ('对话 ' + t.id.slice(-8));
+    btn.innerHTML = `
+      <span class="thread-dot"></span>
+      <span class="thread-label" title="${escHtml(label)}">${escHtml(label)}</span>
+      <button class="thread-del" data-id="${t.id}" title="删除">×</button>`;
+    btn.addEventListener('click', (e) => {
+      if (e.target.classList.contains('thread-del')) return;
+      selectThread(t.id);
+    });
+    btn.querySelector('.thread-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!await showConfirm('删除后对话记录将无法恢复。')) return;
+      try {
+        await apiJson(`/v1/threads/${t.id}`, { method: 'DELETE' });
+      } catch (err) {
+        showToast('删除失败：' + err.message, 'error');
+        return;
+      }
+      state.threads = state.threads.filter(x => x.id !== t.id);
+      delete state.threadLabels[t.id];
+      if (state.activeThreadId === t.id) {
+        state.activeThreadId = null;
+        messages.innerHTML = '';
+        showEmptyState(true);
+        headerTitle.textContent = '选择或新建对话';
+        headerTitle.style.color = 'var(--text-3)';
+        setStatusBadge('idle');
+      }
+      renderThreadList();
+    });
+    threadList.appendChild(btn);
+  });
+}
+
+async function selectThread(threadId) {
+  stopPolling();
+  state.activeThreadId = threadId;
+  state.eventCursor = 0;
+  messages.innerHTML = '';
+  showEmptyState(false);
+  clearStreaming();
+  const label = state.threadLabels[threadId] || ('对话 ' + threadId.slice(-8));
+  setHeaderTitle(label);
+  setStatusBadge('ready');
+  renderThreadList();
+  await fetchAllEvents(threadId);
+}
+
+newChatBtn.addEventListener('click', async () => {
+  stopPolling();
+  try {
+    const t = await apiJson('/v1/threads', { method: 'POST' });
+    state.threads.unshift({ id: t.id, created_at: new Date().toISOString() });
+    state.activeThreadId = t.id;
+    state.eventCursor = 0;
+    messages.innerHTML = '';
+    showEmptyState(false);
+    setHeaderTitle('新建对话');
+    setStatusBadge('ready');
+    renderThreadList();
+    promptInput.focus();
+  } catch (err) { showToast('创建对话失败：' + err.message, 'error'); }
+});
+
+function setHeaderTitle(text) {
+  headerTitle.textContent = text;
+  headerTitle.style.color = 'var(--text-1)';
+}
+
+function showEmptyState(show) {
+  emptyState.style.display = show ? '' : 'none';
+  messages.style.display = show ? 'none' : '';
+}
+
+// ─── message rendering ────────────────────────────────────────────────────────
+function appendUserBubble(text) {
+  showEmptyState(false);
+  const div = document.createElement('div');
+  div.className = 'msg-group msg-user fade-in';
+  div.innerHTML = `<div class="bubble-user">${escHtml(text)}</div>`;
+  messages.appendChild(div);
+  scrollToBottom();
+}
+
+function appendAssistantBubble(turnId) {
+  showEmptyState(false);
+  const div = document.createElement('div');
+  div.className = 'msg-group msg-assistant fade-in';
+  div.setAttribute('data-turn', turnId);
+  div.innerHTML = `
+    <div class="assistant-avatar">K</div>
+    <div class="bubble-assistant">
+      <div class="reasoning-container"></div>
+      <div class="tool-container"></div>
+      <div class="bubble-content prose">
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+        <span class="typing-dot"></span>
+      </div>
+      <div class="msg-actions">
+        <button class="btn-icon copy-btn" title="复制内容" style="font-size:11px; gap:4px; display:flex; align-items:center;">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+          </svg>
+          <span>复制</span>
+        </button>
+      </div>
+    </div>`;
+  div.querySelector('.copy-btn').addEventListener('click', () => {
+    const content = div.querySelector('.bubble-content');
+    const text = content ? content.innerText : '';
+    navigator.clipboard.writeText(text).then(() => showToast('已复制', 'success'));
+  });
+  messages.appendChild(div);
+  scrollToBottom();
+  return div;
+}
+
+function renderBubble(turnId, buffer, final) {
+  const div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) return;
+  const content = div.querySelector('.bubble-content');
+  if (!content) return;
+  if (buffer) {
+    content.innerHTML = marked.parse(buffer);
+    content.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
+  } else if (final) {
+    content.innerHTML = '<span style="color:var(--text-3);font-size:12px;font-style:italic;">(无内容)</span>';
+  }
+  scrollToBottom();
+}
+
+// kept for backward compat with fetchAllEvents
+function updateBubbleContent(turnId, buffer, final) {
+  renderBubble(turnId, buffer, final);
+}
+
+function appendReasoningBlock(turnId, text) {
+  const block = ensureReasoningBlock(turnId, false);
+  if (!block) return;
+  const body = block.querySelector('.reasoning-body');
+  if (body) body.textContent = text;
+  scrollToBottom();
+}
+
+function ensureReasoningBlock(turnId, open) {
+  let div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) div = appendAssistantBubble(turnId);
+  const container = div.querySelector('.reasoning-container');
+  if (!container) return null;
+  let block = container.querySelector('.reasoning-block');
+  if (!block) {
+    block = document.createElement('details');
+    block.className = 'reasoning-block';
+    block.innerHTML = `
+      <summary>
+        <span class="reasoning-icon">✦</span>
+        <span class="reasoning-label">思考过程</span>
+        <span class="tool-chevron">▶</span>
+      </summary>
+      <div class="reasoning-body"></div>`;
+    container.appendChild(block);
+  }
+  if (open) block.open = true;
+  return block;
+}
+
+function addToolCallBlock(turnId, callId, name, args, open = false) {
+  let div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) div = appendAssistantBubble(turnId);
+  const container = div.querySelector('.tool-container');
+  if (!container) return;
+  const badgeClass = getToolBadgeClass(name);
+  const argStr = typeof args === 'object' ? JSON.stringify(args, null, 2) : String(args);
+  const detail = document.createElement('details');
+  detail.className = 'tool-block';
+  detail.setAttribute('data-call-id', callId);
+  if (open) detail.open = true;
+  detail.innerHTML = `
+    <summary>
+      <span class="tool-badge ${badgeClass}">${getToolLabel(name)}</span>
+      <span class="tool-name">${escHtml(name)}</span>
+      <span class="tool-pending" style="font-size:10px;color:var(--text-3);margin-left:4px;font-family:monospace;"></span>
+      <span class="tool-chevron">▶</span>
+    </summary>
+    <div class="tool-body"><pre>${escHtml(argStr)}</pre></div>`;
+  container.appendChild(detail);
+  scrollToBottom();
+}
+
+function updateToolResultBlock(turnId, callId, resultText) {
+  const div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) return;
+  const block = div.querySelector(`[data-call-id="${callId}"]`);
+  if (!block) return;
+  const pending = block.querySelector('.tool-pending');
+  if (pending) pending.remove();
+  const body = block.querySelector('.tool-body');
+  if (!body) return;
+  let result = body.querySelector('.tool-result');
+  if (!result) {
+    result = document.createElement('div');
+    result.className = 'tool-result';
+    body.appendChild(result);
+  }
+  result.textContent = resultText.slice(0, 800);
+  scrollToBottom();
+}
+
+function appendToolBlock(turnId, toolName, args, resultText) {
+  const fakeId = 'legacy_' + Math.random().toString(36).slice(2);
+  addToolCallBlock(turnId, fakeId, toolName, args);
+  if (resultText) updateToolResultBlock(turnId, fakeId, resultText);
+}
+
+function getToolBadgeClass(name) {
+  const n = name.toLowerCase();
+  if (n.includes('bash') || n.includes('shell') || n.includes('execute')) return 'tool-bash';
+  if (n.includes('read')) return 'tool-read';
+  if (n.includes('write')) return 'tool-write';
+  if (n.includes('edit')) return 'tool-edit';
+  if (n.includes('search') || n.includes('grep') || n.includes('glob')) return 'tool-search';
+  return 'tool-default';
+}
+
+function getToolLabel(name) {
+  const n = name.toLowerCase();
+  if (n.includes('bash') || n.includes('shell') || n.includes('execute')) return 'bash';
+  if (n.includes('read')) return 'read';
+  if (n.includes('write')) return 'write';
+  if (n.includes('edit')) return 'edit';
+  if (n.includes('search') || n.includes('grep')) return 'search';
+  if (n.includes('glob')) return 'glob';
+  return 'tool';
+}
+
+function collapseBlocks(turnId) {
+  const div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) return;
+  div.querySelectorAll('details.reasoning-block, details.tool-block').forEach(el => {
+    el.open = false;
+  });
+}
+
+function scrollToBottom() {
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// ─── send message ─────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const text = promptInput.value.trim();
+  if (!text || state.isStreaming) return;
+
+  // Auto-create thread if none is active
+  if (!state.activeThreadId) {
+    try {
+      const t = await apiJson('/v1/threads', { method: 'POST' });
+      state.threads.unshift({ id: t.id, created_at: new Date().toISOString() });
+      state.activeThreadId = t.id;
+      state.eventCursor = 0;
+      messages.innerHTML = '';
+      showEmptyState(false);
+      renderThreadList();
+    } catch (err) {
+      showToast('创建对话失败：' + err.message, 'error');
+      return;
+    }
+  }
+
+  promptInput.value = '';
+  promptInput.style.height = '';
+  setLabel(state.activeThreadId, text);
+  appendUserBubble(text);
+  const bubble = appendAssistantBubble('_pending_');
+  try {
+    const turn = await apiJson(`/v1/threads/${state.activeThreadId}/turns`, {
+      method: 'POST',
+      body: JSON.stringify({ input: text }),
+    });
+    bubble.setAttribute('data-turn', turn.id);
+    setStreaming(turn.id);
+    startPolling(state.activeThreadId, turn.id);
+  } catch (err) {
+    const content = bubble.querySelector('.bubble-content');
+    if (content) content.innerHTML = `<span style="color:var(--red);font-size:12.5px;">错误：${escHtml(err.message)}</span>`;
+  }
+}
+
+sendBtn.addEventListener('click', sendMessage);
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+promptInput.addEventListener('input', () => {
+  promptInput.style.height = 'auto';
+  promptInput.style.height = Math.min(promptInput.scrollHeight, 160) + 'px';
+});
+
+function setLabel(threadId, text) {
+  if (!state.threadLabels[threadId]) {
+    state.threadLabels[threadId] = text.slice(0, 42) + (text.length > 42 ? '…' : '');
+    renderThreadList();
+    setHeaderTitle(state.threadLabels[threadId]);
+  }
+}
+
+// ─── SSE polling ──────────────────────────────────────────────────────────────
+function startPolling(threadId, turnId) {
+  stopPolling();
+  poll(threadId, turnId);
+}
+
+function stopPolling() {
+  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+}
+
+async function poll(threadId, turnId) {
+  if (state.activeThreadId !== threadId) return;
+  try {
+    const res = await apiFetch(
+      `/v1/threads/${threadId}/events?after=${state.eventCursor}&limit=50`
+    );
+    if (!res.ok) { scheduleNextPoll(threadId, turnId); return; }
+    const text = await res.text();
+    const hasMore = res.headers.get('X-Kairo-CLI-Has-More') === 'true';
+    const finished = processSSE(text, threadId, turnId);
+    if (finished) { clearStreaming(); return; }
+    if (hasMore) { poll(threadId, turnId); return; }
+    scheduleNextPoll(threadId, turnId);
+  } catch {
+    scheduleNextPoll(threadId, turnId);
+  }
+}
+
+function scheduleNextPoll(threadId, turnId) {
+  state.pollTimer = setTimeout(() => poll(threadId, turnId), 400);
+}
+
+function processSSE(text, threadId, turnId) {
+  const blocks = text.split('\n\n').filter(b => b.trim());
+  let done = false;
+
+  for (const block of blocks) {
+    let id = null, eventType = null, dataStr = null;
+    for (const line of block.split('\n')) {
+      if (line.startsWith('id: '))    id = line.slice(4).trim();
+      else if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+      else if (line.startsWith('data: '))  dataStr = line.slice(6).trim();
+    }
+    if (id !== null) state.eventCursor = parseInt(id, 10);
+    if (!eventType || !dataStr) continue;
+    let data;
+    try { data = JSON.parse(dataStr); } catch { continue; }
+
+    if (eventType === 'message.delta' && data.turn_id === turnId) {
+      typewriterPush(turnId, data.delta || '');
+    } else if (eventType === 'turn.completed' && data.turn_id === turnId) {
+      typewriterFlush(turnId);
+      collapseBlocks(turnId);
+      done = true;
+    } else if ((eventType === 'turn.failed' || eventType === 'turn.canceled') && data.turn_id === turnId) {
+      typewriterFlush(turnId);
+      collapseBlocks(turnId);
+      const div = document.querySelector(`[data-turn="${turnId}"]`);
+      if (div) {
+        const c = div.querySelector('.bubble-content');
+        if (c) c.innerHTML += `<div style="color:var(--${eventType === 'turn.failed' ? 'red' : 'text-3'});font-size:12px;margin-top:6px;">${
+          eventType === 'turn.failed' ? '⚠ ' + escHtml(data.error || '执行失败') : '已取消'
+        }</div>`;
+      }
+      done = true;
+    } else if (eventType === 'reasoning.delta' && data.turn_id === turnId) {
+      const block = ensureReasoningBlock(turnId, true);
+      if (block) {
+        const body = block.querySelector('.reasoning-body');
+        if (body) { body.textContent += (data.delta || ''); scrollToBottom(); }
+      }
+    } else if (eventType === 'reasoning.text' && data.turn_id === turnId) {
+      const block = ensureReasoningBlock(turnId, true);
+      if (block) {
+        const body = block.querySelector('.reasoning-body');
+        if (body) { body.textContent = data.text || ''; scrollToBottom(); }
+      }
+    } else if (eventType === 'tool.calls' && data.turn_id === turnId) {
+      for (const call of (data.calls || [])) {
+        addToolCallBlock(turnId, call.id, call.name, call.arguments, true);
+      }
+    } else if (eventType === 'tool.results' && data.turn_id === turnId) {
+      for (const result of (data.results || [])) {
+        updateToolResultBlock(turnId, result.id, result.text || '');
+      }
+    } else if (eventType === 'tool.approval_request' && data.turn_id === turnId) {
+      showApproval(threadId, turnId, data.tool_name, data.arguments);
+    } else if (eventType === 'tool.approval_timeout') {
+      hideApproval();
+    }
+  }
+  return done;
+}
+
+// ─── approval UI ─────────────────────────────────────────────────────────────
+function showApproval(threadId, turnId, toolName, args) {
+  state.pendingApproval = { threadId, turnId };
+  approvalToolName.innerHTML = '';
+  const badge = document.createElement('span');
+  badge.className = 'tool-badge ' + getToolBadgeClass(toolName);
+  badge.textContent = getToolLabel(toolName);
+  approvalToolName.appendChild(badge);
+  approvalToolName.appendChild(document.createTextNode(' ' + toolName));
+  approvalArgs.textContent = JSON.stringify(args, null, 2);
+  approvalOverlay.classList.add('visible');
+  let remaining = 300;
+  clearInterval(state.approvalCountdownTimer);
+  state.approvalCountdownTimer = setInterval(() => {
+    remaining--;
+    approvalCountdown.textContent = remaining + 's';
+    if (remaining <= 0) { clearInterval(state.approvalCountdownTimer); hideApproval(); }
+  }, 1000);
+}
+
+function hideApproval() {
+  approvalOverlay.classList.remove('visible');
+  clearInterval(state.approvalCountdownTimer);
+  state.pendingApproval = null;
+}
+
+async function respondApproval(approved) {
+  const { threadId, turnId } = state.pendingApproval || {};
+  if (!threadId || !turnId) return;
+  hideApproval();
+  try {
+    await apiJson(`/v1/threads/${threadId}/turns/${turnId}/approval`, {
+      method: 'POST',
+      body: JSON.stringify({ approved }),
+    });
+  } catch {}
+}
+
+approvalApproveBtn.addEventListener('click', () => respondApproval(true));
+approvalDenyBtn.addEventListener('click', () => respondApproval(false));
+
+// ─── admin UI ─────────────────────────────────────────────────────────────────
+adminBtn.addEventListener('click', () => { adminModal.classList.add('visible'); loadAdminUsers(); });
+adminModalClose.addEventListener('click', () => adminModal.classList.remove('visible'));
+adminModal.addEventListener('click', (e) => { if (e.target === adminModal) adminModal.classList.remove('visible'); });
+
+async function loadAdminUsers() {
+  adminError.classList.remove('visible');
+  adminUserList.innerHTML = '';
+  try {
+    const data = await apiJson('/admin/users');
+    (data.data || []).forEach(u => {
+      const isSelf = u.id === state.currentUser?.id;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td style="font-size:13px;">
+          ${escHtml(u.username)}
+          ${isSelf ? '<span style="font-size:10px;color:var(--text-3);margin-left:4px;">(我)</span>' : ''}
+        </td>
+        <td><span class="role-badge ${u.is_admin ? 'role-admin' : 'role-user'}">${u.is_admin ? 'admin' : 'user'}</span></td>
+        <td style="color:var(--text-3);font-size:12px;">${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
+        <td style="text-align:right;">
+          ${!isSelf ? `<button class="del-btn btn-danger" data-uid="${u.id}">删除</button>` : ''}
+        </td>`;
+      adminUserList.appendChild(tr);
+    });
+    adminUserList.querySelectorAll('.del-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!await showConfirm('确认删除该用户？此操作不可撤销。', '确认删除')) return;
+        try {
+          await apiJson(`/admin/users/${btn.dataset.uid}`, { method: 'DELETE' });
+          loadAdminUsers();
+        } catch (err) { showAdminErr(err.message); }
+      });
+    });
+  } catch (err) { showAdminErr(err.message); }
+}
+
+newUserBtn.addEventListener('click', async () => {
+  adminError.classList.remove('visible');
+  const username = newUserName.value.trim();
+  const password = newUserPwd.value;
+  const isAdmin = newUserAdmin.checked;
+  if (!username || !password) { showAdminErr('请填写用户名和密码'); return; }
+  try {
+    await apiJson('/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, is_admin: isAdmin }),
+    });
+    newUserName.value = '';
+    newUserPwd.value = '';
+    newUserAdmin.checked = false;
+    loadAdminUsers();
+  } catch (err) { showAdminErr(err.message); }
+});
+
+function showAdminErr(msg) {
+  adminError.textContent = msg;
+  adminError.classList.add('visible');
+}
+
+// ─── history replay ──────────────────────────────────────────────────────────
+async function fetchAllEvents(threadId) {
+  let cursor = 0;
+  const turnBuffers = {};
+  const turnDone = new Set();
+  for (;;) {
+    let res;
+    try { res = await apiFetch(`/v1/threads/${threadId}/events?after=${cursor}&limit=200`); }
+    catch { break; }
+    if (!res.ok) break;
+    const text = await res.text();
+    const hasMore = res.headers.get('X-Kairo-CLI-Has-More') === 'true';
+    const blocks = text.split('\n\n').filter(b => b.trim());
+
+    for (const block of blocks) {
+      let id = null, eventType = null, dataStr = null;
+      for (const line of block.split('\n')) {
+        if (line.startsWith('id: '))    id = line.slice(4).trim();
+        else if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+        else if (line.startsWith('data: '))  dataStr = line.slice(6).trim();
+      }
+      if (id !== null) cursor = parseInt(id, 10);
+      if (!eventType || !dataStr) continue;
+      let data;
+      try { data = JSON.parse(dataStr); } catch { continue; }
+
+      if (eventType === 'turn.started' && data.input) {
+        if (!state.threadLabels[threadId]) setLabel(threadId, data.input);
+        appendUserBubble(data.input);
+        appendAssistantBubble(data.turn_id);
+        turnBuffers[data.turn_id] = '';
+      } else if (eventType === 'message.delta') {
+        turnBuffers[data.turn_id] = (turnBuffers[data.turn_id] || '') + (data.delta || '');
+        updateBubbleContent(data.turn_id, turnBuffers[data.turn_id], false);
+      } else if (eventType === 'turn.completed' && !turnDone.has(data.turn_id)) {
+        turnDone.add(data.turn_id);
+        updateBubbleContent(data.turn_id, turnBuffers[data.turn_id] || '', true);
+      } else if ((eventType === 'turn.failed' || eventType === 'turn.canceled') && !turnDone.has(data.turn_id)) {
+        turnDone.add(data.turn_id);
+        const div = document.querySelector(`[data-turn="${data.turn_id}"]`);
+        if (div) {
+          const c = div.querySelector('.bubble-content');
+          if (c && !c.innerHTML.trim()) {
+            c.innerHTML = `<span style="color:var(--text-3);font-size:12px;font-style:italic;">${eventType === 'turn.canceled' ? '已取消' : '执行失败'}</span>`;
+          }
+        }
+      } else if (eventType === 'tool.calls') {
+        for (const call of (data.calls || [])) {
+          addToolCallBlock(data.turn_id, call.id, call.name, call.arguments);
+        }
+      } else if (eventType === 'tool.results') {
+        for (const result of (data.results || [])) {
+          updateToolResultBlock(data.turn_id, result.id, result.text || '');
+        }
+      } else if (eventType === 'reasoning.text') {
+        appendReasoningBlock(data.turn_id, data.text || '');
+      }
+    }
+    if (!hasMore) break;
+  }
+  state.eventCursor = cursor;
+  if (cursor > 0) showEmptyState(false);
+}
+
+// ─── toast notification ──────────────────────────────────────────────────────
+function showToast(msg, type = 'info') {
+  const t = document.createElement('div');
+  t.style.cssText = `
+    position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(10px);
+    background:var(--bg-e); border:1px solid var(--border-s);
+    color:${type === 'error' ? 'var(--red)' : type === 'success' ? 'var(--green)' : 'var(--text-2)'};
+    padding:7px 16px; border-radius:7px; font-size:12.5px; z-index:100;
+    opacity:0; transition:opacity 0.15s, transform 0.15s;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  `;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  requestAnimationFrame(() => {
+    t.style.opacity = '1';
+    t.style.transform = 'translateX(-50%) translateY(0)';
+  });
+  setTimeout(() => {
+    t.style.opacity = '0';
+    setTimeout(() => t.remove(), 200);
+  }, 2000);
+}
+
+// ─── utils ────────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ─── boot ─────────────────────────────────────────────────────────────────────
+(async function boot() {
+  // init empty state
+  showEmptyState(true);
+  if (state.token) {
+    await initApp();
+  } else {
+    showLogin();
+  }
+})();
+
+})();
+</script>
+</body>
+</html>

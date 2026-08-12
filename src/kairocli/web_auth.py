@@ -1,0 +1,299 @@
+# FastAPI intentionally declares dependency providers in callable defaults.
+# ruff: noqa: B008
+
+from __future__ import annotations
+
+import os
+import secrets
+import sqlite3
+import uuid
+from collections import deque
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any, cast
+
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+
+from .paths import reject_symlink_components
+
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_MINUTES = 60 * 8
+MAX_USERNAME_CHARS = 64
+MAX_PASSWORD_CHARS = 1_024
+MIN_PASSWORD_CHARS = 8
+
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+
+@dataclass(slots=True)
+class WebUser:
+    id: str
+    username: str
+    hashed_password: str
+    is_admin: bool
+    created_at: str
+
+
+def hash_password(plain: str) -> str:
+    import bcrypt
+
+    return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    import bcrypt
+
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
+class WebUserStore:
+    def __init__(self, database: Path) -> None:
+        self.database = database
+        reject_symlink_components(database, "Users database")
+        database.parent.mkdir(parents=True, exist_ok=True)
+        reject_symlink_components(database.parent, "Users database")
+        if os.name != "nt":
+            database.parent.chmod(0o700)
+        with self._connect() as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                hashed_password TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+                )"""
+            )
+        if os.name != "nt" and database.is_file():
+            database.chmod(0o600)
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        _check_db_path(self.database)
+        connection = sqlite3.connect(self.database, timeout=30)
+        try:
+            connection.execute("PRAGMA foreign_keys=ON")
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+            _harden_db(self.database)
+
+    def create_user(self, username: str, password: str, *, is_admin: bool = False) -> WebUser:
+        if not username or len(username) > MAX_USERNAME_CHARS:
+            raise ValueError(f"Username must be 1–{MAX_USERNAME_CHARS} characters")
+        if len(password) < MIN_PASSWORD_CHARS:
+            raise ValueError(f"Password must be at least {MIN_PASSWORD_CHARS} characters")
+        if len(password) > MAX_PASSWORD_CHARS:
+            raise ValueError("Password is too long")
+        user_id = f"user_{uuid.uuid4().hex}"
+        hashed = hash_password(password)
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            try:
+                connection.execute(
+                    "INSERT INTO users VALUES (?, ?, ?, ?, ?)",
+                    (user_id, username, hashed, int(is_admin), now),
+                )
+            except sqlite3.IntegrityError:
+                raise ValueError(f"Username already exists: {username}") from None
+        return WebUser(
+            id=user_id,
+            username=username,
+            hashed_password=hashed,
+            is_admin=is_admin,
+            created_at=now,
+        )
+
+    def get_by_username(self, username: str) -> WebUser | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, username, hashed_password, is_admin, created_at "
+                "FROM users WHERE username=?",
+                (username,),
+            ).fetchone()
+        return _row_to_user(row) if row is not None else None
+
+    def get_by_id(self, user_id: str) -> WebUser | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT id, username, hashed_password, is_admin, created_at "
+                "FROM users WHERE id=?",
+                (user_id,),
+            ).fetchone()
+        return _row_to_user(row) if row is not None else None
+
+    def list_users(self) -> list[WebUser]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, username, hashed_password, is_admin, created_at "
+                "FROM users ORDER BY created_at"
+            ).fetchall()
+        return [_row_to_user(row) for row in rows]
+
+    def update_password(self, user_id: str, new_password: str) -> bool:
+        if len(new_password) < MIN_PASSWORD_CHARS:
+            raise ValueError(f"Password must be at least {MIN_PASSWORD_CHARS} characters")
+        hashed = hash_password(new_password)
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE users SET hashed_password=? WHERE id=?", (hashed, user_id)
+            )
+        return cursor.rowcount == 1
+
+    def delete_user(self, user_id: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute("DELETE FROM users WHERE id=?", (user_id,))
+        return cursor.rowcount == 1
+
+    def count(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute("SELECT COUNT(*) FROM users").fetchone()
+        return int(row[0]) if row else 0
+
+
+def _row_to_user(row: tuple[Any, ...]) -> WebUser:
+    return WebUser(
+        id=str(row[0]),
+        username=str(row[1]),
+        hashed_password=str(row[2]),
+        is_admin=bool(row[3]),
+        created_at=str(row[4]),
+    )
+
+
+def _check_db_path(path: Path) -> None:
+    reject_symlink_components(path.parent, "Users database")
+    if path.is_symlink():
+        raise ValueError(f"Users database file cannot be a symlink: {path.name}")
+
+
+def _harden_db(path: Path) -> None:
+    if os.name == "nt":
+        return
+    for p in (path, Path(str(path) + "-wal"), Path(str(path) + "-shm")):
+        if p.is_symlink():
+            raise ValueError(f"Users database file cannot be a symlink: {p.name}")
+        if p.is_file():
+            p.chmod(0o600)
+
+
+class JwtSecretStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        reject_symlink_components(path, "JWT secret")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        reject_symlink_components(path.parent, "JWT secret")
+        if os.name != "nt":
+            path.parent.chmod(0o700)
+
+    def load_or_generate(self) -> bytes:
+        if self.path.exists():
+            if self.path.is_symlink():
+                raise ValueError("JWT secret file cannot be a symlink")
+            data = self.path.read_bytes()
+            if len(data) != 32:
+                raise ValueError("JWT secret file is corrupt (expected 32 bytes)")
+            return data
+        secret = secrets.token_bytes(32)
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(self.path), flags, 0o600)
+        try:
+            os.write(fd, secret)
+        finally:
+            os.close(fd)
+        return secret
+
+
+def create_access_token(
+    user_id: str,
+    username: str,
+    is_admin: bool,
+    secret: bytes,
+    expiry_minutes: int = JWT_EXPIRY_MINUTES,
+) -> str:
+    from jose import jwt  # type: ignore[import-untyped]
+
+    payload = {
+        "sub": user_id,
+        "username": username,
+        "is_admin": is_admin,
+        "exp": datetime.now(UTC) + timedelta(minutes=expiry_minutes),
+    }
+    return cast(str, jwt.encode(payload, secret.hex(), algorithm=JWT_ALGORITHM))
+
+
+def decode_access_token(token: str, secret: bytes) -> dict[str, Any]:
+    from jose import JWTError, jwt
+
+    try:
+        return cast(
+            dict[str, Any],
+            jwt.decode(token, secret.hex(), algorithms=[JWT_ALGORITHM]),
+        )
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+
+def make_get_current_user(
+    user_store: WebUserStore, jwt_secret: bytes
+) -> Callable[..., Any]:
+    async def get_current_user(token: str = Depends(_oauth2_scheme)) -> WebUser:
+        payload = decode_access_token(token, jwt_secret)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+        user = user_store.get_by_id(str(user_id))
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            )
+        return user
+
+    return get_current_user
+
+
+def make_require_admin(get_current_user: Callable[..., Any]) -> Callable[..., Any]:
+    async def require_admin(user: WebUser = Depends(get_current_user)) -> WebUser:
+        if not user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
+            )
+        return user
+
+    return require_admin
+
+
+class LoginRateLimiter:
+    """Sliding window: 5 attempts per IP per 60 seconds."""
+
+    def __init__(self, max_attempts: int = 5, window_seconds: float = 60.0) -> None:
+        self._max = max_attempts
+        self._window = window_seconds
+        self._log: dict[str, deque[float]] = {}
+
+    def check_and_record(self, ip: str) -> None:
+        now = datetime.now(UTC).timestamp()
+        times = self._log.setdefault(ip, deque())
+        cutoff = now - self._window
+        while times and times[0] < cutoff:
+            times.popleft()
+        if len(times) >= self._max:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many login attempts. Please wait before trying again.",
+            )
+        times.append(now)

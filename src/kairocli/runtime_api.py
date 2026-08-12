@@ -134,6 +134,14 @@ class RuntimeThreadStore:
                 connection.execute(
                     "ALTER TABLE turns ADD COLUMN owner_pid INTEGER NOT NULL DEFAULT 0"
                 )
+            thread_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(threads)").fetchall()
+            }
+            if "owner_user_id" not in thread_columns:
+                connection.execute(
+                    "ALTER TABLE threads ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_thread_sequence "
                 "ON events(thread_id, sequence)"
@@ -141,6 +149,10 @@ class RuntimeThreadStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_turns_thread_created "
                 "ON turns(thread_id, created_at)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_threads_owner_user_id "
+                "ON threads(owner_user_id)"
             )
             self._recover_stale_running(connection)
         if os.name != "nt":
@@ -187,13 +199,15 @@ class RuntimeThreadStore:
         self,
         thread_id: str,
         *,
+        owner_user_id: str = "",
         event_type: str | None = None,
         event_data: dict[str, Any] | None = None,
     ) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
-                "INSERT INTO threads VALUES (?, ?)", (thread_id, datetime.now(UTC).isoformat())
+                "INSERT INTO threads VALUES (?, ?, ?)",
+                (thread_id, datetime.now(UTC).isoformat(), owner_user_id),
             )
             self._append_event(connection, thread_id, event_type, event_data)
             self._prune_threads(connection, keep_thread_id=thread_id)
@@ -202,6 +216,56 @@ class RuntimeThreadStore:
         with self._connect() as connection:
             row = connection.execute("SELECT 1 FROM threads WHERE id=?", (thread_id,)).fetchone()
         return row is not None
+
+    def delete_thread(self, thread_id: str, owner_user_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM threads WHERE id=? AND owner_user_id=?",
+                (thread_id, owner_user_id),
+            ).fetchone()
+            if row is None:
+                return False
+            connection.execute("DELETE FROM events WHERE thread_id=?", (thread_id,))
+            connection.execute("DELETE FROM turns WHERE thread_id=?", (thread_id,))
+            connection.execute("DELETE FROM threads WHERE id=?", (thread_id,))
+        return True
+
+    def exists_for_user(self, thread_id: str, user_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM threads WHERE id=? AND owner_user_id=?",
+                (thread_id, user_id),
+            ).fetchone()
+        return row is not None
+
+    def list_threads(
+        self,
+        owner_user_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, str]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT t.id, t.created_at, "
+                "  (SELECT e.data FROM events e "
+                "   WHERE e.thread_id = t.id AND e.type = 'turn.started' "
+                "   ORDER BY e.sequence ASC LIMIT 1) AS first_event "
+                "FROM threads t WHERE t.owner_user_id=? "
+                "ORDER BY t.created_at DESC LIMIT ?",
+                (owner_user_id, max(1, min(limit, 1_000))),
+            ).fetchall()
+        result = []
+        for row in rows:
+            title = ""
+            if row[2]:
+                try:
+                    data = json.loads(row[2])
+                    raw = data.get("input", "")
+                    title = raw[:60] + ("…" if len(raw) > 60 else "")
+                except Exception:
+                    pass
+            result.append({"id": str(row[0]), "created_at": str(row[1]), "title": title})
+        return result
 
     def append(self, thread_id: str, event_type: str, data: dict[str, Any]) -> int:
         with self._connect() as connection:
