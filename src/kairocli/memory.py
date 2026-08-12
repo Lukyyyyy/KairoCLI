@@ -13,12 +13,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import jieba  # type: ignore[import-untyped]
+
 from .context import estimate_text_tokens
 from .paths import KairoPaths, reject_symlink_components
 
 _MEMORY_LOCK = threading.RLock()
 _WORD = re.compile(r"[a-z0-9][a-z0-9_.+-]*", re.I)
-_CJK_RUN = re.compile(r"[\u3400-\u9fff]+")
 _URL = re.compile(r"https?://[^\s，。！？、)）]+", re.I)
 _MEMORY_ID = re.compile(r"[0-9a-f]{12}\Z")
 MAX_MEMORY_FILE_BYTES = 10 * 1024 * 1024
@@ -44,11 +45,10 @@ class MemoryEntry:
 def tokenize_memory_query(value: str) -> set[str]:
     normalized = value.casefold().strip()
     tokens = {word for word in _WORD.findall(normalized) if len(word) >= 2}
-    for run in _CJK_RUN.findall(normalized):
-        if len(run) == 2:
-            tokens.add(run)
-        elif len(run) > 2:
-            tokens.update(run[index : index + 2] for index in range(len(run) - 1))
+    for word in jieba.lcut(normalized):
+        word = word.strip()
+        if len(word) >= 2:
+            tokens.add(word)
     return tokens
 
 
