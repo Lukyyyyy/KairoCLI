@@ -94,11 +94,27 @@ async def test_orchestrator_respects_dependencies_and_reviews_steps(tmp_path: Pa
     orchestrator = AgentOrchestrator(
         Agent(client, ToolRegistry(tmp_path), "system"), max_concurrency=2
     )
+    events: list[tuple[str, str, bool | None]] = []
+    orchestrator.on_plan_created = lambda plan: events.append(
+        ("plan", ",".join(plan.tasks), None)
+    )
+    orchestrator.on_task_started = lambda task: events.append(("started", task.id, None))
+    orchestrator.on_task_completed = lambda task, success: events.append(
+        ("completed", task.id, success)
+    )
+
     assert await orchestrator.run("build") == "final answer"
     assert len(client.worker_prompts) == 2
     assert "(none)" in client.worker_prompts[0]
     assert "[a] result:collect" in client.worker_prompts[1]
     assert orchestrator.agent.llm_call_count == 6
+    assert events == [
+        ("plan", "a,b", None),
+        ("started", "a", None),
+        ("completed", "a", True),
+        ("started", "b", None),
+        ("completed", "b", True),
+    ]
 
 
 class RetryOrchestratorClient(LlmClient):

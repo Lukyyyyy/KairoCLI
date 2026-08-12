@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from typing import Any
 
 from ..cancellation import AgentCanceled as AgentCanceled
@@ -41,6 +42,9 @@ class AgentOrchestrator:
         self.agent = agent
         self.max_concurrency = max(1, max_concurrency)
         self.max_retries_per_step = max(0, max_retries_per_step)
+        self.on_plan_created: Callable[[Any], Any] | None = None
+        self.on_task_started: Callable[[PlanTask], Any] | None = None
+        self.on_task_completed: Callable[[PlanTask, bool], Any] | None = None
 
     async def run(self, task: str, image_urls: list[str] | None = None) -> str:
         self.agent.cancel_event.clear()
@@ -51,6 +55,8 @@ class AgentOrchestrator:
             + task,
             cancel_event=self.agent.cancel_event,
         )
+        if self.on_plan_created is not None:
+            self.on_plan_created(plan)
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def worker(assignment: PlanTask) -> tuple[PlanTask, str, Exception | None]:
@@ -130,6 +136,8 @@ class AgentOrchestrator:
                 break
             for assignment in ready:
                 assignment.status = TaskStatus.RUNNING
+                if self.on_task_started is not None:
+                    self.on_task_started(assignment)
             batch = await asyncio.gather(*(worker(item) for item in ready))
             for assignment, result, error in batch:
                 if error is not None:
@@ -138,9 +146,13 @@ class AgentOrchestrator:
                         error,
                         fallback=f"{type(error).__name__} message unavailable",
                     )
+                    if self.on_task_completed is not None:
+                        self.on_task_completed(assignment, False)
                 else:
                     assignment.status = TaskStatus.COMPLETED
                     assignment.result = result
+                    if self.on_task_completed is not None:
+                        self.on_task_completed(assignment, True)
 
         assignments = list(plan.tasks.values())
         assignment_results = [

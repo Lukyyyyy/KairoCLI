@@ -482,9 +482,25 @@ class PlanClient(LlmClient):
 
 async def test_plan_agent_builds_executes_and_reviews(tmp_path: Path) -> None:
     base = Agent(PlanClient(), ToolRegistry(tmp_path), "system")
-    result = await PlanExecuteAgent(base).run("understand project")
+    planner = PlanExecuteAgent(base)
+    events: list[tuple[str, str, bool | None]] = []
+    planner.on_plan_created = lambda plan: events.append(
+        ("plan", next(iter(plan.tasks)), None)
+    )
+    planner.on_task_started = lambda task: events.append(("started", task.id, None))
+    planner.on_task_completed = lambda task, success: events.append(
+        ("completed", task.id, success)
+    )
+
+    result = await planner.run("understand project")
+
     assert result == "final reviewed answer"
     assert base.llm_call_count == 3
+    assert events == [
+        ("plan", "inspect", None),
+        ("started", "inspect", None),
+        ("completed", "inspect", True),
+    ]
 
 
 class PlanToolClient(LlmClient):

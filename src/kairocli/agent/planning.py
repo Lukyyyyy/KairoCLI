@@ -45,6 +45,9 @@ class PlanExecuteAgent:
         self.review_handler = review_handler
         self.max_concurrency = max(1, max_concurrency)
         self.max_replans = max(0, max_replans)
+        self.on_plan_created: Callable[[ExecutionPlan], Any] | None = None
+        self.on_task_started: Callable[[PlanTask], Any] | None = None
+        self.on_task_completed: Callable[[PlanTask, bool], Any] | None = None
 
     async def run(self, task: str, image_urls: list[str] | None = None) -> str:
         self.agent.cancel_event.clear()
@@ -68,6 +71,8 @@ class PlanExecuteAgent:
                 current_plan: ExecutionPlan = plan,
             ) -> tuple[PlanTask, str, Exception | None]:
                 plan_task.status = TaskStatus.RUNNING
+                if self.on_task_started is not None:
+                    self.on_task_started(plan_task)
                 dependency_results = [
                     f"[{item}] {current_plan.tasks[item].result}"
                     for item in plan_task.dependencies
@@ -118,10 +123,14 @@ class PlanExecuteAgent:
                     )
                     plan_task.result = error_text
                     batch_errors.append(f"{plan_task.id}: {error_text}")
+                    if self.on_task_completed is not None:
+                        self.on_task_completed(plan_task, False)
                 else:
                     plan_task.status = TaskStatus.COMPLETED
                     plan_task.result = result
                     results.append(f"[{plan_task.id}] {result}")
+                    if self.on_task_completed is not None:
+                        self.on_task_completed(plan_task, True)
             completed = sum(item.status == TaskStatus.COMPLETED for item in plan.tasks.values())
             if batch_errors and replans_remaining > 0 and completed / len(plan.tasks) < 0.5:
                 feedback = (
@@ -168,6 +177,8 @@ class PlanExecuteAgent:
             if not isinstance(review, str) or not review.strip():
                 break
             plan = await self.create_plan(task, review.strip(), self.agent.cancel_event)
+        if self.on_plan_created is not None:
+            self.on_plan_created(plan)
         return plan
 
     async def create_plan(
