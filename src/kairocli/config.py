@@ -658,6 +658,17 @@ def normalize_provider_base_url(value: str, provider: str = "provider") -> str:
     return urlunsplit((parsed.scheme.casefold(), netloc, parsed.path.rstrip("/"), "", ""))
 
 
+def apply_dotenv_to_environ(paths: KairoPaths) -> None:
+    """Seed os.environ with values from .env files, without overriding real env vars.
+
+    Priority (highest to lowest): real os.environ > workspace .env > user .env.
+    Called once at startup so all KAIROCLI_* switches honour .env configuration.
+    """
+    merged = _read_dotenv(paths.user_dotenv) | _read_dotenv(paths.workspace / ".env")
+    for key, value in merged.items():
+        os.environ.setdefault(key, value)
+
+
 def _read_dotenv(path: Path) -> dict[str, str]:
     if path.is_symlink() or not path.is_file():
         return {}

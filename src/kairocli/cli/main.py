@@ -12,6 +12,7 @@ from typing import Any
 from ..brand import PRODUCT_NAME
 from ..config import (
     AppConfig,
+    apply_dotenv_to_environ,
 )
 from ..diagnostics import configure_application_logging
 from ..mcp import (
@@ -193,6 +194,7 @@ def main(argv: list[str] | None = None) -> None:
     batch_requested = args.print_prompt is not None
     try:
         paths = KairoPaths.discover()
+        apply_dotenv_to_environ(paths)
         configure_application_logging(paths)
         log.info("cli_start argv_count=%d", len(argv or sys.argv[1:]))
         config = AppConfig.load(paths, {"default_provider": args.provider})
