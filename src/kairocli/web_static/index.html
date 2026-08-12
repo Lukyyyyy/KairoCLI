@@ -522,6 +522,124 @@
     }
     .approval-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+    /* ── mode selector ── */
+    .mode-selector {
+      display: flex; align-items: center; gap: 4px;
+      padding: 0 2px;
+    }
+    .mode-btn {
+      background: transparent; border: 1px solid var(--border-s);
+      border-radius: 5px; padding: 3px 10px;
+      font-size: 11.5px; font-family: inherit; font-weight: 500;
+      color: var(--text-3); cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      white-space: nowrap;
+    }
+    .mode-btn:hover { background: var(--bg-h); color: var(--text-2); }
+    .mode-btn.active {
+      border-color: var(--accent); color: var(--accent);
+      background: var(--accent-dim);
+    }
+    .mode-btn.active-plan { border-color: #34d399; color: #34d399; background: rgba(52,211,153,0.1); }
+    .mode-btn.active-team { border-color: var(--accent-2); color: var(--accent-2); background: rgba(129,140,248,0.1); }
+
+    /* ── plan progress ── */
+    .plan-container { margin: 4px 0 10px; }
+    .plan-header {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11.5px; color: var(--text-3); margin-bottom: 6px;
+    }
+    .plan-mode-badge {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+      padding: 2px 6px; border-radius: 3px; border: 1px solid;
+    }
+    .plan-badge { color: #34d399; border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.08); }
+    .team-badge { color: var(--accent-2); border-color: rgba(129,140,248,0.3); background: rgba(129,140,248,0.08); }
+    .plan-task-list { display: flex; flex-direction: column; gap: 4px; }
+    .plan-task {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 5px 8px; border-radius: 5px;
+      background: var(--bg-s); border: 1px solid var(--border);
+      font-size: 12px; transition: border-color 0.15s;
+    }
+    .plan-task.running { border-color: rgba(251,191,36,0.3); background: rgba(251,191,36,0.04); }
+    .plan-task.completed { border-color: rgba(52,211,153,0.2); background: rgba(52,211,153,0.04); }
+    .plan-task.failed { border-color: rgba(248,113,113,0.25); background: rgba(248,113,113,0.04); }
+    .plan-task-icon { font-size: 11px; margin-top: 1px; flex-shrink: 0; width: 14px; text-align: center; }
+    .plan-task-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-3); flex-shrink: 0; margin-top: 1px; }
+    .plan-task-desc { color: var(--text-2); flex: 1; line-height: 1.45; }
+    .plan-task.running .plan-task-desc { color: var(--text-1); }
+    .plan-task.completed .plan-task-desc { color: var(--text-2); }
+    .plan-task.failed .plan-task-desc { color: var(--text-3); }
+
+    /* ── plan review overlay ── */
+    #plan-review-overlay {
+      display: none; position: absolute; inset: 0;
+      background: rgba(8,12,20,0.8);
+      backdrop-filter: blur(6px);
+      align-items: center; justify-content: center;
+      padding: 20px; z-index: 31;
+    }
+    #plan-review-overlay.visible { display: flex; }
+    .plan-review-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 12px; width: 100%; max-width: 600px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      animation: slideUp 0.22s ease forwards;
+      overflow: hidden;
+    }
+    .plan-review-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+      background: var(--bg-s);
+    }
+    .plan-review-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: rgba(52,211,153,0.12); border: 1px solid rgba(52,211,153,0.25);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; flex-shrink: 0;
+    }
+    .plan-review-title { font-weight: 600; font-size: 13.5px; color: var(--text-1); flex: 1; }
+    #plan-review-countdown { font-size: 11px; color: var(--text-3); font-family: 'JetBrains Mono', monospace; }
+    .plan-review-body { padding: 14px 18px; max-height: 340px; overflow-y: auto; }
+    .plan-review-steps { display: flex; flex-direction: column; gap: 5px; }
+    .plan-review-step {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 7px 10px; border-radius: 6px;
+      background: var(--bg-s); border: 1px solid var(--border);
+    }
+    .plan-review-step-num {
+      width: 18px; height: 18px; border-radius: 4px;
+      background: var(--bg-h); border: 1px solid var(--border-s);
+      font-size: 10px; font-weight: 600; color: var(--text-3);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .plan-review-step-text { font-size: 12.5px; color: var(--text-1); flex: 1; line-height: 1.5; }
+    .plan-review-step-dep { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+    .plan-review-footer { padding: 12px 18px; border-top: 1px solid var(--border); background: var(--bg-s); }
+    .plan-review-feedback {
+      display: flex; gap: 6px; margin-bottom: 10px;
+    }
+    #plan-feedback-input {
+      flex: 1; background: var(--bg-e); border: 1px solid var(--border-s);
+      color: var(--text-1); border-radius: 6px; padding: 6px 10px;
+      font-family: inherit; font-size: 12.5px; outline: none;
+      transition: border-color 0.15s;
+    }
+    #plan-feedback-input:focus { border-color: var(--accent); }
+    #plan-feedback-input::placeholder { color: var(--text-3); }
+    .plan-review-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+    /* ── model info badge ── */
+    #model-badge {
+      font-size: 10.5px; color: var(--text-3); font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
+      background: var(--bg-s); white-space: nowrap; flex-shrink: 0;
+      display: none;
+    }
+    #model-badge.visible { display: block; }
+
     /* ── login ── */
     #login-view {
       display: none; position: fixed; inset: 0;
@@ -715,6 +833,7 @@
         <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
       </svg>
       <div id="header-title" style="color:var(--text-3);">选择或新建对话</div>
+      <div id="model-badge"></div>
       <div id="status-badge" class="header-badge status-idle">IDLE</div>
     </div>
 
@@ -750,6 +869,30 @@
           </div>
         </div>
       </div>
+
+      <!-- Plan review overlay -->
+      <div id="plan-review-overlay">
+        <div class="plan-review-card">
+          <div class="plan-review-header">
+            <div class="plan-review-icon">📋</div>
+            <div class="plan-review-title">执行计划确认</div>
+            <div id="plan-review-countdown"></div>
+          </div>
+          <div class="plan-review-body">
+            <div id="plan-review-steps" class="plan-review-steps"></div>
+          </div>
+          <div class="plan-review-footer">
+            <div class="plan-review-feedback">
+              <input id="plan-feedback-input" type="text" placeholder="输入修改意见以重新规划（可选）" />
+              <button id="plan-supplement-btn" class="btn-ghost" style="white-space:nowrap;font-size:12px;">重新规划</button>
+            </div>
+            <div class="plan-review-actions">
+              <button id="plan-cancel-btn" class="btn-ghost">取消</button>
+              <button id="plan-approve-btn" class="btn-primary" style="padding:7px 18px;font-size:13px;">执行计划</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Input bar -->
@@ -762,15 +905,21 @@
               <rect x="6" y="6" width="12" height="12" rx="2"/>
             </svg>
           </button>
-          <button id="send-btn" title="发送 (Ctrl+Enter)">
+          <button id="send-btn" title="发送 (Enter)">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
             </svg>
           </button>
         </div>
       </div>
-      <div class="input-hint">
-        <kbd>Enter</kbd> 发送 &nbsp;·&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行
+      <div class="input-hint" style="display:flex;align-items:center;justify-content:center;gap:12px;">
+        <div class="mode-selector">
+          <button class="mode-btn active" data-mode="agent" title="ReAct 模式：直接执行">Agent</button>
+          <button class="mode-btn" data-mode="plan" title="Plan 模式：先规划后执行">Plan</button>
+          <button class="mode-btn" data-mode="team" title="Team 模式：多智能体协作">Team</button>
+        </div>
+        <span style="color:var(--text-3);">·</span>
+        <span><kbd>Enter</kbd> 发送 &nbsp;·&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
       </div>
     </div>
   </div>
@@ -857,8 +1006,11 @@ const state = {
   pollTimer: null,
   pendingApproval: null,
   approvalCountdownTimer: null,
+  pendingPlanReview: null,
+  planReviewCountdownTimer: null,
   isStreaming: false,
   activeTurnId: null,
+  activeMode: 'agent',
 };
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
@@ -899,6 +1051,14 @@ const confirmModal         = document.getElementById('confirm-modal');
 const confirmMsg           = document.getElementById('confirm-msg');
 const confirmOk            = document.getElementById('confirm-ok');
 const confirmCancel        = document.getElementById('confirm-cancel');
+const modelBadge           = document.getElementById('model-badge');
+const planReviewOverlay    = document.getElementById('plan-review-overlay');
+const planReviewSteps      = document.getElementById('plan-review-steps');
+const planReviewCountdown  = document.getElementById('plan-review-countdown');
+const planApproveBtn       = document.getElementById('plan-approve-btn');
+const planCancelBtn        = document.getElementById('plan-cancel-btn');
+const planSupplementBtn    = document.getElementById('plan-supplement-btn');
+const planFeedbackInput    = document.getElementById('plan-feedback-input');
 
 // ─── confirm dialog ──────────────────────────────────────────────────────────
 function showConfirm(msg, okLabel = '确认删除') {
@@ -920,6 +1080,24 @@ function showConfirm(msg, okLabel = '确认删除') {
     confirmModal.addEventListener('click', onBg);
   });
 }
+
+// ─── mode selector ───────────────────────────────────────────────────────────
+const modeButtons = document.querySelectorAll('.mode-btn');
+modeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    state.activeMode = btn.dataset.mode;
+    modeButtons.forEach(b => {
+      b.classList.remove('active', 'active-plan', 'active-team');
+    });
+    if (state.activeMode === 'plan') {
+      btn.classList.add('active-plan');
+    } else if (state.activeMode === 'team') {
+      btn.classList.add('active-team');
+    } else {
+      btn.classList.add('active');
+    }
+  });
+});
 
 // ─── typewriter ───────────────────────────────────────────────────────────────
 const typewriters = {}; // turnId → { buffer, cursor, rafId }
@@ -1040,6 +1218,16 @@ async function initApp() {
   userAvatar.textContent = u.username.charAt(0).toUpperCase();
   if (u.is_admin) adminBtn.style.display = '';
 
+  // Fetch model info
+  try {
+    const info = await apiJson('/v1/info');
+    if (info.model || info.provider) {
+      const label = [info.provider, info.model].filter(Boolean).join('/');
+      modelBadge.textContent = label;
+      modelBadge.classList.add('visible');
+    }
+  } catch {}
+
   showApp();
   await loadThreads();
   if (state.threads.length > 0) selectThread(state.threads[0].id);
@@ -1060,6 +1248,7 @@ function clearStreaming() {
   sendBtn.disabled = false;
   cancelBtn.classList.remove('visible');
   setStatusBadge('ready');
+  if (state.pendingPlanReview) hidePlanReview();
 }
 
 function setStatusBadge(s) {
@@ -1344,6 +1533,116 @@ function collapseBlocks(turnId) {
   });
 }
 
+// ─── plan progress ────────────────────────────────────────────────────────────
+const TASK_ICONS = { pending: '○', running: '◌', completed: '✓', failed: '✗' };
+
+function ensurePlanContainer(turnId, mode) {
+  let div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) div = appendAssistantBubble(turnId);
+  const container = div.querySelector('.plan-container');
+  if (container) return container;
+  const modeLabel = mode === 'team' ? 'Team' : 'Plan';
+  const badgeClass = mode === 'team' ? 'team-badge' : 'plan-badge';
+  const newContainer = document.createElement('div');
+  newContainer.className = 'plan-container';
+  newContainer.setAttribute('data-plan-mode', mode || 'plan');
+  newContainer.innerHTML = `
+    <div class="plan-header">
+      <span class="plan-mode-badge ${badgeClass}">${modeLabel.toUpperCase()}</span>
+      <span>执行计划</span>
+    </div>
+    <div class="plan-task-list"></div>`;
+  const toolContainer = div.querySelector('.tool-container');
+  toolContainer.parentNode.insertBefore(newContainer, toolContainer);
+  return newContainer;
+}
+
+function renderPlanCreated(turnId, tasks, mode) {
+  const container = ensurePlanContainer(turnId, mode);
+  const list = container.querySelector('.plan-task-list');
+  list.innerHTML = '';
+  tasks.forEach(t => {
+    const row = document.createElement('div');
+    row.className = 'plan-task';
+    row.setAttribute('data-task-id', t.id);
+    row.innerHTML = `
+      <span class="plan-task-icon">${TASK_ICONS.pending}</span>
+      <span class="plan-task-id">${escHtml(t.id)}</span>
+      <span class="plan-task-desc">${escHtml(t.description)}</span>`;
+    list.appendChild(row);
+  });
+  scrollToBottom();
+}
+
+function updatePlanTaskStatus(turnId, taskId, status) {
+  const div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) return;
+  const row = div.querySelector(`[data-task-id="${taskId}"]`);
+  if (!row) return;
+  row.className = 'plan-task ' + (status || '');
+  const icon = row.querySelector('.plan-task-icon');
+  if (icon) icon.textContent = TASK_ICONS[status] || '·';
+  scrollToBottom();
+}
+
+// ─── plan review UI ───────────────────────────────────────────────────────────
+function showPlanReview(threadId, turnId, tasks) {
+  state.pendingPlanReview = { threadId, turnId };
+  planReviewSteps.innerHTML = '';
+  tasks.forEach((t, i) => {
+    const step = document.createElement('div');
+    step.className = 'plan-review-step';
+    const depText = t.dependencies && t.dependencies.length
+      ? `依赖: ${t.dependencies.join(', ')}`
+      : '';
+    step.innerHTML = `
+      <div class="plan-review-step-num">${i + 1}</div>
+      <div style="flex:1;">
+        <div class="plan-review-step-text">${escHtml(t.description)}</div>
+        ${depText ? `<div class="plan-review-step-dep">${escHtml(depText)}</div>` : ''}
+      </div>`;
+    planReviewSteps.appendChild(step);
+  });
+  planFeedbackInput.value = '';
+  planReviewOverlay.classList.add('visible');
+  let remaining = 600;
+  clearInterval(state.planReviewCountdownTimer);
+  state.planReviewCountdownTimer = setInterval(() => {
+    remaining--;
+    planReviewCountdown.textContent = remaining + 's';
+    if (remaining <= 0) { clearInterval(state.planReviewCountdownTimer); hidePlanReview(); }
+  }, 1000);
+}
+
+function hidePlanReview() {
+  planReviewOverlay.classList.remove('visible');
+  clearInterval(state.planReviewCountdownTimer);
+  state.pendingPlanReview = null;
+}
+
+async function respondPlanReview(action, feedback) {
+  const { threadId, turnId } = state.pendingPlanReview || {};
+  if (!threadId || !turnId) return;
+  hidePlanReview();
+  try {
+    await apiJson(`/v1/threads/${threadId}/turns/${turnId}/plan_review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, feedback: feedback || '' }),
+    });
+  } catch {}
+}
+
+planApproveBtn.addEventListener('click', () => respondPlanReview('approve'));
+planCancelBtn.addEventListener('click', () => respondPlanReview('cancel'));
+planSupplementBtn.addEventListener('click', () => {
+  const feedback = planFeedbackInput.value.trim();
+  if (!feedback) { planFeedbackInput.focus(); return; }
+  respondPlanReview('supplement', feedback);
+});
+planFeedbackInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); planSupplementBtn.click(); }
+});
+
 function scrollToBottom() {
   messages.scrollTop = messages.scrollHeight;
 }
@@ -1377,7 +1676,7 @@ async function sendMessage() {
   try {
     const turn = await apiJson(`/v1/threads/${state.activeThreadId}/turns`, {
       method: 'POST',
-      body: JSON.stringify({ input: text }),
+      body: JSON.stringify({ input: text, mode: state.activeMode }),
     });
     bubble.setAttribute('data-turn', turn.id);
     setStreaming(turn.id);
@@ -1390,7 +1689,7 @@ async function sendMessage() {
 
 sendBtn.addEventListener('click', sendMessage);
 promptInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendMessage(); }
 });
 promptInput.addEventListener('input', () => {
   promptInput.style.height = 'auto';
@@ -1465,9 +1764,17 @@ function processSSE(text, threadId, turnId) {
       const div = document.querySelector(`[data-turn="${turnId}"]`);
       if (div) {
         const c = div.querySelector('.bubble-content');
-        if (c) c.innerHTML += `<div style="color:var(--${eventType === 'turn.failed' ? 'red' : 'text-3'});font-size:12px;margin-top:6px;">${
-          eventType === 'turn.failed' ? '⚠ ' + escHtml(data.error || '执行失败') : '已取消'
-        }</div>`;
+        if (c) {
+          const hasText = c.innerText.trim().length > 0 && !c.querySelector('.typing-dot');
+          const notice = `<div style="color:var(--${eventType === 'turn.failed' ? 'red' : 'text-3'});font-size:12px;margin-top:${hasText ? 6 : 0}px;">${
+            eventType === 'turn.failed' ? '⚠ ' + escHtml(data.error || '执行失败') : '已取消'
+          }</div>`;
+          if (hasText) {
+            c.innerHTML += notice;
+          } else {
+            c.innerHTML = notice;
+          }
+        }
       }
       done = true;
     } else if (eventType === 'reasoning.delta' && data.turn_id === turnId) {
@@ -1494,6 +1801,17 @@ function processSSE(text, threadId, turnId) {
       showApproval(threadId, turnId, data.tool_name, data.arguments);
     } else if (eventType === 'tool.approval_timeout') {
       hideApproval();
+    } else if (eventType === 'plan.review_request' && data.turn_id === turnId) {
+      showPlanReview(threadId, turnId, data.tasks || []);
+    } else if (eventType === 'plan.review_timeout' && data.turn_id === turnId) {
+      hidePlanReview();
+    } else if (eventType === 'plan.created' && data.turn_id === turnId) {
+      hidePlanReview();
+      renderPlanCreated(turnId, data.tasks || [], data.mode);
+    } else if (eventType === 'plan.task.started' && data.turn_id === turnId) {
+      updatePlanTaskStatus(turnId, data.task_id, 'running');
+    } else if (eventType === 'plan.task.completed' && data.turn_id === turnId) {
+      updatePlanTaskStatus(turnId, data.task_id, data.success ? 'completed' : 'failed');
     }
   }
   return done;
@@ -1656,6 +1974,12 @@ async function fetchAllEvents(threadId) {
         }
       } else if (eventType === 'reasoning.text') {
         appendReasoningBlock(data.turn_id, data.text || '');
+      } else if (eventType === 'plan.created') {
+        renderPlanCreated(data.turn_id, data.tasks || [], data.mode);
+      } else if (eventType === 'plan.task.started') {
+        updatePlanTaskStatus(data.turn_id, data.task_id, 'running');
+      } else if (eventType === 'plan.task.completed') {
+        updatePlanTaskStatus(data.turn_id, data.task_id, data.success ? 'completed' : 'failed');
       }
     }
     if (!hasMore) break;

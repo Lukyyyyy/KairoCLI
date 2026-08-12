@@ -1,0 +1,16 @@
+from pathlib import Path
+
+import kairocli.web_app as web_app_module
+
+
+def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
+    html = (
+        Path(web_app_module.__file__).parent / "web_static" / "index.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'data-mode="agent"' in html
+    assert 'data-mode="plan"' in html
+    assert 'data-mode="team"' in html
+    assert 'id="plan-review-overlay"' in html
+    assert 'id="model-badge"' in html
+    assert "e.isComposing" in html
