@@ -9,6 +9,7 @@ def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'data-mode="agent"' in html
+    assert 'data-mode="agent" title="ReAct 模式：直接执行">ReAct</button>' in html
     assert 'data-mode="plan"' in html
     assert 'data-mode="team"' in html
     assert 'id="plan-review-overlay"' in html
