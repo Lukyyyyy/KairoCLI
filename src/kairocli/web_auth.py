@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sqlite3
@@ -66,6 +67,22 @@ class WebUserStore:
                 hashed_password TEXT NOT NULL,
                 is_admin INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS user_configs (
+                user_id TEXT PRIMARY KEY,
+                config_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS user_config_presets (
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                config_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, name)
                 )"""
             )
         if os.name != "nt" and database.is_file():
@@ -148,8 +165,97 @@ class WebUserStore:
             )
         return cursor.rowcount == 1
 
+    def get_config(self, user_id: str) -> dict[str, Any]:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT config_json FROM user_configs WHERE user_id=?", (user_id,)
+            ).fetchone()
+        if row is None:
+            return {}
+        try:
+            value = json.loads(str(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    def save_config(self, user_id: str, config: dict[str, Any]) -> None:
+        now = datetime.now(UTC).isoformat()
+        payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO user_configs (user_id, config_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    config_json=excluded.config_json,
+                    updated_at=excluded.updated_at""",
+                (user_id, payload, now),
+            )
+
+    def list_config_presets(self, user_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT name, config_json, created_at
+                FROM user_config_presets WHERE user_id=?
+                ORDER BY created_at DESC""",
+                (user_id,),
+            ).fetchall()
+        presets: list[dict[str, Any]] = []
+        for name, config_json, created_at in rows:
+            try:
+                config = json.loads(str(config_json))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if isinstance(config, dict):
+                presets.append(
+                    {"name": str(name), "created_at": str(created_at), **config}
+                )
+        return presets
+
+    def save_config_preset(
+        self, user_id: str, name: str, config: dict[str, Any]
+    ) -> dict[str, Any]:
+        created_at = datetime.now(UTC).isoformat()
+        payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO user_config_presets
+                (user_id, name, config_json, created_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, name) DO UPDATE SET
+                    config_json=excluded.config_json,
+                    created_at=excluded.created_at""",
+                (user_id, name, payload, created_at),
+            )
+        return {"name": name, "created_at": created_at, **config}
+
+    def get_config_preset(self, user_id: str, name: str) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT config_json FROM user_config_presets
+                WHERE user_id=? AND name=?""",
+                (user_id, name),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(str(row[0]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return value if isinstance(value, dict) else None
+
+    def delete_config_preset(self, user_id: str, name: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM user_config_presets WHERE user_id=? AND name=?",
+                (user_id, name),
+            )
+        return cursor.rowcount == 1
+
     def delete_user(self, user_id: str) -> bool:
         with self._connect() as connection:
+            connection.execute("DELETE FROM user_configs WHERE user_id=?", (user_id,))
+            connection.execute(
+                "DELETE FROM user_config_presets WHERE user_id=?", (user_id,)
+            )
             cursor = connection.execute("DELETE FROM users WHERE id=?", (user_id,))
         return cursor.rowcount == 1
 

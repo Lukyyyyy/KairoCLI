@@ -84,17 +84,18 @@ def run_web_server(
     # Two independent RuntimeState instances against the same DB are safe (WAL mode,
     # stale-owner recovery), but do not run the raw API server and the web server
     # simultaneously against the same runtime.db.
-    def agent_factory(approver: Any = None) -> Any:
+    def agent_factory(approver: Any = None, config: AppConfig | None = None) -> Any:
         return make_agent(
             paths,
-            config,
-            provider,
+            config or app_config,
+            None,
             approval_policy=_ApprovalPolicy(enabled=True),
             approver=approver,
         )
 
+    app_config = config
     try:
-        _llm = create_llm_client(config, provider)
+        _llm = create_llm_client(app_config)
         _model_info: dict[str, str] | None = {"provider": _llm.provider, "model": _llm.model or ""}
     except Exception:
         _model_info = None
@@ -105,6 +106,7 @@ def run_web_server(
         users_database=paths.user_dir / "web" / "users.db",
         jwt_secret_path=paths.user_dir / "web" / "jwt_secret.bin",
         model_info=_model_info,
+        app_config=app_config,
     )
     try:
         import uvicorn

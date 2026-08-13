@@ -734,6 +734,263 @@
     }
     #admin-error.visible { display: block; }
 
+    /* ── config modal ── */
+    #config-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(8,12,20,0.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; z-index: 40;
+    }
+    #config-modal.visible { display: flex; }
+    .config-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 12px; width: 100%; max-width: 740px;
+      max-height: 88vh; display: flex; flex-direction: column;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      animation: slideUp 0.22s ease forwards;
+    }
+    .config-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 13px 18px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0; gap: 8px;
+    }
+    .config-title { font-weight: 600; font-size: 13.5px; color: var(--text-1); }
+    #config-unsaved-badge {
+      font-size: 10px; padding: 2px 7px; border-radius: 3px;
+      background: rgba(251,146,60,0.1); color: var(--orange);
+      border: 1px solid rgba(251,146,60,0.22); display: none;
+    }
+    #config-unsaved-badge.visible { display: inline-block; }
+    .config-body { display: flex; flex: 1; overflow: hidden; }
+
+    /* left panel */
+    .config-left-panel {
+      width: 200px; min-width: 200px; border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+    }
+    .config-left-scroll { flex: 1; overflow-y: auto; padding: 10px 8px; }
+    .cfg-left-section { margin-bottom: 4px; }
+    .cfg-section-label {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-3);
+      padding: 2px 6px 5px;
+    }
+    .config-default-select {
+      width: 100%; background: var(--bg);
+      border: 1px solid var(--border-s); color: var(--text-1);
+      border-radius: 5px; padding: 5px 8px; outline: none;
+      font-family: inherit; font-size: 12px; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .config-default-select:focus { border-color: var(--accent); }
+    .config-provider-nav-item {
+      width: 100%; text-align: left; background: transparent;
+      border: 1px solid transparent; border-radius: 6px;
+      padding: 6px 8px; font-family: inherit;
+      color: var(--text-2); cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+      display: flex; flex-direction: column; gap: 2px;
+      margin-bottom: 2px;
+    }
+    .config-provider-nav-item:hover { background: var(--bg-h); color: var(--text-1); }
+    .config-provider-nav-item.active {
+      background: var(--accent-dim); color: var(--accent);
+      border-color: rgba(56,189,248,0.2);
+    }
+    .config-nav-top { display: flex; align-items: center; gap: 5px; }
+    .config-nav-name {
+      font-size: 12px; font-weight: 500; flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .config-nav-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--text-3); flex-shrink: 0; transition: background 0.12s;
+    }
+    .config-nav-dot.has-key { background: var(--green); }
+    .config-nav-dirty {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--orange); flex-shrink: 0; display: none;
+    }
+    .config-nav-dirty.visible { display: block; }
+    .config-nav-meta {
+      font-size: 10.5px; color: var(--text-3);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .config-provider-nav-item.active .config-nav-meta { color: rgba(56,189,248,0.6); }
+
+    /* snapshot collapse section */
+    .config-collapse-section { border-top: 1px solid var(--border); flex-shrink: 0; }
+    .config-collapse-header {
+      display: flex; align-items: center; gap: 5px;
+      padding: 8px 14px; cursor: pointer; list-style: none;
+      font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-3);
+      user-select: none; transition: color 0.12s;
+    }
+    .config-collapse-header::-webkit-details-marker { display: none; }
+    .config-collapse-header:hover { color: var(--text-2); }
+    details[open].config-collapse-section .config-collapse-header .cfg-chevron { transform: rotate(90deg); }
+    .cfg-chevron { font-size: 9px; transition: transform 0.15s; }
+    .config-count-badge {
+      font-size: 10px; padding: 1px 5px; border-radius: 3px;
+      background: var(--bg-h); color: var(--text-3);
+      border: 1px solid var(--border); display: none;
+    }
+    .config-count-badge.visible { display: inline-block; }
+    .config-snapshots-body { max-height: 200px; overflow-y: auto; padding: 4px 8px 8px; }
+    .config-snapshot-item {
+      display: flex; align-items: center; gap: 4px;
+      padding: 5px 6px; border-radius: 5px;
+      border: 1px solid transparent; margin-bottom: 2px;
+      transition: background 0.1s;
+    }
+    .config-snapshot-item:hover { background: var(--bg-h); }
+    .config-snapshot-item.is-current {
+      background: rgba(56,189,248,0.06); border-color: rgba(56,189,248,0.15);
+    }
+    .config-snap-info { flex: 1; min-width: 0; }
+    .config-snap-name {
+      font-size: 11.5px; color: var(--text-1);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .config-snap-meta { font-size: 10px; color: var(--text-3); margin-top: 1px; }
+    .config-snap-apply {
+      background: transparent; color: var(--text-3);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 7px; cursor: pointer; font-size: 10.5px; font-family: inherit;
+      transition: all 0.12s; white-space: nowrap; flex-shrink: 0;
+    }
+    .config-snap-apply:hover {
+      background: var(--accent-dim); color: var(--accent);
+      border-color: rgba(56,189,248,0.3);
+    }
+    .config-snapshot-item.is-current .config-snap-apply { display: none; }
+    .config-snap-del {
+      background: transparent; border: none; cursor: pointer;
+      color: var(--text-3); padding: 2px 4px; border-radius: 3px;
+      font-size: 13px; line-height: 1; flex-shrink: 0;
+      transition: color 0.1s, background 0.1s;
+    }
+    .config-snap-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+
+    /* right panel */
+    .config-right-panel { flex: 1; overflow-y: auto; padding: 16px 20px; min-width: 0; }
+    .config-provider-header {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 16px;
+    }
+    .config-provider-title { font-size: 13.5px; font-weight: 600; color: var(--text-1); flex: 1; }
+    .config-set-default-btn {
+      background: transparent; color: var(--text-3);
+      border: 1px solid var(--border-s); border-radius: 5px;
+      padding: 3px 10px; cursor: pointer; font-size: 11px; font-family: inherit;
+      transition: all 0.12s; white-space: nowrap;
+    }
+    .config-set-default-btn:hover {
+      background: var(--accent-dim); color: var(--accent);
+      border-color: rgba(56,189,248,0.3);
+    }
+    .config-set-default-btn.is-default {
+      color: var(--accent); border-color: rgba(56,189,248,0.25);
+      background: var(--accent-dim); cursor: default;
+    }
+
+    /* config fields */
+    .config-field { margin-bottom: 12px; }
+    .config-label {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11.5px; color: var(--text-2); font-weight: 500;
+      margin-bottom: 5px;
+    }
+    .config-label-tag {
+      font-size: 10px; color: var(--text-3); font-weight: 400;
+      background: var(--bg-h); padding: 1px 5px; border-radius: 3px;
+    }
+    .config-key-status { font-size: 10.5px; padding: 2px 6px; border-radius: 3px; border: 1px solid; }
+    .config-key-set { color: var(--green); border-color: rgba(52,211,153,0.3); background: rgba(52,211,153,0.08); }
+    .config-key-missing { color: var(--red); border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.08); }
+    .config-input {
+      width: 100%; background: var(--bg);
+      border: 1px solid var(--border-s); color: var(--text-1); border-radius: 6px;
+      padding: 7px 10px; outline: none; transition: border-color 0.15s;
+      font-family: 'JetBrains Mono', monospace; font-size: 12.5px;
+    }
+    .config-input::placeholder { color: var(--text-3); }
+    .config-input:focus { border-color: var(--accent); }
+    .config-input-row { display: flex; gap: 8px; }
+    .config-input-row .config-field { flex: 1; }
+
+    /* api key eye toggle */
+    .config-apikey-wrap { position: relative; }
+    .config-apikey-wrap .config-input { padding-right: 34px; }
+    .config-eye-btn {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      background: transparent; border: none; cursor: pointer;
+      color: var(--text-3); padding: 2px; transition: color 0.12s;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .config-eye-btn:hover { color: var(--text-2); }
+
+    /* advanced section */
+    .config-advanced-section {
+      border: 1px solid var(--border); border-radius: 6px;
+      overflow: hidden; margin-bottom: 4px;
+    }
+    .config-advanced-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 10px; cursor: pointer; list-style: none;
+      font-size: 11px; font-weight: 500; color: var(--text-3);
+      background: var(--bg-s); user-select: none;
+      transition: color 0.12s, background 0.12s;
+    }
+    .config-advanced-header::-webkit-details-marker { display: none; }
+    .config-advanced-header:hover { color: var(--text-2); background: var(--bg-h); }
+    details[open].config-advanced-section .config-advanced-header .cfg-chevron { transform: rotate(90deg); }
+    .config-advanced-body {
+      padding: 12px 12px 4px; background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+
+    /* footer */
+    .config-footer {
+      display: flex; align-items: center; gap: 8px;
+      padding: 11px 18px; border-top: 1px solid var(--border);
+      background: var(--bg-s); border-radius: 0 0 12px 12px; flex-shrink: 0;
+    }
+    .config-snapshot-name-input {
+      flex: 1; min-width: 0;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-2); border-radius: 5px;
+      padding: 6px 10px; outline: none; font-family: inherit; font-size: 12px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .config-snapshot-name-input:focus { border-color: rgba(56,189,248,0.3); color: var(--text-1); }
+    .config-snapshot-name-input::placeholder { color: var(--text-3); }
+    #config-error {
+      font-size: 11.5px; color: var(--red); display: none; white-space: nowrap;
+    }
+    #config-error.visible { display: block; }
+
+    /* ── change password modal ── */
+    #chpwd-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(8,12,20,0.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center; z-index: 50;
+    }
+    #chpwd-modal.visible { display: flex; }
+    .chpwd-card {
+      background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 12px; padding: 22px 24px; width: 100%; max-width: 340px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+      animation: slideUp 0.2s ease forwards;
+    }
+    .chpwd-title { font-weight: 600; font-size: 14px; color: var(--text-1); margin-bottom: 16px; }
+    #chpwd-error {
+      display: none; font-size: 12px; color: var(--red);
+      background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
+      border-radius: 6px; padding: 6px 10px; margin-bottom: 12px;
+    }
+    #chpwd-error.visible { display: block; }
+
     /* ── app layout ── */
     #app-view {
       display: none; height: 100vh;
@@ -853,6 +1110,18 @@
         <button id="admin-btn" class="btn-icon" title="用户管理" style="display:none;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+          </svg>
+        </button>
+        <button id="config-btn" class="btn-icon" title="模型配置" style="display:none;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+        </button>
+        <button id="chpwd-btn" class="btn-icon" title="修改密码">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0110 0v4"/>
           </svg>
         </button>
         <button id="logout-btn" class="btn-icon" title="退出登录">
@@ -1005,6 +1274,30 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════ CHANGE PASSWORD -->
+<div id="chpwd-modal">
+  <div class="chpwd-card">
+    <div class="chpwd-title">修改密码</div>
+    <div id="chpwd-error"></div>
+    <div class="form-field">
+      <label class="form-label" for="chpwd-old">当前密码</label>
+      <input id="chpwd-old" type="password" class="k-input" placeholder="输入当前密码" autocomplete="current-password" />
+    </div>
+    <div class="form-field">
+      <label class="form-label" for="chpwd-new">新密码</label>
+      <input id="chpwd-new" type="password" class="k-input" placeholder="至少 8 位" autocomplete="new-password" />
+    </div>
+    <div class="form-field" style="margin-bottom:18px;">
+      <label class="form-label" for="chpwd-confirm">确认新密码</label>
+      <input id="chpwd-confirm" type="password" class="k-input" placeholder="再次输入新密码" autocomplete="new-password" />
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button id="chpwd-cancel" class="btn-ghost">取消</button>
+      <button id="chpwd-submit" class="btn-primary" style="padding:8px 18px;">确认修改</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════════════ CONFIRM -->
 <div id="confirm-modal">
   <div class="confirm-card">
@@ -1014,6 +1307,63 @@
     <div class="confirm-actions">
       <button id="confirm-cancel" class="btn-ghost">取消</button>
       <button id="confirm-ok" class="btn-danger" style="padding:6px 14px;font-size:13px;">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ CONFIG -->
+<div id="config-modal">
+  <div class="config-card">
+    <div class="config-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="config-title">模型配置</span>
+        <span id="config-unsaved-badge">未保存更改</span>
+      </div>
+      <button id="config-modal-close" class="btn-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="config-body">
+      <!-- Left: Provider Nav -->
+      <div class="config-left-panel">
+        <div class="config-left-scroll">
+          <div class="cfg-left-section">
+            <div class="cfg-section-label">默认提供商</div>
+            <select id="config-default-provider" class="config-default-select"></select>
+          </div>
+          <div class="cfg-left-section" style="margin-top:14px;">
+            <div class="cfg-section-label">提供商</div>
+            <div id="config-provider-list"></div>
+          </div>
+        </div>
+        <!-- Snapshots (collapsible, pinned to bottom) -->
+        <details id="config-snapshots-section" class="config-collapse-section">
+          <summary class="config-collapse-header">
+            <span style="flex:1;">历史快照</span>
+            <span id="config-snapshot-count" class="config-count-badge"></span>
+            <span class="cfg-chevron">▶</span>
+          </summary>
+          <div class="config-snapshots-body" id="config-snapshots-list">
+            <div style="color:var(--text-3);font-size:11.5px;padding:6px 4px;">保存后自动记录快照</div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Right: Provider Fields -->
+      <div class="config-right-panel" id="config-main-panel">
+        <div style="color:var(--text-3);font-size:12.5px;padding-top:40px;text-align:center;">加载中…</div>
+      </div>
+    </div>
+
+    <div class="config-footer">
+      <input id="config-snapshot-name" type="text"
+        class="config-snapshot-name-input"
+        placeholder="快照名称（保存后自动记录，可留空）" autocomplete="off" />
+      <span id="config-error"></span>
+      <button id="config-save-btn" class="btn-primary" style="padding:7px 20px;font-size:13px;white-space:nowrap;">保存</button>
     </div>
   </div>
 </div>
@@ -1079,6 +1429,8 @@ const cancelBtn      = document.getElementById('cancel-btn');
 const usernameBadge  = document.getElementById('username-badge');
 const userAvatar     = document.getElementById('user-avatar');
 const adminBtn       = document.getElementById('admin-btn');
+const configBtn      = document.getElementById('config-btn');
+const chpwdBtn       = document.getElementById('chpwd-btn');
 const logoutBtn      = document.getElementById('logout-btn');
 const approvalOverlay      = document.getElementById('approval-overlay');
 const approvalToolName     = document.getElementById('approval-tool-name');
@@ -1313,8 +1665,11 @@ loginForm.addEventListener('submit', async (e) => {
 });
 
 logoutBtn.addEventListener('click', async () => {
+  if (!await showConfirm('确认退出登录？', '退出')) return;
   await apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
   clearAuth();
+  adminBtn.style.display = 'none';
+  configBtn.style.display = 'none';
   messages.innerHTML = '';
   threadList.innerHTML = '';
   state.threads = [];
@@ -1333,7 +1688,8 @@ async function initApp() {
   const u = state.currentUser;
   usernameBadge.textContent = u.username;
   userAvatar.textContent = u.username.charAt(0).toUpperCase();
-  if (u.is_admin) adminBtn.style.display = '';
+  adminBtn.style.display = u.is_admin ? '' : 'none';
+  configBtn.style.display = '';
 
   // Fetch model info
   try {
@@ -1975,6 +2331,383 @@ async function respondApproval(approved) {
 approvalApproveBtn.addEventListener('click', () => respondApproval(true));
 approvalDenyBtn.addEventListener('click', () => respondApproval(false));
 
+// ─── config UI ───────────────────────────────────────────────────────────────
+const configModal          = document.getElementById('config-modal');
+const configModalClose     = document.getElementById('config-modal-close');
+const configProviderList   = document.getElementById('config-provider-list');
+const configMainPanel      = document.getElementById('config-main-panel');
+const configDefaultProv    = document.getElementById('config-default-provider');
+const configSaveBtn        = document.getElementById('config-save-btn');
+const configError          = document.getElementById('config-error');
+const configSnapshotName   = document.getElementById('config-snapshot-name');
+const configUnsavedBadge   = document.getElementById('config-unsaved-badge');
+const configSnapshotsList  = document.getElementById('config-snapshots-list');
+const configSnapshotCount  = document.getElementById('config-snapshot-count');
+const configSnapshotsSection = document.getElementById('config-snapshots-section');
+
+const PROVIDER_LABELS = {
+  glm: 'GLM', deepseek: 'DeepSeek', step: 'Step', kimi: 'Kimi',
+  freellmapi: 'FreeLLM', xfyun: 'iFlytek', agnes: 'Agnes',
+};
+
+const configState = {
+  data: null,
+  activeProvider: null,
+  dirty: {},
+  defaultProvider: null,
+  currentPreset: null,
+};
+
+function currentPresetStorageKey() {
+  return state.currentUser ? `kairo_current_preset_${state.currentUser.id}` : null;
+}
+
+function hasDirtyChanges() {
+  if (Object.keys(configState.dirty).some(p => Object.keys(configState.dirty[p] || {}).length > 0)) return true;
+  if (configState.defaultProvider !== (configState.data?.default_provider ?? null)) return true;
+  return false;
+}
+
+function syncUnsavedBadge() {
+  configUnsavedBadge.classList.toggle('visible', hasDirtyChanges());
+  if (!configState.data) return;
+  const names = configState.data.provider_names || Object.keys(configState.data.providers || {});
+  names.forEach(name => {
+    const btn = configProviderList.querySelector(`[data-name="${name}"]`);
+    if (!btn) return;
+    const dirty = btn.querySelector('.config-nav-dirty');
+    if (dirty) dirty.classList.toggle('visible', Object.keys(configState.dirty[name] || {}).length > 0);
+  });
+}
+
+configBtn.addEventListener('click', () => openConfigModal());
+configModalClose.addEventListener('click', () => configModal.classList.remove('visible'));
+configModal.addEventListener('click', (e) => { if (e.target === configModal) configModal.classList.remove('visible'); });
+
+async function openConfigModal() {
+  configModal.classList.add('visible');
+  configError.classList.remove('visible');
+  configState.dirty = {};
+  const presetKey = currentPresetStorageKey();
+  configState.currentPreset = presetKey ? localStorage.getItem(presetKey) : null;
+  configUnsavedBadge.classList.remove('visible');
+  await loadConfig();
+  loadSnapshots();
+}
+
+async function loadConfig() {
+  configMainPanel.innerHTML = '<div style="color:var(--text-3);font-size:12.5px;padding-top:40px;text-align:center;">加载中…</div>';
+  configProviderList.innerHTML = '';
+  try {
+    configState.data = await apiJson('/v1/config');
+  } catch (err) {
+    configMainPanel.innerHTML = `<div style="color:var(--red);font-size:12.5px;padding-top:40px;text-align:center;">加载失败：${escHtml(err.message)}</div>`;
+    return;
+  }
+  const { default_provider, providers, provider_names } = configState.data;
+  configState.defaultProvider = default_provider;
+
+  configDefaultProv.innerHTML = '';
+  (provider_names || Object.keys(providers)).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = PROVIDER_LABELS[name] || name;
+    if (name === default_provider) opt.selected = true;
+    configDefaultProv.appendChild(opt);
+  });
+  configDefaultProv.onchange = () => {
+    configState.defaultProvider = configDefaultProv.value;
+    const setDefaultBtn = configMainPanel.querySelector('#cfg-set-default');
+    if (setDefaultBtn) {
+      const isDefault = configState.activeProvider === configState.defaultProvider;
+      setDefaultBtn.textContent = isDefault ? '✓ 默认提供商' : '设为默认';
+      setDefaultBtn.classList.toggle('is-default', isDefault);
+    }
+    syncUnsavedBadge();
+  };
+
+  if (!configSnapshotName.value) {
+    const now = new Date();
+    configSnapshotName.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} 配置`;
+  }
+
+  const names = provider_names || Object.keys(providers);
+  names.forEach((name, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'config-provider-nav-item' + (i === 0 ? ' active' : '');
+    btn.dataset.name = name;
+    const hasKey = (providers[name] || {}).has_key;
+    const model = (providers[name] || {}).model || '';
+    btn.innerHTML = `
+      <div class="config-nav-top">
+        <span class="config-nav-name">${escHtml(PROVIDER_LABELS[name] || name)}</span>
+        <span class="config-nav-dirty"></span>
+        <span class="config-nav-dot ${hasKey ? 'has-key' : ''}"></span>
+      </div>
+      ${model ? `<div class="config-nav-meta">${escHtml(model)}</div>` : ''}`;
+    btn.addEventListener('click', () => {
+      configProviderList.querySelectorAll('.config-provider-nav-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderProviderFields(name);
+    });
+    configProviderList.appendChild(btn);
+  });
+
+  renderProviderFields(names[0]);
+}
+
+function renderProviderFields(providerName) {
+  configState.activeProvider = providerName;
+  const pdata = (configState.data?.providers || {})[providerName] || {};
+  configState.dirty[providerName] = configState.dirty[providerName] || {};
+  const dirty = configState.dirty[providerName];
+  const val = (field, fallback = '') => field in dirty ? dirty[field] : (pdata[field] ?? fallback);
+  const isDefault = providerName === configState.defaultProvider;
+
+  configMainPanel.innerHTML = `
+    <div class="config-provider-header">
+      <div class="config-provider-title">${escHtml(PROVIDER_LABELS[providerName] || providerName)}</div>
+      <button id="cfg-set-default" class="config-set-default-btn${isDefault ? ' is-default' : ''}" type="button">
+        ${isDefault ? '✓ 默认提供商' : '设为默认'}
+      </button>
+    </div>
+
+    <div class="config-field">
+      <div class="config-label">API Key
+        <span class="config-key-status ${pdata.has_key ? 'config-key-set' : 'config-key-missing'}">
+          ${pdata.has_key ? '已配置' : '未配置'}
+        </span>
+      </div>
+      <div class="config-apikey-wrap">
+        <input id="cf-api_key" type="password" class="config-input"
+          placeholder="${pdata.has_key ? '留空保持不变，输入新值以更新' : '输入 API Key'}"
+          value="" autocomplete="new-password" />
+        <button class="config-eye-btn" type="button" tabindex="-1" data-show="0" title="显示/隐藏">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="config-field">
+      <div class="config-label">模型</div>
+      <input id="cf-model" type="text" class="config-input" placeholder="模型 ID"
+        value="${escHtml(val('model'))}" />
+    </div>
+
+    <div class="config-field">
+      <div class="config-label">Base URL</div>
+      <input id="cf-base_url" type="text" class="config-input" placeholder="https://..."
+        value="${escHtml(val('base_url'))}" />
+    </div>
+
+    <details class="config-advanced-section">
+      <summary class="config-advanced-header">
+        <span style="flex:1;">高级参数</span>
+        <span style="font-size:10px;color:var(--text-3);margin-right:4px;">LoRA · Temperature · Tokens</span>
+        <span class="cfg-chevron">▶</span>
+      </summary>
+      <div class="config-advanced-body">
+        <div class="config-field">
+          <div class="config-label">LoRA ID <span class="config-label-tag">可选</span></div>
+          <input id="cf-lora_id" type="text" class="config-input" placeholder="留空则不使用"
+            value="${escHtml(val('lora_id', ''))}" />
+        </div>
+        <div class="config-input-row">
+          <div class="config-field">
+            <div class="config-label">Temperature <span class="config-label-tag">0–2</span></div>
+            <input id="cf-temperature" type="number" min="0" max="2" step="0.05" class="config-input"
+              value="${val('temperature', 0.7)}" />
+          </div>
+          <div class="config-field">
+            <div class="config-label">Max Tokens</div>
+            <input id="cf-max_tokens" type="number" min="1" max="1000000" step="1" class="config-input"
+              value="${val('max_tokens', 8192)}" />
+          </div>
+        </div>
+        <div class="config-field">
+          <div class="config-label">Context Window <span class="config-label-tag">0=默认, ≥8000</span></div>
+          <input id="cf-context_window" type="number" min="0" step="1000" class="config-input"
+            value="${val('context_window', 0)}" />
+        </div>
+      </div>
+    </details>`;
+
+  // Eye toggle
+  const eyeBtn = configMainPanel.querySelector('.config-eye-btn');
+  const apiKeyInput = document.getElementById('cf-api_key');
+  eyeBtn.addEventListener('click', () => {
+    const showing = eyeBtn.dataset.show === '1';
+    eyeBtn.dataset.show = showing ? '0' : '1';
+    apiKeyInput.type = showing ? 'password' : 'text';
+    eyeBtn.innerHTML = showing
+      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`
+      : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+  });
+
+  // Set as default button
+  const setDefaultBtn = document.getElementById('cfg-set-default');
+  setDefaultBtn.addEventListener('click', () => {
+    if (setDefaultBtn.classList.contains('is-default')) return;
+    configState.defaultProvider = providerName;
+    configDefaultProv.value = providerName;
+    setDefaultBtn.textContent = '✓ 默认提供商';
+    setDefaultBtn.classList.add('is-default');
+    syncUnsavedBadge();
+  });
+
+  // Field change tracking
+  ['api_key','model','base_url','lora_id','temperature','max_tokens','context_window'].forEach(field => {
+    const el = document.getElementById('cf-' + field);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      configState.dirty[providerName][field] = el.value;
+      if (field === 'model') {
+        const navItem = configProviderList.querySelector(`[data-name="${providerName}"]`);
+        if (navItem) {
+          let meta = navItem.querySelector('.config-nav-meta');
+          if (el.value) {
+            if (!meta) { meta = document.createElement('div'); meta.className = 'config-nav-meta'; navItem.appendChild(meta); }
+            meta.textContent = el.value;
+          } else if (meta) { meta.remove(); }
+        }
+      }
+      syncUnsavedBadge();
+    });
+  });
+}
+
+configSaveBtn.addEventListener('click', async () => {
+  configError.classList.remove('visible');
+  const providerName = configState.activeProvider;
+  const dirty = configState.dirty[providerName] || {};
+  const payload = { provider: providerName, default_provider: configState.defaultProvider };
+  for (const [k, v] of Object.entries(dirty)) { if (v !== '') payload[k] = v; }
+
+  configSaveBtn.disabled = true;
+  configSaveBtn.textContent = '保存中…';
+  try {
+    await apiJson('/v1/config', { method: 'PUT', body: JSON.stringify(payload) });
+
+    const snapName = configSnapshotName.value.trim() ||
+      (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')} 配置`; })();
+    try {
+      await apiJson('/v1/config/presets', { method: 'POST', body: JSON.stringify({ name: snapName }) });
+      configState.currentPreset = snapName;
+      const presetKey = currentPresetStorageKey();
+      if (presetKey) localStorage.setItem(presetKey, snapName);
+    } catch {}
+
+    delete configState.dirty[providerName];
+    syncUnsavedBadge();
+    await loadConfig();
+    await loadSnapshots();
+
+    try {
+      const info = await apiJson('/v1/info');
+      if (info.model || info.provider) {
+        const label = [info.provider, info.model].filter(Boolean).join('/');
+        modelBadge.textContent = label;
+        modelBadge.classList.add('visible');
+      }
+    } catch {}
+
+    showToast('配置已保存', 'success');
+  } catch (err) {
+    configError.textContent = err.message;
+    configError.classList.add('visible');
+  } finally {
+    configSaveBtn.disabled = false;
+    configSaveBtn.textContent = '保存';
+  }
+});
+
+// ─── snapshots ────────────────────────────────────────────────────────────────
+async function loadSnapshots() {
+  try {
+    const data = await apiJson('/v1/config/presets');
+    renderSnapshots(data.data || []);
+  } catch {}
+}
+
+function renderSnapshots(snapshots) {
+  if (snapshots.length > 0) {
+    configSnapshotCount.textContent = snapshots.length;
+    configSnapshotCount.classList.add('visible');
+  } else {
+    configSnapshotCount.classList.remove('visible');
+  }
+
+  configSnapshotsList.innerHTML = '';
+  if (!snapshots.length) {
+    configSnapshotsList.innerHTML = '<div style="color:var(--text-3);font-size:11.5px;padding:6px 4px;">保存后自动记录快照</div>';
+    return;
+  }
+
+  snapshots.forEach(p => {
+    const isCurrent = p.name === configState.currentPreset;
+    const item = document.createElement('div');
+    item.className = 'config-snapshot-item' + (isCurrent ? ' is-current' : '');
+    const date = p.created_at
+      ? new Date(p.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : '';
+    const defLabel = PROVIDER_LABELS[p.default_provider] || p.default_provider || '';
+    item.innerHTML = `
+      <div class="config-snap-info">
+        <div class="config-snap-name" title="${escHtml(p.name)}">${escHtml(p.name)}</div>
+        <div class="config-snap-meta">${escHtml(defLabel)}${date ? ' · ' + escHtml(date) : ''}</div>
+      </div>
+      ${isCurrent
+        ? '<span style="font-size:10px;color:var(--accent);white-space:nowrap;flex-shrink:0;padding:2px 6px;">使用中</span>'
+        : `<button class="config-snap-apply" data-name="${escHtml(p.name)}">使用</button>`
+      }
+      <button class="config-snap-del" data-del="${escHtml(p.name)}" title="删除快照">×</button>`;
+
+    const applyBtn = item.querySelector('.config-snap-apply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', async () => {
+        applyBtn.disabled = true; applyBtn.textContent = '…';
+        try {
+          await apiJson(`/v1/config/presets/${encodeURIComponent(p.name)}/apply`, { method: 'POST' });
+          configState.currentPreset = p.name;
+          const presetKey = currentPresetStorageKey();
+          if (presetKey) localStorage.setItem(presetKey, p.name);
+          configState.dirty = {};
+          await loadConfig();
+          await loadSnapshots();
+          showToast(`已切换至「${p.name}」`, 'success');
+        } catch (err) {
+          showToast('切换失败：' + err.message, 'error');
+          applyBtn.disabled = false; applyBtn.textContent = '使用';
+        }
+      });
+    }
+
+    item.querySelector('.config-snap-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = e.currentTarget.dataset.del;
+      if (!await showConfirm(`删除快照「${name}」？`)) return;
+      try {
+        await apiJson(`/v1/config/presets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        if (configState.currentPreset === name) {
+          configState.currentPreset = null;
+          const presetKey = currentPresetStorageKey();
+          if (presetKey) localStorage.removeItem(presetKey);
+        }
+        await loadSnapshots();
+      } catch (err) { showToast('删除失败：' + err.message, 'error'); }
+    });
+
+    configSnapshotsList.appendChild(item);
+  });
+
+  if (snapshots.length > 0 && !configSnapshotsSection.open) {
+    configSnapshotsSection.open = true;
+  }
+}
+
 // ─── admin UI ─────────────────────────────────────────────────────────────────
 adminBtn.addEventListener('click', () => { adminModal.classList.add('visible'); loadAdminUsers(); });
 adminModalClose.addEventListener('click', () => adminModal.classList.remove('visible'));
@@ -2034,6 +2767,78 @@ function showAdminErr(msg) {
   adminError.textContent = msg;
   adminError.classList.add('visible');
 }
+
+// ─── change password UI ──────────────────────────────────────────────────────
+const chpwdModal   = document.getElementById('chpwd-modal');
+const chpwdOld     = document.getElementById('chpwd-old');
+const chpwdNew     = document.getElementById('chpwd-new');
+const chpwdConfirm = document.getElementById('chpwd-confirm');
+const chpwdError   = document.getElementById('chpwd-error');
+const chpwdSubmit  = document.getElementById('chpwd-submit');
+const chpwdCancel  = document.getElementById('chpwd-cancel');
+
+function openChpwdModal() {
+  chpwdOld.value = '';
+  chpwdNew.value = '';
+  chpwdConfirm.value = '';
+  chpwdError.classList.remove('visible');
+  chpwdModal.classList.add('visible');
+  chpwdOld.focus();
+}
+
+function closeChpwdModal() {
+  chpwdModal.classList.remove('visible');
+}
+
+chpwdBtn.addEventListener('click', openChpwdModal);
+chpwdCancel.addEventListener('click', closeChpwdModal);
+chpwdModal.addEventListener('click', (e) => { if (e.target === chpwdModal) closeChpwdModal(); });
+
+chpwdSubmit.addEventListener('click', async () => {
+  chpwdError.classList.remove('visible');
+  const oldPwd = chpwdOld.value;
+  const newPwd = chpwdNew.value;
+  const confirmPwd = chpwdConfirm.value;
+  if (!oldPwd || !newPwd || !confirmPwd) {
+    chpwdError.textContent = '请填写所有字段';
+    chpwdError.classList.add('visible');
+    return;
+  }
+  if (newPwd !== confirmPwd) {
+    chpwdError.textContent = '两次输入的新密码不一致';
+    chpwdError.classList.add('visible');
+    chpwdConfirm.focus();
+    return;
+  }
+  if (newPwd.length < 8) {
+    chpwdError.textContent = '新密码至少需要 8 位';
+    chpwdError.classList.add('visible');
+    chpwdNew.focus();
+    return;
+  }
+  chpwdSubmit.disabled = true;
+  chpwdSubmit.textContent = '提交中…';
+  try {
+    await apiJson('/auth/me/password', {
+      method: 'PUT',
+      body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }),
+    });
+    closeChpwdModal();
+    showToast('密码已修改', 'success');
+  } catch (err) {
+    chpwdError.textContent = err.message;
+    chpwdError.classList.add('visible');
+  } finally {
+    chpwdSubmit.disabled = false;
+    chpwdSubmit.textContent = '确认修改';
+  }
+});
+
+[chpwdOld, chpwdNew, chpwdConfirm].forEach(input => {
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') chpwdSubmit.click();
+  });
+});
 
 // ─── history replay ──────────────────────────────────────────────────────────
 async function fetchAllEvents(threadId) {

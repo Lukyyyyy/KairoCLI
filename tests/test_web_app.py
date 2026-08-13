@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 import kairocli.agent as agent_module
 from kairocli.agent import Agent
+from kairocli.config import AppConfig, ProviderConfig
 from kairocli.llm import LlmClient
 from kairocli.models import LlmResponse, Message
 from kairocli.plan import ExecutionPlan, PlanTask, TaskStatus
@@ -170,3 +171,90 @@ def test_plan_review_endpoint_is_user_scoped(tmp_path: Path) -> None:
             ).status_code
             == 404
         )
+
+
+def test_model_config_and_presets_are_isolated_per_user(tmp_path: Path) -> None:
+    users_database = tmp_path / "web" / "users.db"
+    secret_path = tmp_path / "web" / "jwt_secret.bin"
+    user_store = WebUserStore(users_database)
+    alice = user_store.create_user("alice", "password-123")
+    bob = user_store.create_user("bob", "password-456")
+    secret = JwtSecretStore(secret_path).load_or_generate()
+    alice_headers = {
+        "Authorization": f"Bearer {create_access_token(alice.id, alice.username, False, secret)}"
+    }
+    bob_headers = {
+        "Authorization": f"Bearer {create_access_token(bob.id, bob.username, False, secret)}"
+    }
+    base_config = AppConfig(
+        default_provider="glm",
+        providers={
+            "glm": ProviderConfig(
+                base_url="https://open.bigmodel.cn/api/paas/v4",
+                model="shared-model",
+            ),
+            "deepseek": ProviderConfig(
+                base_url="https://api.deepseek.com",
+                model="deepseek-chat",
+            ),
+        },
+    )
+    used_configs: list[AppConfig] = []
+
+    def factory(approver: Any = None, config: AppConfig | None = None) -> Agent:
+        assert config is not None
+        used_configs.append(config)
+        return Agent(WebClient(), ToolRegistry(tmp_path, approver=approver), "system")
+
+    app = create_web_app(
+        factory,
+        runtime_database=tmp_path / "runtime" / "runtime.db",
+        users_database=users_database,
+        jwt_secret_path=secret_path,
+        app_config=base_config,
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/v1/config").status_code == 401
+        assert client.get("/v1/config", headers=alice_headers).status_code == 200
+        response = client.put(
+            "/v1/config",
+            headers=alice_headers,
+            json={
+                "provider": "glm",
+                "default_provider": "glm",
+                "model": "alice-model",
+                "api_key": "alice-secret",
+            },
+        )
+        assert response.status_code == 200
+        assert client.post(
+            "/v1/config/presets", headers=alice_headers, json={"name": "Alice preset"}
+        ).status_code == 201
+
+        alice_config = client.get("/v1/config", headers=alice_headers).json()
+        bob_config = client.get("/v1/config", headers=bob_headers).json()
+        assert alice_config["providers"]["glm"]["model"] == "alice-model"
+        assert alice_config["providers"]["glm"]["has_key"] is True
+        assert bob_config["providers"]["glm"]["model"] == "shared-model"
+        assert bob_config["providers"]["glm"]["has_key"] is False
+        assert client.get("/v1/config/presets", headers=bob_headers).json()["data"] == []
+        assert client.post(
+            "/v1/config/presets/Alice%20preset/apply", headers=bob_headers
+        ).status_code == 404
+        assert client.get("/v1/info", headers=alice_headers).json() == {
+            "provider": "glm",
+            "model": "alice-model",
+        }
+
+        thread_id = client.post("/v1/threads", headers=alice_headers).json()["id"]
+        assert client.post(
+            f"/v1/threads/{thread_id}/turns",
+            headers=alice_headers,
+            json={"input": "hello"},
+        ).status_code == 202
+
+    assert used_configs[-1].providers["glm"].model == "alice-model"
+    assert used_configs[-1].providers["glm"].api_key == "alice-secret"
+    assert base_config.providers["glm"].model == "shared-model"
+    assert base_config.providers["glm"].api_key == ""

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import secrets
 import uuid
@@ -16,6 +17,13 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import OAuth2PasswordRequestForm
 
 from .agent import AgentCanceled
+from .config import (
+    PROVIDER_DEFAULTS,
+    AppConfig,
+    normalize_provider_base_url,
+    normalize_provider_name,
+    validate_provider_protocol_fields,
+)
 from .runtime_api import (
     _IDEMPOTENCY_KEY,
     _THREAD_ID,
@@ -44,6 +52,7 @@ from .web_auth import (
 )
 
 _DETACHED_WEB_TASKS: set[asyncio.Task[Any]] = set()
+MAX_CONFIG_PRESET_NAME_CHARS = 128
 
 
 class WebApprover:
@@ -149,6 +158,86 @@ class WebRuntimeState(RuntimeState):
         self.active_plan_reviewers.clear()
 
 
+def _effective_user_config(base: AppConfig, stored: dict[str, Any]) -> AppConfig:
+    config = copy.deepcopy(base)
+    default_provider = normalize_provider_name(str(stored.get("default_provider", "")))
+    if default_provider in config.providers:
+        config.default_provider = default_provider
+    stored_providers = stored.get("providers")
+    if not isinstance(stored_providers, dict):
+        return config
+    for name, values in stored_providers.items():
+        if name not in config.providers or not isinstance(values, dict):
+            continue
+        provider = config.providers[name]
+        for field_name in ("api_key", "model", "base_url", "lora_id"):
+            value = values.get(field_name)
+            if isinstance(value, str):
+                setattr(provider, field_name, value)
+                if field_name == "api_key":
+                    provider._persisted_api_key = value
+                    provider._loaded_api_key = value
+        for field_name in ("temperature", "max_tokens", "context_window"):
+            if field_name in values:
+                setattr(provider, field_name, values[field_name])
+    return config
+
+
+def _stored_user_config(
+    config: AppConfig,
+    existing: dict[str, Any],
+    *,
+    updated_api_key_provider: str | None = None,
+) -> dict[str, Any]:
+    existing_providers = existing.get("providers", {})
+    if not isinstance(existing_providers, dict):
+        existing_providers = {}
+    providers: dict[str, Any] = {}
+    for name, provider in config.providers.items():
+        values: dict[str, Any] = {
+            "model": provider.model,
+            "base_url": provider.base_url,
+            "lora_id": provider.lora_id,
+            "temperature": provider.temperature,
+            "max_tokens": provider.max_tokens,
+            "context_window": provider.context_window,
+        }
+        previous = existing_providers.get(name, {})
+        if updated_api_key_provider == name or (
+            isinstance(previous, dict) and "api_key" in previous
+        ):
+            values["api_key"] = provider.api_key
+        providers[name] = values
+    return {"default_provider": config.default_provider, "providers": providers}
+
+
+def _public_config(config: AppConfig) -> dict[str, Any]:
+    return {
+        "default_provider": config.default_provider,
+        "providers": {
+            name: {
+                "model": provider.model,
+                "base_url": provider.base_url,
+                "has_key": bool(provider.api_key),
+                "lora_id": provider.lora_id,
+                "temperature": provider.temperature,
+                "max_tokens": provider.max_tokens,
+                "context_window": provider.context_window,
+            }
+            for name, provider in config.providers.items()
+        },
+        "provider_names": list(PROVIDER_DEFAULTS),
+    }
+
+
+def _preset_config(config: AppConfig) -> dict[str, Any]:
+    public = _public_config(config)
+    for provider in public["providers"].values():
+        provider.pop("has_key", None)
+    public.pop("provider_names", None)
+    return public
+
+
 def create_web_app(
     agent_factory: Any,
     *,
@@ -157,6 +246,7 @@ def create_web_app(
     jwt_secret_path: Path,
     allow_origins: list[str] | None = None,
     model_info: dict[str, str] | None = None,
+    app_config: AppConfig | None = None,
 ) -> FastAPI:
     user_store = WebUserStore(users_database)
     jwt_secret = JwtSecretStore(jwt_secret_path).load_or_generate()
@@ -356,13 +446,154 @@ def create_web_app(
             raise HTTPException(status_code=400, detail="不能删除自己的账号")
         ok = user_store.delete_user(user_id)
         if not ok:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="用户不存在")
+        return {"status": "ok"}
+
+    # ── User-scoped model config endpoints ──────────────────────────────────
+
+    @app.get("/v1/config")
+    async def get_config(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        if app_config is None:
+            raise HTTPException(status_code=503, detail="Config not available")
+        return _public_config(_effective_user_config(app_config, user_store.get_config(user.id)))
+
+    @app.put("/v1/config")
+    async def update_config(
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if app_config is None:
+            raise HTTPException(status_code=503, detail="Config not available")
+        existing = user_store.get_config(user.id)
+        config = _effective_user_config(app_config, existing)
+        provider_name = normalize_provider_name(str(payload.get("provider", "")))
+        if provider_name and provider_name not in config.providers:
+            raise HTTPException(status_code=422, detail=f"Unknown provider: {provider_name}")
+        if "default_provider" in payload:
+            dp = normalize_provider_name(str(payload["default_provider"]))
+            if dp not in config.providers:
+                raise HTTPException(status_code=422, detail=f"Unknown provider: {dp}")
+            config.default_provider = dp
+        if provider_name:
+            provider = config.providers[provider_name]
+            for field_name in ("model", "base_url", "lora_id"):
+                if field_name in payload and payload[field_name] != "":
+                    value = str(payload[field_name]).strip()
+                    if field_name == "base_url":
+                        try:
+                            value = normalize_provider_base_url(value, provider_name)
+                        except ValueError as exc:
+                            raise HTTPException(status_code=422, detail=str(exc)) from None
+                    if field_name == "model" and not value:
+                        raise HTTPException(status_code=422, detail="model cannot be empty")
+                    setattr(provider, field_name, value)
+            if payload.get("api_key"):
+                key = str(payload["api_key"]).strip()
+                provider.api_key = key
+                provider._persisted_api_key = key
+                provider._loaded_api_key = key
+            for num_field, lo, hi in (
+                ("temperature", 0.0, 2.0),
+                ("max_tokens", 1, 1_000_000),
+                ("context_window", 0, 10_000_000),
+            ):
+                if num_field in payload and payload[num_field] != "":
+                    try:
+                        if num_field == "temperature":
+                            v = float(payload[num_field])
+                            if not lo <= v <= hi:
+                                raise ValueError
+                            provider.temperature = v
+                        else:
+                            v_int = int(payload[num_field])
+                            if not lo <= v_int <= hi:
+                                raise ValueError
+                            if num_field == "context_window" and v_int != 0 and v_int < 8_000:
+                                raise HTTPException(
+                                    status_code=422,
+                                    detail="context_window must be 0 or at least 8000",
+                                )
+                            setattr(provider, num_field, v_int)
+                    except (ValueError, TypeError):
+                        raise HTTPException(
+                            status_code=422,
+                            detail=f"Invalid value for {num_field}",
+                        ) from None
+            try:
+                validate_provider_protocol_fields(provider, provider_name)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
+        try:
+            user_store.save_config(
+                user.id,
+                _stored_user_config(
+                    config,
+                    existing,
+                    updated_api_key_provider=(
+                        provider_name if provider_name and payload.get("api_key") else None
+                    ),
+                ),
+            )
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
+        return {"status": "ok"}
+
+    @app.get("/v1/config/presets")
+    async def list_presets(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        return {"object": "list", "data": user_store.list_config_presets(user.id)}
+
+    @app.post("/v1/config/presets", status_code=201)
+    async def save_preset(
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        if app_config is None:
+            raise HTTPException(status_code=503, detail="Config not available")
+        name = str(payload.get("name", "")).strip()
+        if not name or len(name) > MAX_CONFIG_PRESET_NAME_CHARS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"name must be 1–{MAX_CONFIG_PRESET_NAME_CHARS} characters",
+            )
+        config = _effective_user_config(app_config, user_store.get_config(user.id))
+        return user_store.save_config_preset(user.id, name, _preset_config(config))
+
+    @app.delete("/v1/config/presets/{preset_name}")
+    async def delete_preset(
+        preset_name: str,
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if not user_store.delete_config_preset(user.id, preset_name):
+            raise HTTPException(status_code=404, detail="Preset not found")
+        return {"status": "ok"}
+
+    @app.post("/v1/config/presets/{preset_name}/apply")
+    async def apply_preset(
+        preset_name: str,
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        if app_config is None:
+            raise HTTPException(status_code=503, detail="Config not available")
+        preset = user_store.get_config_preset(user.id, preset_name)
+        if preset is None:
+            raise HTTPException(status_code=404, detail="Preset not found")
+        existing = user_store.get_config(user.id)
+        config = _effective_user_config(app_config, existing)
+        preset_config = _effective_user_config(config, preset)
+        try:
+            user_store.save_config(user.id, _stored_user_config(preset_config, existing))
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from None
         return {"status": "ok"}
 
     # ── User-scoped v1 endpoints ─────────────────────────────────────────────
 
     @app.get("/v1/info")
-    async def get_info(_user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+    async def get_info(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
+        if app_config is not None:
+            config = _effective_user_config(app_config, user_store.get_config(user.id))
+            provider = config.providers[config.default_provider]
+            return {"provider": config.default_provider, "model": provider.model}
         return model_info or {"provider": "unknown", "model": "unknown"}
 
     @app.delete("/v1/threads/{thread_id}")
@@ -403,6 +634,7 @@ def create_web_app(
         prompt: str,
         turn_id: str,
         approver: WebApprover,
+        user_id: str,
         mode: str = "agent",
     ) -> None:
         current_task = asyncio.current_task()
@@ -452,7 +684,13 @@ def create_web_app(
         try:
             if state.store.turn_status(thread_id, turn_id) != "running":
                 return
-            agent = agent_factory(approver=approver)
+            if app_config is None:
+                agent = agent_factory(approver=approver)
+            else:
+                user_config = _effective_user_config(
+                    app_config, user_store.get_config(user_id)
+                )
+                agent = agent_factory(approver=approver, config=user_config)
             state.active_agents[turn_id] = agent
             agent.history = state.store.completed_messages(thread_id, before_turn_id=turn_id)
 
@@ -626,7 +864,9 @@ def create_web_app(
         approver = WebApprover(thread_id, turn_id, state)
         state.active_approvers[turn_id] = approver
         state.active_turn_ids.add(turn_id)
-        background.add_task(execute_turn, thread_id, prompt, turn_id, approver, turn_mode)
+        background.add_task(
+            execute_turn, thread_id, prompt, turn_id, approver, user.id, turn_mode
+        )
         return {"id": turn_id, "object": "turn", "status": "running"}
 
     @app.post("/v1/threads/{thread_id}/turns/{turn_id}/cancel")
