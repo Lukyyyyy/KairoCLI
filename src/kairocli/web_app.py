@@ -241,6 +241,18 @@ def create_web_app(
 
     # ── Auth endpoints ───────────────────────────────────────────────────────
 
+    @app.post("/auth/register", status_code=201)
+    async def register(payload: dict[str, Any]) -> dict[str, str]:
+        username = str(payload.get("username", "")).strip()
+        password = str(payload.get("password", ""))
+        if not username or not password:
+            raise HTTPException(status_code=422, detail="用户名和密码不能为空")
+        try:
+            user_store.create_user(username, password, is_admin=False)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return {"status": "ok"}
+
     @app.post("/auth/login")
     async def login(
         request: Request,
@@ -250,7 +262,7 @@ def create_web_app(
         rate_limiter.check_and_record(ip)
         user = user_store.get_by_username(form.username)
         if user is None or not verify_password(form.password, user.hashed_password):
-            raise HTTPException(status_code=401, detail="Incorrect username or password")
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
         token = create_access_token(user.id, user.username, user.is_admin, jwt_secret)
         return {"access_token": token, "token_type": "bearer"}
 
@@ -260,6 +272,26 @@ def create_web_app(
 
     @app.post("/auth/logout")
     async def logout(_user: WebUser = Depends(get_current_user)) -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.put("/auth/me/password")
+    async def change_own_password(
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        old_password = str(payload.get("old_password", ""))
+        new_password = str(payload.get("new_password", ""))
+        if not old_password or not new_password:
+            raise HTTPException(status_code=422, detail="旧密码和新密码不能为空")
+        stored = user_store.get_by_username(user.username)
+        if stored is None or not verify_password(old_password, stored.hashed_password):
+            raise HTTPException(status_code=400, detail="旧密码不正确")
+        try:
+            ok = user_store.update_password(user.id, new_password)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        if not ok:
+            raise HTTPException(status_code=404, detail="用户不存在")
         return {"status": "ok"}
 
     # ── Admin endpoints ──────────────────────────────────────────────────────
@@ -291,7 +323,7 @@ def create_web_app(
         password = payload.get("password", "")
         is_admin = bool(payload.get("is_admin", False))
         if not username or not password:
-            raise HTTPException(status_code=422, detail="username and password are required")
+            raise HTTPException(status_code=422, detail="用户名和密码不能为空")
         try:
             user = user_store.create_user(str(username), str(password), is_admin=is_admin)
         except ValueError as exc:
@@ -306,13 +338,13 @@ def create_web_app(
     ) -> dict[str, str]:
         new_password = payload.get("password", "")
         if not new_password:
-            raise HTTPException(status_code=422, detail="password is required")
+            raise HTTPException(status_code=422, detail="密码不能为空")
         try:
             ok = user_store.update_password(user_id, str(new_password))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         if not ok:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise HTTPException(status_code=404, detail="用户不存在")
         return {"status": "ok"}
 
     @app.delete("/admin/users/{user_id}")
@@ -321,7 +353,7 @@ def create_web_app(
         admin: WebUser = Depends(require_admin),
     ) -> dict[str, str]:
         if user_id == admin.id:
-            raise HTTPException(status_code=400, detail="Cannot delete your own account")
+            raise HTTPException(status_code=400, detail="不能删除自己的账号")
         ok = user_store.delete_user(user_id)
         if not ok:
             raise HTTPException(status_code=404, detail="User not found")

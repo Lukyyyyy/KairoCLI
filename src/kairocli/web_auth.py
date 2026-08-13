@@ -88,11 +88,11 @@ class WebUserStore:
 
     def create_user(self, username: str, password: str, *, is_admin: bool = False) -> WebUser:
         if not username or len(username) > MAX_USERNAME_CHARS:
-            raise ValueError(f"Username must be 1–{MAX_USERNAME_CHARS} characters")
+            raise ValueError(f"用户名长度须在 1–{MAX_USERNAME_CHARS} 个字符之间")
         if len(password) < MIN_PASSWORD_CHARS:
-            raise ValueError(f"Password must be at least {MIN_PASSWORD_CHARS} characters")
+            raise ValueError(f"密码至少需要 {MIN_PASSWORD_CHARS} 位")
         if len(password) > MAX_PASSWORD_CHARS:
-            raise ValueError("Password is too long")
+            raise ValueError("密码过长")
         user_id = f"user_{uuid.uuid4().hex}"
         hashed = hash_password(password)
         now = datetime.now(UTC).isoformat()
@@ -103,7 +103,7 @@ class WebUserStore:
                     (user_id, username, hashed, int(is_admin), now),
                 )
             except sqlite3.IntegrityError:
-                raise ValueError(f"Username already exists: {username}") from None
+                raise ValueError(f"用户名已存在：{username}") from None
         return WebUser(
             id=user_id,
             username=username,
@@ -140,7 +140,7 @@ class WebUserStore:
 
     def update_password(self, user_id: str, new_password: str) -> bool:
         if len(new_password) < MIN_PASSWORD_CHARS:
-            raise ValueError(f"Password must be at least {MIN_PASSWORD_CHARS} characters")
+            raise ValueError(f"密码至少需要 {MIN_PASSWORD_CHARS} 位")
         hashed = hash_password(new_password)
         with self._connect() as connection:
             cursor = connection.execute(

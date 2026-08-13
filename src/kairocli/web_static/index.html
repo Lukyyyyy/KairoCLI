@@ -682,12 +682,12 @@
     .login-sub { font-size: 12px; color: var(--text-3); margin-bottom: 22px; }
     .form-field { margin-bottom: 14px; }
     .form-label { font-size: 12px; color: var(--text-2); font-weight: 500; margin-bottom: 6px; display: block; }
-    #login-error {
+    #login-error, #register-error {
       display: none; font-size: 12px; color: var(--red);
       background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
       border-radius: 6px; padding: 7px 10px; margin-bottom: 14px;
     }
-    #login-error.visible { display: block; }
+    #login-error.visible, #register-error.visible { display: block; }
 
     /* ── admin modal ── */
     #admin-modal {
@@ -762,24 +762,64 @@
         <div class="login-brand-sub">Web Interface</div>
       </div>
     </div>
-    <div class="login-title">欢迎回来</div>
-    <div class="login-sub">登录以访问 AI 代理控制台</div>
-    <div id="login-error"></div>
-    <form id="login-form">
+
+    <!-- Login form -->
+    <div id="login-panel">
+      <div class="login-title">欢迎回来</div>
+      <div id="login-error"></div>
+      <form id="login-form">
+        <div class="form-field">
+          <label class="form-label" for="login-username">用户名</label>
+          <input id="login-username" type="text" autocomplete="username"
+            class="k-input" placeholder="输入用户名" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="login-password">密码</label>
+          <input id="login-password" type="password" autocomplete="current-password"
+            class="k-input" placeholder="输入密码" />
+        </div>
+        <button type="submit" class="btn-primary" style="width:100%; margin-top:4px;">
+          登录
+        </button>
+      </form>
+      <div style="text-align:center; margin-top:14px; font-size:12px; color:var(--text-3);">
+        没有账号？
+        <button id="go-register" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">
+          注册
+        </button>
+      </div>
+    </div>
+
+    <!-- Register form -->
+    <div id="register-panel" style="display:none;">
+      <div class="login-title">创建账号</div>
+      <div id="register-error"></div>
       <div class="form-field">
-        <label class="form-label" for="login-username">用户名</label>
-        <input id="login-username" type="text" autocomplete="username"
+        <label class="form-label" for="reg-username">用户名</label>
+        <input id="reg-username" type="text" autocomplete="username"
           class="k-input" placeholder="输入用户名" />
       </div>
       <div class="form-field">
-        <label class="form-label" for="login-password">密码</label>
-        <input id="login-password" type="password" autocomplete="current-password"
-          class="k-input" placeholder="输入密码" />
+        <label class="form-label" for="reg-password">密码</label>
+        <input id="reg-password" type="password" autocomplete="new-password"
+          class="k-input" placeholder="至少 8 位" />
       </div>
-      <button type="submit" class="btn-primary" style="width:100%; margin-top:4px;">
-        登录
+      <div class="form-field">
+        <label class="form-label" for="reg-confirm">确认密码</label>
+        <input id="reg-confirm" type="password" autocomplete="new-password"
+          class="k-input" placeholder="再次输入密码" />
+      </div>
+      <button id="register-btn" class="btn-primary" style="width:100%; margin-top:4px;">
+        注册
       </button>
-    </form>
+      <div style="text-align:center; margin-top:14px; font-size:12px; color:var(--text-3);">
+        已有账号？
+        <button id="go-login" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">
+          登录
+        </button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1020,6 +1060,15 @@ const loginForm      = document.getElementById('login-form');
 const loginUsername  = document.getElementById('login-username');
 const loginPassword  = document.getElementById('login-password');
 const loginError     = document.getElementById('login-error');
+const loginPanel     = document.getElementById('login-panel');
+const registerPanel  = document.getElementById('register-panel');
+const registerError  = document.getElementById('register-error');
+const regUsername    = document.getElementById('reg-username');
+const regPassword    = document.getElementById('reg-password');
+const regConfirm     = document.getElementById('reg-confirm');
+const registerBtn    = document.getElementById('register-btn');
+const goRegisterBtn  = document.getElementById('go-register');
+const goLoginBtn     = document.getElementById('go-login');
 const threadList     = document.getElementById('thread-list');
 const newChatBtn     = document.getElementById('new-chat-btn');
 const messages       = document.getElementById('messages');
@@ -1169,6 +1218,74 @@ function showApp() {
   loginView.classList.remove('visible');
   appView.classList.add('visible');
 }
+
+function switchToRegister() {
+  loginPanel.style.display = 'none';
+  registerPanel.style.display = '';
+  registerError.classList.remove('visible');
+  regUsername.value = ''; regPassword.value = ''; regConfirm.value = '';
+  regUsername.focus();
+}
+
+function switchToLogin() {
+  registerPanel.style.display = 'none';
+  loginPanel.style.display = '';
+  loginError.classList.remove('visible');
+  loginUsername.focus();
+}
+
+goRegisterBtn.addEventListener('click', switchToRegister);
+goLoginBtn.addEventListener('click', switchToLogin);
+
+registerBtn.addEventListener('click', async () => {
+  registerError.classList.remove('visible');
+  const username = regUsername.value.trim();
+  const password = regPassword.value;
+  const confirm  = regConfirm.value;
+  if (!username || !password || !confirm) {
+    registerError.textContent = '请填写所有字段';
+    registerError.classList.add('visible'); return;
+  }
+  if (password !== confirm) {
+    registerError.textContent = '两次输入的密码不一致';
+    registerError.classList.add('visible'); regConfirm.focus(); return;
+  }
+  registerBtn.disabled = true; registerBtn.textContent = '注册中…';
+  try {
+    const res = await fetch('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      registerError.textContent = j.detail || '注册失败';
+      registerError.classList.add('visible'); return;
+    }
+    // auto-login after registration
+    const loginBody = new URLSearchParams({ username, password });
+    const loginRes = await fetch('/auth/login', { method: 'POST', body: loginBody });
+    if (loginRes.ok) {
+      const data = await loginRes.json();
+      state.token = data.access_token;
+      localStorage.setItem('kairo_token', state.token);
+      await initApp();
+    } else {
+      switchToLogin();
+      loginUsername.value = username;
+      loginPassword.focus();
+    }
+  } catch (err) {
+    registerError.textContent = '网络错误：' + err.message;
+    registerError.classList.add('visible');
+  } finally {
+    registerBtn.disabled = false; registerBtn.textContent = '注册';
+  }
+});
+
+[regUsername, regPassword, regConfirm].forEach(el => {
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter') registerBtn.click(); });
+});
 
 loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
