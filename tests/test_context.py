@@ -1,6 +1,8 @@
 import asyncio
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import kairocli.agent.compaction as compaction_module
 from kairocli.agent import Agent, AgentBudget
@@ -53,11 +55,76 @@ def test_token_estimator_counts_cjk_tools_and_images() -> None:
     assert estimate_message_tokens([message]) >= 263
 
 
-def test_cached_tokens_reduce_estimated_cost() -> None:
-    uncached = estimated_cost_cny("deepseek", 1_000_000, 0, 0)
-    cached = estimated_cost_cny("deepseek", 1_000_000, 0, 1_000_000)
-    assert uncached == 2.0
-    assert cached == 0.5
+def test_deepseek_v4_flash_cost_uses_peak_and_off_peak_rates() -> None:
+    peak = datetime(2026, 8, 17, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
+    off_peak = datetime(2026, 8, 17, 13, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    assert (
+        estimated_cost_cny(
+            "deepseek",
+            2_000_000,
+            1_000_000,
+            1_000_000,
+            model="deepseek-v4-flash",
+            at=peak,
+        )
+        == 12.1
+    )
+    assert (
+        estimated_cost_cny(
+            "deepseek",
+            2_000_000,
+            1_000_000,
+            1_000_000,
+            model="deepseek-v4-flash",
+            at=off_peak,
+        )
+        == 6.05
+    )
+
+
+def test_deepseek_v4_pro_cost_uses_peak_and_off_peak_rates() -> None:
+    peak = datetime(2026, 8, 17, 14, tzinfo=ZoneInfo("Asia/Shanghai"))
+    off_peak = datetime(2026, 8, 17, 18, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    assert (
+        estimated_cost_cny(
+            "deepseek",
+            2_000_000,
+            1_000_000,
+            1_000_000,
+            model="deepseek-v4-pro",
+            at=peak,
+        )
+        == 36.3
+    )
+    assert (
+        estimated_cost_cny(
+            "deepseek",
+            2_000_000,
+            1_000_000,
+            1_000_000,
+            model="deepseek-v4-pro",
+            at=off_peak,
+        )
+        == 18.15
+    )
+
+
+def test_deepseek_cost_keeps_old_rates_before_v4_pricing_effective_date() -> None:
+    before_change = datetime(2026, 8, 16, 23, 59, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    assert (
+        estimated_cost_cny(
+            "deepseek",
+            1_000_000,
+            1_000_000,
+            1_000_000,
+            model="deepseek-v4-flash",
+            at=before_change,
+        )
+        == 8.5
+    )
 
 
 class SummaryClient(LlmClient):

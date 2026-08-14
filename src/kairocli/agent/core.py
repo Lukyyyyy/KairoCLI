@@ -20,6 +20,7 @@ from ..image import prepare_image_input
 from ..llm import LlmClient, LlmError
 from ..memory import MemoryStore, browser_login_fact
 from ..models import LlmResponse, Message, ToolCall, ToolOutput
+from ..pricing import PricingConfig
 from ..tools import SERIALIZED_WORKSPACE_MUTATION_TOOLS, ToolRegistry
 from ..trace import LlmTraceLogger
 from ..user_input import normalize_user_input
@@ -102,6 +103,7 @@ class Agent:
         trace_logger: LlmTraceLogger | None = None,
         trace_scope: str = "agent",
         shared_token_budget: _SharedTokenBudget | None = None,
+        pricing: PricingConfig | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -118,6 +120,7 @@ class Agent:
         self.context_profile = ContextProfile.from_client(llm)
         self.trace_logger = trace_logger
         self.trace_scope = trace_scope
+        self.pricing = pricing or PricingConfig.default()
         self.compactor = ConversationCompactor(llm, complete_handler=self.complete_auxiliary)
         self.history: list[Message] = []
         self.cancel_event = cancel_event or asyncio.Event()
@@ -653,6 +656,8 @@ class Agent:
             self.total_input_tokens,
             self.total_output_tokens,
             self.total_cached_tokens,
+            model=self.llm.model,
+            pricing=self.pricing,
         )
         hard_budget = self.budget.token_budget or "unlimited"
         memory_status = (
@@ -660,6 +665,7 @@ class Agent:
             if self.memory_store is not None
             else "Long-term memory: unavailable"
         )
+        pricing_status = f"\n{self.pricing.warning}" if self.pricing.warning else ""
         return (
             f"Model: {self.llm.model} ({self.llm.provider})\n"
             f"Context: {current} / {profile.max_context_window} tokens ({ratio:.1%})\n"
@@ -674,7 +680,7 @@ class Agent:
             f"estimated cost ¥{cost:.4f}\n"
             f"Safety limits: hard iterations {self.budget.max_iterations}; "
             f"token budget {hard_budget}; model retries {self.max_llm_retries}\n"
-            f"{memory_status}"
+            f"{memory_status}{pricing_status}"
         )
 
     def status_line(self) -> str:
@@ -684,6 +690,8 @@ class Agent:
             self.total_input_tokens,
             self.total_output_tokens,
             self.total_cached_tokens,
+            model=self.llm.model,
+            pricing=self.pricing,
         )
         window = _format_tokens(self.context_profile.max_context_window)
         return (

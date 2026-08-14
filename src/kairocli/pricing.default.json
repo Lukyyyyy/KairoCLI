@@ -1,0 +1,28 @@
+{
+  "providers": {
+    "default": {
+      "default": {"input": 5.0, "cached": 1.0, "output": 15.0}
+    },
+    "glm": {
+      "default": {"input": 5.0, "cached": 1.0, "output": 15.0}
+    },
+    "deepseek": {
+      "timezone": "Asia/Shanghai",
+      "effective_at": "2026-08-17T00:00:00+08:00",
+      "default": {"input": 2.0, "cached": 0.5, "output": 8.0},
+      "peak_hours": [[9, 12], [14, 18]],
+      "models": [
+        {
+          "contains": "v4-pro",
+          "peak": {"input": 9.0, "cached": 0.3, "output": 27.0},
+          "off_peak": {"input": 4.5, "cached": 0.15, "output": 13.5}
+        },
+        {
+          "contains": "",
+          "peak": {"input": 3.0, "cached": 0.1, "output": 9.0},
+          "off_peak": {"input": 1.5, "cached": 0.05, "output": 4.5}
+        }
+      ]
+    }
+  }
+}

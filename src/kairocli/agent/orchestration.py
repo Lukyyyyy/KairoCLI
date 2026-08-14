@@ -84,6 +84,7 @@ class AgentOrchestrator:
                             self.agent.trace_logger,
                             "team-worker",
                             self.agent._shared_token_budget,
+                            pricing=self.agent.pricing,
                         )
                         self.agent.attach_tool_observers(role_agent)
                         prompt = (

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 
 from ..models import Message
+from ..pricing import PricingConfig
 
 MAX_TOKEN_ESTIMATION_JSON_CHARS = 1_000_000
 INVALID_JSON_ESTIMATE_CHARS = 4_096
@@ -114,18 +116,20 @@ def _safe_json_for_estimation(value: Any) -> str:
 
 
 def estimated_cost_cny(
-    provider: str, input_tokens: int, output_tokens: int, cached_tokens: int
+    provider: str,
+    input_tokens: int,
+    output_tokens: int,
+    cached_tokens: int,
+    *,
+    model: str | None = None,
+    at: datetime | None = None,
+    pricing: PricingConfig | None = None,
 ) -> float:
-    if provider.lower() == "deepseek":
-        input_rate, cached_rate, output_rate = 2.0, 0.5, 8.0
-    elif provider.lower() == "glm":
-        input_rate, cached_rate, output_rate = 5.0, 1.0, 15.0
-    else:
-        input_rate, cached_rate, output_rate = 5.0, 1.0, 15.0
-    cached = max(0, min(input_tokens, cached_tokens))
-    uncached = max(0, input_tokens - cached)
-    return (
-        uncached / 1_000_000 * input_rate
-        + cached / 1_000_000 * cached_rate
-        + max(0, output_tokens) / 1_000_000 * output_rate
+    return (pricing or PricingConfig.default()).estimated_cost_cny(
+        provider,
+        input_tokens,
+        output_tokens,
+        cached_tokens,
+        model=model,
+        at=at,
     )

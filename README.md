@@ -321,6 +321,8 @@ kairocli wechat daemon stop
 
 Provider 的 `base-url`、`model`、`lora-id`、`context-window`、`temperature` 和 `max-tokens` 也可通过 `/config` 修改。详细模板见 [.env.example](.env.example)。
 
+模型费用估算由用户级 `~/.kairocli/pricing.json` 管理。Kairo CLI 首次启动时会生成该文件，之后每次启动重新读取；可直接修改 Provider 默认单价、价格生效时间、时区、高峰时段及模型匹配规则。单价单位为人民币元/百万 token，`input`、`cached` 和 `output` 分别表示未缓存输入、缓存输入和输出。配置无效时 CLI 会继续使用内置默认价格，并在 `/context` 中显示回退提示。
+
 ### MCP
 
 用户级和项目级 MCP 配置分别位于：

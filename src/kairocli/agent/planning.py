@@ -99,6 +99,7 @@ class PlanExecuteAgent:
                     self.agent.trace_logger,
                     "plan-worker",
                     self.agent._shared_token_budget,
+                    pricing=self.agent.pricing,
                 )
                 self.agent.attach_tool_observers(worker)
                 async with batch_semaphore:

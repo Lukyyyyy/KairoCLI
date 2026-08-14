@@ -41,6 +41,10 @@ class KairoPaths:
         return self.user_dir / "config.json"
 
     @property
+    def pricing_file(self) -> Path:
+        return self.user_dir / "pricing.json"
+
+    @property
     def memory_file(self) -> Path:
         return self.user_dir / "memory" / "long_term_memory.json"
 

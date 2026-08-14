@@ -23,6 +23,7 @@ from ..mcp import (
 from ..memory import MemoryStore
 from ..paths import KairoPaths
 from ..policy import ApprovalPolicy, AuditLog
+from ..pricing import PricingConfig
 from ..prompts import PromptAssembler
 from ..skill_installer import SkillInstallRequest, install_skill
 from ..skills import SkillRegistry, refresh_agent_skill_index
@@ -226,6 +227,7 @@ def make_agent(
         memory_store=memory,
         image_cache_dir=paths.user_dir / "cache" / "clipboard",
         trace_logger=LlmTraceLogger.from_environment(paths),
+        pricing=PricingConfig.load(paths),
     )
     return agent_ref
 
