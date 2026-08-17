@@ -84,9 +84,14 @@ def run_web_server(
     # Two independent RuntimeState instances against the same DB are safe (WAL mode,
     # stale-owner recovery), but do not run the raw API server and the web server
     # simultaneously against the same runtime.db.
-    def agent_factory(approver: Any = None, config: AppConfig | None = None) -> Any:
+    def agent_factory(
+        approver: Any = None,
+        config: AppConfig | None = None,
+        workspace: Path | None = None,
+    ) -> Any:
+        turn_paths = KairoPaths.discover(workspace or paths.workspace, paths.home)
         return make_agent(
-            paths,
+            turn_paths,
             config or app_config,
             None,
             approval_policy=_ApprovalPolicy(enabled=True),
@@ -107,6 +112,8 @@ def run_web_server(
         jwt_secret_path=paths.user_dir / "web" / "jwt_secret.bin",
         model_info=_model_info,
         app_config=app_config,
+        default_workspace=paths.workspace,
+        workspace_roots=[paths.workspace.parent],
     )
     try:
         import uvicorn

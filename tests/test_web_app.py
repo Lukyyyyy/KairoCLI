@@ -33,10 +33,10 @@ def _web_app(tmp_path: Path) -> tuple[Any, dict[str, str]]:
     secret = JwtSecretStore(secret_path).load_or_generate()
     token = create_access_token(user.id, user.username, user.is_admin, secret)
 
-    def factory(approver: Any = None) -> Agent:
+    def factory(approver: Any = None, workspace: Path | None = None) -> Agent:
         return Agent(
             WebClient(),
-            ToolRegistry(tmp_path, approver=approver),
+            ToolRegistry(workspace or tmp_path, approver=approver),
             "system",
         )
 
@@ -46,6 +46,8 @@ def _web_app(tmp_path: Path) -> tuple[Any, dict[str, str]]:
         users_database=users_database,
         jwt_secret_path=secret_path,
         model_info={"provider": "test", "model": "web-model"},
+        default_workspace=tmp_path,
+        workspace_roots=[tmp_path],
     )
     return app, {"Authorization": f"Bearer {token}"}
 
@@ -201,10 +203,16 @@ def test_model_config_and_presets_are_isolated_per_user(tmp_path: Path) -> None:
     )
     used_configs: list[AppConfig] = []
 
-    def factory(approver: Any = None, config: AppConfig | None = None) -> Agent:
+    def factory(
+        approver: Any = None,
+        config: AppConfig | None = None,
+        workspace: Path | None = None,
+    ) -> Agent:
         assert config is not None
         used_configs.append(config)
-        return Agent(WebClient(), ToolRegistry(tmp_path, approver=approver), "system")
+        return Agent(
+            WebClient(), ToolRegistry(workspace or tmp_path, approver=approver), "system"
+        )
 
     app = create_web_app(
         factory,
@@ -212,6 +220,8 @@ def test_model_config_and_presets_are_isolated_per_user(tmp_path: Path) -> None:
         users_database=users_database,
         jwt_secret_path=secret_path,
         app_config=base_config,
+        default_workspace=tmp_path,
+        workspace_roots=[tmp_path],
     )
 
     with TestClient(app) as client:

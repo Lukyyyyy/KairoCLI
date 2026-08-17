@@ -85,6 +85,23 @@ class WebUserStore:
                 PRIMARY KEY (user_id, name)
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS user_workspaces (
+                user_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                removed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, path)
+                )"""
+            )
+            workspace_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(user_workspaces)").fetchall()
+            }
+            if "removed" not in workspace_columns:
+                connection.execute(
+                    "ALTER TABLE user_workspaces ADD COLUMN removed INTEGER NOT NULL DEFAULT 0"
+                )
         if os.name != "nt" and database.is_file():
             database.chmod(0o600)
 
@@ -250,12 +267,51 @@ class WebUserStore:
             )
         return cursor.rowcount == 1
 
+    def list_workspaces(self, user_id: str) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT path FROM user_workspaces WHERE user_id=? AND removed=0 ORDER BY added_at",
+                (user_id,),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def removed_workspaces(self, user_id: str) -> set[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT path FROM user_workspaces WHERE user_id=? AND removed=1",
+                (user_id,),
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def add_workspace(self, user_id: str, path: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO user_workspaces (user_id, path, added_at, removed)
+                VALUES (?, ?, ?, 0)
+                ON CONFLICT(user_id, path) DO UPDATE SET
+                    added_at=excluded.added_at,
+                    removed=0""",
+                (user_id, path, datetime.now(UTC).isoformat()),
+            )
+
+    def remove_workspace(self, user_id: str, path: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO user_workspaces (user_id, path, added_at, removed)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(user_id, path) DO UPDATE SET
+                    added_at=excluded.added_at,
+                    removed=1""",
+                (user_id, path, datetime.now(UTC).isoformat()),
+            )
+
     def delete_user(self, user_id: str) -> bool:
         with self._connect() as connection:
             connection.execute("DELETE FROM user_configs WHERE user_id=?", (user_id,))
             connection.execute(
                 "DELETE FROM user_config_presets WHERE user_id=?", (user_id,)
             )
+            connection.execute("DELETE FROM user_workspaces WHERE user_id=?", (user_id,))
             cursor = connection.execute("DELETE FROM users WHERE id=?", (user_id,))
         return cursor.rowcount == 1
 

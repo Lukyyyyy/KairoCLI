@@ -902,7 +902,7 @@ def test_runtime_store_migrates_existing_turn_schema(tmp_path: Path) -> None:
         )
 
     store = RuntimeThreadStore(database)
-    store.create("thread_legacy")
+    store.create("thread_legacy", workspace="/tmp/project")
     turn_id, _, _ = store.reserve_turn("thread_legacy", "hello", None)
     store.update_turn_status(turn_id, "completed", response="world")
 
@@ -910,6 +910,7 @@ def test_runtime_store_migrates_existing_turn_schema(tmp_path: Path) -> None:
         "hello",
         "world",
     ]
+    assert store.list_threads("")[0]["workspace"] == "/tmp/project"
 
 
 def test_runtime_store_bounds_events_turns_and_threads(tmp_path: Path) -> None:
@@ -940,6 +941,28 @@ def test_runtime_store_bounds_events_turns_and_threads(tmp_path: Path) -> None:
     assert store.exists("thread_one") is False
     assert store.exists("thread_two") is True
     assert store.exists("thread_three") is True
+
+
+def test_runtime_store_deletes_workspace_threads_but_rejects_running_turns(
+    tmp_path: Path,
+) -> None:
+    store = RuntimeThreadStore(tmp_path / "workspace-delete.db")
+    store.create("thread_first", owner_user_id="user", workspace="/project/a")
+    store.create("thread_second", owner_user_id="user", workspace="/project/a")
+    store.create("thread_other", owner_user_id="user", workspace="/project/b")
+    completed_id, _, _ = store.reserve_turn("thread_first", "done", None)
+    store.update_turn_status(completed_id, "completed", response="ok")
+    running_id, _, _ = store.reserve_turn("thread_second", "running", None)
+
+    with pytest.raises(RuntimeError, match="running turn"):
+        store.delete_workspace_threads("user", ("/project/a",))
+
+    assert store.exists("thread_first") is True
+    store.update_turn_status(running_id, "canceled")
+    assert store.delete_workspace_threads("user", ("/project/a",)) == 2
+    assert store.exists("thread_first") is False
+    assert store.exists("thread_second") is False
+    assert store.exists("thread_other") is True
 
 
 def test_runtime_event_size_and_errors_are_bounded_and_redacted(tmp_path: Path) -> None:

@@ -142,6 +142,10 @@ class RuntimeThreadStore:
                 connection.execute(
                     "ALTER TABLE threads ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT ''"
                 )
+            if "workspace" not in thread_columns:
+                connection.execute(
+                    "ALTER TABLE threads ADD COLUMN workspace TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_events_thread_sequence "
                 "ON events(thread_id, sequence)"
@@ -200,14 +204,15 @@ class RuntimeThreadStore:
         thread_id: str,
         *,
         owner_user_id: str = "",
+        workspace: str = "",
         event_type: str | None = None,
         event_data: dict[str, Any] | None = None,
     ) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
-                "INSERT INTO threads VALUES (?, ?, ?)",
-                (thread_id, datetime.now(UTC).isoformat(), owner_user_id),
+                "INSERT INTO threads (id,created_at,owner_user_id,workspace) VALUES (?,?,?,?)",
+                (thread_id, datetime.now(UTC).isoformat(), owner_user_id, workspace),
             )
             self._append_event(connection, thread_id, event_type, event_data)
             self._prune_threads(connection, keep_thread_id=thread_id)
@@ -238,6 +243,59 @@ class RuntimeThreadStore:
             ).fetchone()
         return row is not None
 
+    def workspace_for_user(self, thread_id: str, user_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT workspace FROM threads WHERE id=? AND owner_user_id=?",
+                (thread_id, user_id),
+            ).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def workspaces_for_user(self, owner_user_id: str, *, limit: int = 20) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT workspace,MAX(created_at) AS latest FROM threads "
+                "WHERE owner_user_id=? AND workspace!='' GROUP BY workspace "
+                "ORDER BY latest DESC LIMIT ?",
+                (owner_user_id, max(1, min(limit, 100))),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def delete_workspace_threads(
+        self, owner_user_id: str, workspaces: tuple[str, ...]
+    ) -> int:
+        if not workspaces:
+            return 0
+        placeholders = ",".join("?" for _workspace in workspaces)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            thread_rows = connection.execute(
+                f"SELECT id FROM threads WHERE owner_user_id=? "
+                f"AND workspace IN ({placeholders})",
+                (owner_user_id, *workspaces),
+            ).fetchall()
+            thread_ids = [str(row[0]) for row in thread_rows]
+            if not thread_ids:
+                return 0
+            thread_placeholders = ",".join("?" for _thread_id in thread_ids)
+            running = connection.execute(
+                f"SELECT 1 FROM turns WHERE thread_id IN ({thread_placeholders}) "
+                "AND status='running' LIMIT 1",
+                thread_ids,
+            ).fetchone()
+            if running is not None:
+                raise RuntimeError("Workspace has a running turn")
+            connection.execute(
+                f"DELETE FROM events WHERE thread_id IN ({thread_placeholders})", thread_ids
+            )
+            connection.execute(
+                f"DELETE FROM turns WHERE thread_id IN ({thread_placeholders})", thread_ids
+            )
+            connection.execute(
+                f"DELETE FROM threads WHERE id IN ({thread_placeholders})", thread_ids
+            )
+        return len(thread_ids)
+
     def list_threads(
         self,
         owner_user_id: str,
@@ -246,7 +304,7 @@ class RuntimeThreadStore:
     ) -> list[dict[str, str]]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT t.id, t.created_at, "
+                "SELECT t.id, t.created_at, t.workspace, "
                 "  (SELECT e.data FROM events e "
                 "   WHERE e.thread_id = t.id AND e.type = 'turn.started' "
                 "   ORDER BY e.sequence ASC LIMIT 1) AS first_event "
@@ -257,14 +315,21 @@ class RuntimeThreadStore:
         result = []
         for row in rows:
             title = ""
-            if row[2]:
+            if row[3]:
                 try:
-                    data = json.loads(row[2])
+                    data = json.loads(row[3])
                     raw = data.get("input", "")
                     title = raw[:60] + ("…" if len(raw) > 60 else "")
                 except Exception:
                     pass
-            result.append({"id": str(row[0]), "created_at": str(row[1]), "title": title})
+            result.append(
+                {
+                    "id": str(row[0]),
+                    "created_at": str(row[1]),
+                    "workspace": str(row[2]),
+                    "title": title,
+                }
+            )
         return result
 
     def append(self, thread_id: str, event_type: str, data: dict[str, Any]) -> int:

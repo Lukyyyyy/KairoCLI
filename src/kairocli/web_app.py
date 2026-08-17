@@ -53,6 +53,59 @@ from .web_auth import (
 
 _DETACHED_WEB_TASKS: set[asyncio.Task[Any]] = set()
 MAX_CONFIG_PRESET_NAME_CHARS = 128
+MAX_WORKSPACE_PATH_CHARS = 4_096
+MAX_WORKSPACE_DIRECTORIES = 500
+
+
+def _workspace_in_roots(value: str | Path, roots: tuple[Path, ...]) -> Path:
+    raw = str(value).strip()
+    if not raw or len(raw) > MAX_WORKSPACE_PATH_CHARS:
+        raise ValueError("Workspace path is empty or too long")
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("Workspace path must be absolute")
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ValueError("Workspace does not exist") from exc
+    if not resolved.is_dir():
+        raise ValueError("Workspace is not a directory")
+    if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
+        raise ValueError("Workspace is outside the allowed roots")
+    return resolved
+
+
+def _workspace_listing(path: Path, roots: tuple[Path, ...]) -> dict[str, Any]:
+    directories: list[dict[str, str]] = []
+    truncated = False
+    try:
+        children = sorted(path.iterdir(), key=lambda item: item.name.casefold())
+    except OSError as exc:
+        raise ValueError("Workspace directory cannot be read") from exc
+    for child in children:
+        if child.is_symlink():
+            continue
+        try:
+            if not child.is_dir():
+                continue
+        except OSError:
+            continue
+        if len(directories) >= MAX_WORKSPACE_DIRECTORIES:
+            truncated = True
+            break
+        directories.append({"name": child.name, "path": str(child)})
+    parent = path.parent
+    parent_path = (
+        str(parent)
+        if parent != path and any(parent == root or parent.is_relative_to(root) for root in roots)
+        else None
+    )
+    return {
+        "path": str(path),
+        "parent": parent_path,
+        "directories": directories,
+        "truncated": truncated,
+    }
 
 
 class WebApprover:
@@ -247,7 +300,21 @@ def create_web_app(
     allow_origins: list[str] | None = None,
     model_info: dict[str, str] | None = None,
     app_config: AppConfig | None = None,
+    default_workspace: Path | None = None,
+    workspace_roots: list[Path] | None = None,
 ) -> FastAPI:
+    selected_default_workspace = (default_workspace or Path.cwd()).resolve(strict=True)
+    selected_workspace_roots = tuple(
+        dict.fromkeys(
+            root.resolve(strict=True)
+            for root in (workspace_roots or [selected_default_workspace.parent])
+        )
+    )
+    if not selected_workspace_roots or not any(
+        selected_default_workspace == root or selected_default_workspace.is_relative_to(root)
+        for root in selected_workspace_roots
+    ):
+        raise ValueError("Default workspace must be inside an allowed workspace root")
     user_store = WebUserStore(users_database)
     jwt_secret = JwtSecretStore(jwt_secret_path).load_or_generate()
     store = RuntimeThreadStore(runtime_database)
@@ -596,6 +663,90 @@ def create_web_app(
             return {"provider": config.default_provider, "model": provider.model}
         return model_info or {"provider": "unknown", "model": "unknown"}
 
+    @app.get("/v1/workspaces")
+    async def list_workspaces(
+        path: str | None = Query(default=None, max_length=MAX_WORKSPACE_PATH_CHARS),
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        try:
+            current = _workspace_in_roots(
+                path or selected_default_workspace, selected_workspace_roots
+            )
+            listing = (
+                _workspace_listing(current, selected_workspace_roots)
+                if path is not None
+                else {
+                    "path": str(current),
+                    "parent": None,
+                    "directories": [],
+                    "truncated": False,
+                }
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        selected = user_store.list_workspaces(user.id)
+        removed = user_store.removed_workspaces(user.id)
+        recent = state.store.workspaces_for_user(user.id)
+        allowed_recent: list[str] = []
+        for workspace in (str(selected_default_workspace), *selected, *recent):
+            if workspace in removed:
+                continue
+            try:
+                normalized = str(_workspace_in_roots(workspace, selected_workspace_roots))
+            except ValueError:
+                continue
+            if normalized not in allowed_recent:
+                allowed_recent.append(normalized)
+        return {
+            "object": "workspace_list",
+            "default": str(selected_default_workspace),
+            "roots": [str(root) for root in selected_workspace_roots],
+            "recent": allowed_recent,
+            "projects": [
+                {"name": Path(workspace).name or workspace, "path": workspace}
+                for workspace in allowed_recent
+            ],
+            **listing,
+        }
+
+    @app.post("/v1/workspaces")
+    async def add_workspace(
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        try:
+            workspace = _workspace_in_roots(
+                payload.get("path", ""), selected_workspace_roots
+            )
+            user_store.add_workspace(user.id, str(workspace))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return {"name": workspace.name or str(workspace), "path": str(workspace)}
+
+    @app.delete("/v1/workspaces")
+    async def remove_workspace(
+        payload: dict[str, Any],
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        try:
+            workspace = _workspace_in_roots(
+                payload.get("path", ""), selected_workspace_roots
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        workspace_text = str(workspace)
+        aliases = (
+            (workspace_text, "")
+            if workspace == selected_default_workspace
+            else (workspace_text,)
+        )
+        try:
+            deleted_threads = state.store.delete_workspace_threads(user.id, aliases)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        user_store.remove_workspace(user.id, workspace_text)
+        return {"status": "ok", "deleted_threads": deleted_threads}
+
     @app.delete("/v1/threads/{thread_id}")
     async def delete_thread(
         thread_id: str,
@@ -614,19 +765,32 @@ def create_web_app(
         return {"status": "ok"}
 
     @app.post("/v1/threads")
-    async def create_thread(user: WebUser = Depends(get_current_user)) -> dict[str, str]:
+    async def create_thread(
+        payload: dict[str, Any] | None = None,
+        user: WebUser = Depends(get_current_user),
+    ) -> dict[str, str]:
+        requested_workspace = (payload or {}).get("workspace", selected_default_workspace)
+        try:
+            workspace = _workspace_in_roots(requested_workspace, selected_workspace_roots)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
         thread_id = f"thread_{uuid.uuid4().hex[:12]}"
         state.store.create(
             thread_id,
             owner_user_id=user.id,
+            workspace=str(workspace),
             event_type="thread.created",
-            event_data={"thread_id": thread_id},
+            event_data={"thread_id": thread_id, "workspace": str(workspace)},
         )
-        return {"id": thread_id, "object": "thread"}
+        user_store.add_workspace(user.id, str(workspace))
+        return {"id": thread_id, "object": "thread", "workspace": str(workspace)}
 
     @app.get("/v1/threads")
     async def list_threads(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
         threads = state.store.list_threads(user.id)
+        for thread in threads:
+            if not thread["workspace"]:
+                thread["workspace"] = str(selected_default_workspace)
         return {"object": "list", "data": threads}
 
     async def execute_turn(
@@ -684,13 +848,21 @@ def create_web_app(
         try:
             if state.store.turn_status(thread_id, turn_id) != "running":
                 return
+            stored_workspace = state.store.workspace_for_user(thread_id, user_id)
+            if stored_workspace is None:
+                raise ValueError("Thread workspace was not found")
+            workspace = _workspace_in_roots(
+                stored_workspace or selected_default_workspace, selected_workspace_roots
+            )
             if app_config is None:
-                agent = agent_factory(approver=approver)
+                agent = agent_factory(approver=approver, workspace=workspace)
             else:
                 user_config = _effective_user_config(
                     app_config, user_store.get_config(user_id)
                 )
-                agent = agent_factory(approver=approver, config=user_config)
+                agent = agent_factory(
+                    approver=approver, config=user_config, workspace=workspace
+                )
             state.active_agents[turn_id] = agent
             agent.history = state.store.completed_messages(thread_id, before_turn_id=turn_id)
 
