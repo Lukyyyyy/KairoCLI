@@ -1,3 +1,5 @@
+import base64
+import re
 from pathlib import Path
 
 import kairocli.web_app as web_app_module
@@ -14,4 +16,27 @@ def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
     assert 'data-mode="team"' in html
     assert 'id="plan-review-overlay"' in html
     assert 'id="model-badge"' in html
+    assert 'id="project-list"' in html
+    assert 'id="add-workspace-btn"' in html
+    assert 'id="workspace-modal"' in html
+    assert "'/v1/workspaces'" in html
+    assert "JSON.stringify({ workspace })" in html
+    assert "toggleWorkspace(workspace.path)" in html
+    assert "state.openWorkspaces[path] = false" in html
+    assert "JSON.stringify({ path: state.workspaceBrowserPath })" in html
+    assert "threads.slice(0, 4)" in html
+    assert "移除项目并清除会话" in html
+    assert "在此项目新建会话" in html
+    assert "主机文件夹不会被删除" in html
+    assert "method: 'DELETE'" in html
+    assert "display: flex; flex-direction: column; gap: 3px;" in html
+    assert "display: flex; flex-direction: column; gap: 2px;" in html
     assert "e.isComposing" in html
+    match = re.search(
+        r'<link rel="icon" type="image/svg\+xml" '
+        r'href="data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)">',
+        html,
+    )
+    assert match is not None
+    favicon = Path(web_app_module.__file__).parent / "web_static" / "favicon.svg"
+    assert base64.b64decode(match.group(1)) == favicon.read_bytes()

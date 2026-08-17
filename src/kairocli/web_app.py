@@ -1161,7 +1161,12 @@ def create_web_app(
 
     # ── SPA fallback (must be last) ──────────────────────────────────────────
 
-    _static_index = Path(__file__).parent / "web_static" / "index.html"
+    _static_directory = Path(__file__).parent / "web_static"
+    _static_index = _static_directory / "index.html"
+
+    @app.get("/favicon.svg", include_in_schema=False)
+    async def favicon() -> FileResponse:
+        return FileResponse(_static_directory / "favicon.svg", media_type="image/svg+xml")
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_catchall(full_path: str) -> FileResponse:

@@ -95,6 +95,117 @@ def test_web_info_and_invalid_mode_fallback(tmp_path: Path) -> None:
     assert any(event == "turn.completed" for event, _data in events)
 
 
+def test_web_favicon_uses_the_kairo_brand_icon(tmp_path: Path) -> None:
+    app, _headers = _web_app(tmp_path)
+
+    with TestClient(app) as client:
+        response = client.get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert b'<linearGradient id="brand"' in response.content
+
+
+def test_web_workspace_browser_and_thread_binding(tmp_path: Path) -> None:
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    used_workspaces: list[Path] = []
+
+    users_database = tmp_path / "web" / "users.db"
+    secret_path = tmp_path / "web" / "jwt_secret.bin"
+    user = WebUserStore(users_database).create_user("tester", "password-123")
+    secret = JwtSecretStore(secret_path).load_or_generate()
+    headers = {
+        "Authorization": f"Bearer {create_access_token(user.id, user.username, False, secret)}"
+    }
+
+    def factory(approver: Any = None, workspace: Path | None = None) -> Agent:
+        assert workspace is not None
+        used_workspaces.append(workspace)
+        return Agent(WebClient(), ToolRegistry(workspace, approver=approver), "system")
+
+    app = create_web_app(
+        factory,
+        runtime_database=tmp_path / "runtime" / "runtime.db",
+        users_database=users_database,
+        jwt_secret_path=secret_path,
+        default_workspace=first,
+        workspace_roots=[tmp_path],
+    )
+
+    with TestClient(app) as client:
+        listing = client.get("/v1/workspaces", headers=headers).json()
+        assert listing["default"] == str(first)
+        assert {item["name"] for item in listing["directories"]} == set()
+
+        root_listing = client.get(
+            "/v1/workspaces", headers=headers, params={"path": str(tmp_path)}
+        ).json()
+        assert {item["name"] for item in root_listing["directories"]} >= {
+            "first",
+            "second",
+        }
+        assert [item["path"] for item in root_listing["projects"]] == [str(first)]
+
+        selected = client.post(
+            "/v1/workspaces", headers=headers, json={"path": str(second)}
+        )
+        assert selected.status_code == 200
+        assert selected.json()["path"] == str(second)
+        projects = client.get("/v1/workspaces", headers=headers).json()["projects"]
+        assert [item["path"] for item in projects] == [str(first), str(second)]
+
+        created = client.post(
+            "/v1/threads", headers=headers, json={"workspace": str(second)}
+        )
+        assert created.status_code == 200
+        thread = created.json()
+        assert thread["workspace"] == str(second)
+        assert client.post(
+            f"/v1/threads/{thread['id']}/turns",
+            headers=headers,
+            json={"input": "hello"},
+        ).status_code == 202
+        assert client.get("/v1/threads", headers=headers).json()["data"][0][
+            "workspace"
+        ] == str(second)
+
+        denied = client.post(
+            "/v1/threads", headers=headers, json={"workspace": str(outside)}
+        )
+        assert denied.status_code == 422
+
+        removed = client.request(
+            "DELETE", "/v1/workspaces", headers=headers, json={"path": str(second)}
+        )
+        assert removed.status_code == 200
+        assert removed.json()["deleted_threads"] == 1
+        assert client.get("/v1/threads", headers=headers).json()["data"] == []
+        assert [
+            item["path"]
+            for item in client.get("/v1/workspaces", headers=headers).json()["projects"]
+        ] == [str(first)]
+
+        assert client.request(
+            "DELETE", "/v1/workspaces", headers=headers, json={"path": str(first)}
+        ).status_code == 200
+        assert client.get("/v1/workspaces", headers=headers).json()["projects"] == []
+
+        assert client.post(
+            "/v1/workspaces", headers=headers, json={"path": str(second)}
+        ).status_code == 200
+        assert [
+            item["path"]
+            for item in client.get("/v1/workspaces", headers=headers).json()["projects"]
+        ] == [str(second)]
+
+    assert used_workspaces == [second]
+
+
 @pytest.mark.parametrize(
     ("mode", "class_name", "answer"),
     [("plan", "PlanExecuteAgent", "planned"), ("team", "AgentOrchestrator", "teamed")],

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kairo CLI</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJyYW5kIiB4MT0iOCIgeTE9IjgiIHgyPSI1NiIgeTI9IjU2IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIHN0b3AtY29sb3I9IiMwZWE1ZTkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNjM2NmYxIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0idXJsKCNicmFuZCkiLz4KICA8cGF0aCBmaWxsPSIjZmZmIiBkPSJNMTcgMTRoOHYxNS4yTDM4LjggMTRINDlMMzMuMiAzMWwxNyAxOUgzOS42TDI1IDMzLjJWNTBoLTh6Ii8+Cjwvc3ZnPgo=">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
@@ -173,7 +174,7 @@
       width: 240px; min-width: 240px;
       background: var(--bg-s);
       border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; height: 100%;
+      display: flex; flex-direction: column; height: 100%; overflow: hidden;
     }
     .sidebar-brand {
       padding: 16px 14px 12px;
@@ -194,7 +195,7 @@
       letter-spacing: 0.03em;
     }
 
-    .sidebar-actions { padding: 10px 10px 6px; }
+    .sidebar-actions { padding: 10px 10px 6px; flex-shrink: 0; }
     #new-chat-btn {
       width: 100%; display: flex; align-items: center; gap: 7px;
       background: var(--accent-dim); color: var(--accent);
@@ -212,15 +213,62 @@
     .sidebar-section-label {
       font-size: 10px; font-weight: 600; letter-spacing: 0.07em;
       text-transform: uppercase; color: var(--text-3);
-      padding: 8px 14px 4px;
+      padding: 8px 14px 4px; flex-shrink: 0;
     }
 
-    #thread-list { flex: 1; overflow-y: auto; padding: 0 6px 6px; }
+    #project-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 6px; }
+    .project-group {
+      display: flex; flex-direction: column; gap: 3px;
+      width: 100%; margin-bottom: 5px;
+    }
+    .project-header {
+      display: flex; align-items: center; width: 100%; min-height: 34px;
+      overflow: hidden; border-radius: 6px;
+      transition: background 0.12s, color 0.12s;
+    }
+    .project-header:hover { background: var(--bg-h); }
+    .project-header.active { background: rgba(148,163,184,0.08); }
+    .project-row {
+      display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+      padding: 7px 9px; border: 0; border-radius: 6px; cursor: pointer;
+      background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px;
+      text-align: left; transition: background 0.12s, color 0.12s;
+    }
+    .project-row:hover { color: var(--text-1); }
+    .project-row.active { color: var(--text-1); font-weight: 500; }
+    .project-folder { width: 17px; height: 17px; flex-shrink: 0; color: var(--text-3); }
+    .project-row.active .project-folder { color: var(--accent); }
+    .project-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .project-actions { display: flex; gap: 1px; padding-right: 5px; flex-shrink: 0; }
+    .project-action {
+      width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+      border: 0; border-radius: 5px; background: transparent; color: var(--text-3);
+      cursor: pointer; padding: 4px;
+    }
+    .project-action:hover { color: var(--accent); background: var(--accent-dim); }
+    .project-action svg { width: 16px; height: 16px; }
+    .project-remove:hover { color: var(--red); background: rgba(248,113,113,0.1); }
+    .project-threads {
+      display: flex; flex-direction: column; gap: 2px;
+      width: 100%; padding-left: 27px;
+    }
+    #add-workspace-btn {
+      width: calc(100% - 12px); margin: 5px 6px 8px; padding: 6px 9px;
+      text-align: left; border: 0; border-radius: 6px; background: transparent;
+      color: var(--text-3); cursor: pointer; font: inherit; font-size: 11.5px;
+      flex-shrink: 0;
+    }
+    #add-workspace-btn:hover { color: var(--accent); background: var(--bg-h); }
+    .expand-threads-btn {
+      width: 100%; padding: 5px 10px; border: 0; background: transparent;
+      color: var(--text-3); cursor: pointer; text-align: left; font: inherit; font-size: 11px;
+    }
+    .expand-threads-btn:hover { color: var(--text-2); }
     .thread-item {
       display: flex; align-items: center; gap: 6px;
       width: 100%; text-align: left;
-      padding: 6px 10px; border-radius: 6px; cursor: pointer;
-      color: var(--text-2); font-size: 12.5px;
+      padding: 6px 8px; border-radius: 6px; cursor: pointer;
+      color: var(--text-2); font-size: 12px;
       border: 1px solid transparent;
       transition: background 0.12s, color 0.12s;
       position: relative; overflow: hidden;
@@ -248,7 +296,7 @@
 
     .sidebar-footer {
       padding: 10px 12px; border-top: 1px solid var(--border);
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
     }
     .user-avatar {
       width: 26px; height: 26px; border-radius: 6px;
@@ -991,6 +1039,48 @@
     }
     #chpwd-error.visible { display: block; }
 
+    /* ── workspace browser ── */
+    #workspace-modal {
+      display: none; position: fixed; inset: 0; z-index: 55;
+      background: rgba(8,12,20,0.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    #workspace-modal.visible { display: flex; }
+    .workspace-card {
+      width: min(620px, calc(100vw - 32px)); height: min(560px, calc(100vh - 48px));
+      display: flex; flex-direction: column; overflow: hidden;
+      background: var(--bg-e); border: 1px solid var(--border-s); border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5); animation: slideUp 0.2s ease forwards;
+    }
+    .workspace-header, .workspace-footer {
+      display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+      background: var(--bg-s); flex-shrink: 0;
+    }
+    .workspace-header { border-bottom: 1px solid var(--border); }
+    .workspace-footer { border-top: 1px solid var(--border); justify-content: flex-end; }
+    .workspace-title { flex: 1; color: var(--text-1); font-size: 14px; font-weight: 600; }
+    .workspace-path-row { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    #workspace-path-input {
+      flex: 1; min-width: 0; background: var(--bg); color: var(--text-1);
+      border: 1px solid var(--border-s); border-radius: 6px; padding: 7px 9px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11.5px; outline: none;
+    }
+    #workspace-path-input:focus { border-color: var(--accent); }
+    #workspace-recent { padding: 8px 12px 4px; display: flex; gap: 6px; overflow-x: auto; flex-shrink: 0; }
+    .workspace-recent-btn {
+      max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: var(--text-2); background: var(--bg-h); border: 1px solid var(--border);
+      border-radius: 5px; padding: 4px 8px; cursor: pointer; font-family: inherit; font-size: 10.5px;
+    }
+    #workspace-directory-list { flex: 1; overflow-y: auto; padding: 6px 8px 10px; }
+    .workspace-directory {
+      width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
+      color: var(--text-2); background: transparent; border: 0; border-radius: 6px;
+      padding: 7px 9px; cursor: pointer; font-family: inherit; font-size: 12.5px;
+    }
+    .workspace-directory:hover { color: var(--text-1); background: var(--bg-h); }
+    #workspace-error { flex: 1; color: var(--red); font-size: 11.5px; }
+
     /* ── app layout ── */
     #app-view {
       display: none; height: 100vh;
@@ -1100,8 +1190,9 @@
       </button>
     </div>
 
-    <div class="sidebar-section-label">近期对话</div>
-    <div id="thread-list"></div>
+    <div class="sidebar-section-label">项目</div>
+    <div id="project-list"></div>
+    <button id="add-workspace-btn" type="button">＋ 选择其他文件夹</button>
 
     <div class="sidebar-footer">
       <div class="user-avatar" id="user-avatar">U</div>
@@ -1274,6 +1365,28 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════ WORKSPACE -->
+<div id="workspace-modal">
+  <div class="workspace-card">
+    <div class="workspace-header">
+      <div class="workspace-title">选择主机工作区</div>
+      <button id="workspace-modal-close" class="btn-icon" title="关闭">×</button>
+    </div>
+    <div class="workspace-path-row">
+      <button id="workspace-up-btn" class="btn-ghost" type="button" title="上一级">↑</button>
+      <input id="workspace-path-input" type="text" spellcheck="false" autocomplete="off" />
+      <button id="workspace-go-btn" class="btn-ghost" type="button">转到</button>
+    </div>
+    <div id="workspace-recent"></div>
+    <div id="workspace-directory-list"></div>
+    <div class="workspace-footer">
+      <span id="workspace-error"></span>
+      <button id="workspace-cancel-btn" class="btn-ghost" type="button">取消</button>
+      <button id="workspace-select-btn" class="btn-primary" type="button">使用此文件夹</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════════════════════════════════════════════════════════ CHANGE PASSWORD -->
 <div id="chpwd-modal">
   <div class="chpwd-card">
@@ -1390,6 +1503,7 @@ const state = {
   token: localStorage.getItem('kairo_token'),
   currentUser: null,
   threads: [],
+  workspaces: [],
   activeThreadId: null,
   threadLabels: {},
   eventCursor: 0,
@@ -1401,6 +1515,12 @@ const state = {
   isStreaming: false,
   activeTurnId: null,
   activeMode: 'agent',
+  currentWorkspace: null,
+  workspaceBrowserPath: null,
+  workspaceInfo: null,
+  workspaceBrowserRequest: 0,
+  openWorkspaces: {},
+  showAllWorkspaceThreads: {},
 };
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
@@ -1419,8 +1539,19 @@ const regConfirm     = document.getElementById('reg-confirm');
 const registerBtn    = document.getElementById('register-btn');
 const goRegisterBtn  = document.getElementById('go-register');
 const goLoginBtn     = document.getElementById('go-login');
-const threadList     = document.getElementById('thread-list');
+const projectList    = document.getElementById('project-list');
 const newChatBtn     = document.getElementById('new-chat-btn');
+const addWorkspaceBtn = document.getElementById('add-workspace-btn');
+const workspaceModal = document.getElementById('workspace-modal');
+const workspaceModalClose = document.getElementById('workspace-modal-close');
+const workspacePathInput = document.getElementById('workspace-path-input');
+const workspaceGoBtn = document.getElementById('workspace-go-btn');
+const workspaceUpBtn = document.getElementById('workspace-up-btn');
+const workspaceRecent = document.getElementById('workspace-recent');
+const workspaceDirectoryList = document.getElementById('workspace-directory-list');
+const workspaceError = document.getElementById('workspace-error');
+const workspaceCancelBtn = document.getElementById('workspace-cancel-btn');
+const workspaceSelectBtn = document.getElementById('workspace-select-btn');
 const messages       = document.getElementById('messages');
 const emptyState     = document.getElementById('empty-state');
 const promptInput    = document.getElementById('prompt-input');
@@ -1671,11 +1802,164 @@ logoutBtn.addEventListener('click', async () => {
   adminBtn.style.display = 'none';
   configBtn.style.display = 'none';
   messages.innerHTML = '';
-  threadList.innerHTML = '';
+  projectList.innerHTML = '';
   state.threads = [];
+  state.workspaces = [];
   state.activeThreadId = null;
   state.threadLabels = {};
+  state.currentWorkspace = null;
+  state.workspaceInfo = null;
   showLogin();
+});
+
+// ─── workspaces ──────────────────────────────────────────────────────────────
+function workspaceLabel(path) {
+  if (!path) return '未选择工作区';
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
+async function loadWorkspaceBrowser(path = null) {
+  const requestId = ++state.workspaceBrowserRequest;
+  workspaceError.textContent = '';
+  state.workspaceBrowserPath = null;
+  workspaceSelectBtn.disabled = true;
+  workspaceDirectoryList.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px;">加载中…</div>';
+  try {
+    const suffix = path ? `?path=${encodeURIComponent(path)}` : '';
+    const info = await apiJson('/v1/workspaces' + suffix);
+    if (requestId !== state.workspaceBrowserRequest) return;
+    state.workspaceInfo = info;
+    state.workspaceBrowserPath = info.path;
+    workspaceSelectBtn.disabled = false;
+    workspacePathInput.value = info.path;
+    workspaceUpBtn.disabled = !info.parent;
+    workspaceRecent.innerHTML = '';
+    (info.recent || []).forEach(recentPath => {
+      const btn = document.createElement('button');
+      btn.className = 'workspace-recent-btn';
+      btn.textContent = workspaceLabel(recentPath);
+      btn.title = recentPath;
+      btn.addEventListener('click', () => loadWorkspaceBrowser(recentPath));
+      workspaceRecent.appendChild(btn);
+    });
+    workspaceDirectoryList.innerHTML = '';
+    if (!(info.directories || []).length) {
+      workspaceDirectoryList.innerHTML = '<div style="padding:12px;color:var(--text-3);font-size:12px;">没有子文件夹</div>';
+    }
+    (info.directories || []).forEach(directory => {
+      const btn = document.createElement('button');
+      btn.className = 'workspace-directory';
+      btn.innerHTML = `<span style="color:var(--accent);">▰</span><span>${escHtml(directory.name)}</span>`;
+      btn.title = directory.path;
+      btn.addEventListener('click', () => loadWorkspaceBrowser(directory.path));
+      workspaceDirectoryList.appendChild(btn);
+    });
+    if (info.truncated) {
+      const note = document.createElement('div');
+      note.style.cssText = 'padding:8px;color:var(--yellow);font-size:11px;';
+      note.textContent = '目录过多，仅显示前 500 个文件夹';
+      workspaceDirectoryList.appendChild(note);
+    }
+  } catch (err) {
+    if (requestId !== state.workspaceBrowserRequest) return;
+    workspaceError.textContent = err.message;
+    workspaceDirectoryList.innerHTML = '';
+  }
+}
+
+async function createWorkspaceThread(workspace) {
+  const t = await apiJson('/v1/threads', {
+    method: 'POST',
+    body: JSON.stringify({ workspace }),
+  });
+  state.currentWorkspace = t.workspace;
+  state.openWorkspaces[t.workspace] = true;
+  state.threads.unshift({
+    id: t.id,
+    created_at: new Date().toISOString(),
+    workspace: t.workspace,
+  });
+  state.activeThreadId = t.id;
+  state.eventCursor = 0;
+  messages.innerHTML = '';
+  showEmptyState(false);
+  setHeaderTitle('新建对话');
+  setStatusBadge('ready');
+  renderProjectList();
+  return t;
+}
+
+function rememberWorkspace(path) {
+  if (!path || state.workspaces.some(workspace => workspace.path === path)) return;
+  state.workspaces.push({ name: workspaceLabel(path), path });
+  state.workspaces.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function toggleWorkspace(path) {
+  if (!path) return;
+  if (state.openWorkspaces[path]) {
+    state.openWorkspaces[path] = false;
+    renderProjectList();
+    return;
+  }
+  if (state.isStreaming) {
+    showToast('请等待当前任务结束后再切换工作区', 'error');
+    return;
+  }
+  stopPolling();
+  rememberWorkspace(path);
+  state.openWorkspaces[path] = true;
+  state.currentWorkspace = path;
+  state.activeThreadId = null;
+  state.eventCursor = 0;
+  messages.innerHTML = '';
+  renderProjectList();
+  showEmptyState(true);
+  headerTitle.textContent = workspaceLabel(path);
+  headerTitle.style.color = 'var(--text-3)';
+  setStatusBadge('idle');
+  promptInput.focus();
+}
+
+addWorkspaceBtn.addEventListener('click', async () => {
+  if (state.isStreaming) {
+    showToast('请等待当前任务结束后再切换工作区', 'error');
+    return;
+  }
+  workspaceModal.classList.add('visible');
+  await loadWorkspaceBrowser(state.currentWorkspace);
+});
+workspaceModalClose.addEventListener('click', () => workspaceModal.classList.remove('visible'));
+workspaceCancelBtn.addEventListener('click', () => workspaceModal.classList.remove('visible'));
+workspaceModal.addEventListener('click', (e) => {
+  if (e.target === workspaceModal) workspaceModal.classList.remove('visible');
+});
+workspaceGoBtn.addEventListener('click', () => loadWorkspaceBrowser(workspacePathInput.value.trim()));
+workspacePathInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); workspaceGoBtn.click(); }
+});
+workspaceUpBtn.addEventListener('click', () => {
+  if (state.workspaceInfo?.parent) loadWorkspaceBrowser(state.workspaceInfo.parent);
+});
+workspaceSelectBtn.addEventListener('click', async () => {
+  if (!state.workspaceBrowserPath) return;
+  workspaceSelectBtn.disabled = true;
+  try {
+    const selected = await apiJson('/v1/workspaces', {
+      method: 'POST',
+      body: JSON.stringify({ path: state.workspaceBrowserPath }),
+    });
+    rememberWorkspace(selected.path);
+    state.openWorkspaces[selected.path] = false;
+    toggleWorkspace(selected.path);
+    workspaceModal.classList.remove('visible');
+    promptInput.focus();
+  } catch (err) {
+    workspaceError.textContent = err.message;
+  } finally {
+    workspaceSelectBtn.disabled = false;
+  }
 });
 
 // ─── init ─────────────────────────────────────────────────────────────────────
@@ -1691,6 +1975,15 @@ async function initApp() {
   adminBtn.style.display = u.is_admin ? '' : 'none';
   configBtn.style.display = '';
 
+  try {
+    const workspaceInfo = await apiJson('/v1/workspaces');
+    state.workspaceInfo = workspaceInfo;
+    state.workspaces = workspaceInfo.projects || [];
+    state.currentWorkspace = state.workspaces[0]?.path || null;
+  } catch {
+    projectList.innerHTML = '<div style="padding:8px;color:var(--red);font-size:11.5px;">工作区加载失败</div>';
+  }
+
   // Fetch model info
   try {
     const info = await apiJson('/v1/info');
@@ -1703,7 +1996,8 @@ async function initApp() {
 
   showApp();
   await loadThreads();
-  if (state.threads.length > 0) selectThread(state.threads[0].id);
+  const currentThreads = state.threads.filter(t => t.workspace === state.currentWorkspace);
+  if (currentThreads.length > 0) selectThread(currentThreads[0].id);
 }
 
 // ─── streaming state ─────────────────────────────────────────────────────────
@@ -1745,59 +2039,191 @@ async function loadThreads() {
     const data = await apiJson('/v1/threads');
     state.threads = data.data || [];
     for (const t of state.threads) {
+      rememberWorkspace(t.workspace);
       if (t.title && !state.threadLabels[t.id]) {
         state.threadLabels[t.id] = t.title;
       }
     }
-    renderThreadList();
+    renderProjectList();
   } catch {}
 }
 
-function renderThreadList() {
-  threadList.innerHTML = '';
-  if (!state.threads.length) {
-    threadList.innerHTML = '<div style="padding:8px 14px;font-size:11.5px;color:var(--text-3);">暂无对话</div>';
+function createThreadItem(t) {
+  const btn = document.createElement('div');
+  btn.className = 'thread-item' + (t.id === state.activeThreadId ? ' active' : '');
+  btn.tabIndex = 0;
+  btn.setAttribute('role', 'button');
+  const label = state.threadLabels[t.id] || ('对话 ' + t.id.slice(-8));
+  btn.innerHTML = `
+    <span class="thread-dot"></span>
+    <span class="thread-label" title="${escHtml(label)}">${escHtml(label)}</span>
+    <button class="thread-del" data-id="${t.id}" title="删除">×</button>`;
+  btn.addEventListener('click', (e) => {
+    if (e.target.classList.contains('thread-del')) return;
+    selectThread(t.id);
+  });
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectThread(t.id); }
+  });
+  btn.querySelector('.thread-del').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!await showConfirm('删除后对话记录将无法恢复。')) return;
+    try {
+      await apiJson(`/v1/threads/${t.id}`, { method: 'DELETE' });
+    } catch (err) {
+      showToast('删除失败：' + err.message, 'error');
+      return;
+    }
+    state.threads = state.threads.filter(x => x.id !== t.id);
+    delete state.threadLabels[t.id];
+    if (state.activeThreadId === t.id) {
+      state.activeThreadId = null;
+      messages.innerHTML = '';
+      showEmptyState(true);
+      headerTitle.textContent = '选择或新建对话';
+      headerTitle.style.color = 'var(--text-3)';
+      setStatusBadge('idle');
+    }
+    renderProjectList();
+  });
+  return btn;
+}
+
+async function removeWorkspace(workspace) {
+  if (state.isStreaming && workspace.path === state.currentWorkspace) {
+    showToast('请先停止当前项目正在运行的任务', 'error');
     return;
   }
-  state.threads.forEach(t => {
-    const btn = document.createElement('button');
-    btn.className = 'thread-item' + (t.id === state.activeThreadId ? ' active' : '');
-    const label = state.threadLabels[t.id] || ('对话 ' + t.id.slice(-8));
-    btn.innerHTML = `
-      <span class="thread-dot"></span>
-      <span class="thread-label" title="${escHtml(label)}">${escHtml(label)}</span>
-      <button class="thread-del" data-id="${t.id}" title="删除">×</button>`;
-    btn.addEventListener('click', (e) => {
-      if (e.target.classList.contains('thread-del')) return;
-      selectThread(t.id);
+  const confirmed = await showConfirm(
+    `确认移除项目「${workspace.name}」并永久清除其全部会话记录？主机文件夹不会被删除。`,
+    '移除并清除',
+  );
+  if (!confirmed) return;
+  try {
+    await apiJson('/v1/workspaces', {
+      method: 'DELETE',
+      body: JSON.stringify({ path: workspace.path }),
     });
-    btn.querySelector('.thread-del').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!await showConfirm('删除后对话记录将无法恢复。')) return;
-      try {
-        await apiJson(`/v1/threads/${t.id}`, { method: 'DELETE' });
-      } catch (err) {
-        showToast('删除失败：' + err.message, 'error');
+  } catch (err) {
+    showToast('移除失败：' + err.message, 'error');
+    return;
+  }
+  state.threads = state.threads.filter(thread => thread.workspace !== workspace.path);
+  state.workspaces = state.workspaces.filter(item => item.path !== workspace.path);
+  delete state.openWorkspaces[workspace.path];
+  delete state.showAllWorkspaceThreads[workspace.path];
+  if (state.currentWorkspace === workspace.path) {
+    stopPolling();
+    state.currentWorkspace = state.workspaces[0]?.path || null;
+    state.activeThreadId = null;
+    state.eventCursor = 0;
+    messages.innerHTML = '';
+    showEmptyState(true);
+    headerTitle.textContent = state.currentWorkspace
+      ? workspaceLabel(state.currentWorkspace)
+      : '请选择项目';
+    headerTitle.style.color = 'var(--text-3)';
+    setStatusBadge('idle');
+  }
+  renderProjectList();
+  showToast(`已移除「${workspace.name}」并清除会话记录`, 'success');
+}
+
+function renderProjectList() {
+  projectList.innerHTML = '';
+  if (!state.workspaces.length) {
+    projectList.innerHTML = '<div style="padding:8px;color:var(--text-3);font-size:11.5px;">暂无项目</div>';
+    return;
+  }
+  state.workspaces.forEach(workspace => {
+    const active = workspace.path === state.currentWorkspace;
+    const group = document.createElement('div');
+    group.className = 'project-group';
+    const header = document.createElement('div');
+    header.className = 'project-header' + (active ? ' active' : '');
+    const row = document.createElement('button');
+    row.className = 'project-row' + (active ? ' active' : '');
+    row.title = workspace.path;
+    row.innerHTML = `
+      <svg class="project-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <path d="M3 7.5A2.5 2.5 0 015.5 5H10l2 2h6.5A2.5 2.5 0 0121 9.5v8A2.5 2.5 0 0118.5 20h-13A2.5 2.5 0 013 17.5z"/>
+      </svg>
+      <span class="project-name">${escHtml(workspace.name)}</span>`;
+    row.addEventListener('click', () => toggleWorkspace(workspace.path));
+    header.appendChild(row);
+
+    const actions = document.createElement('div');
+    actions.className = 'project-actions';
+    const remove = document.createElement('button');
+    remove.className = 'project-action project-remove';
+    remove.type = 'button';
+    remove.title = '移除项目并清除会话';
+    remove.setAttribute('aria-label', `移除项目 ${workspace.name}`);
+    remove.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/>
+    </svg>`;
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      removeWorkspace(workspace);
+    });
+    const create = document.createElement('button');
+    create.className = 'project-action project-create';
+    create.type = 'button';
+    create.title = '在此项目新建会话';
+    create.setAttribute('aria-label', `在 ${workspace.name} 新建会话`);
+    create.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+      <path d="M12 5v14M5 12h14"/>
+    </svg>`;
+    create.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      if (state.isStreaming) {
+        showToast('请等待当前任务结束后再新建会话', 'error');
         return;
       }
-      state.threads = state.threads.filter(x => x.id !== t.id);
-      delete state.threadLabels[t.id];
-      if (state.activeThreadId === t.id) {
-        state.activeThreadId = null;
-        messages.innerHTML = '';
-        showEmptyState(true);
-        headerTitle.textContent = '选择或新建对话';
-        headerTitle.style.color = 'var(--text-3)';
-        setStatusBadge('idle');
+      try {
+        stopPolling();
+        await createWorkspaceThread(workspace.path);
+        promptInput.focus();
+      } catch (err) {
+        showToast('创建会话失败：' + err.message, 'error');
       }
-      renderThreadList();
     });
-    threadList.appendChild(btn);
+    actions.append(remove, create);
+    header.appendChild(actions);
+    group.appendChild(header);
+
+    if (state.openWorkspaces[workspace.path]) {
+      const container = document.createElement('div');
+      container.className = 'project-threads';
+      const threads = state.threads.filter(thread => thread.workspace === workspace.path);
+      const expanded = Boolean(state.showAllWorkspaceThreads[workspace.path]);
+      const shown = expanded ? threads : threads.slice(0, 4);
+      shown.forEach(thread => container.appendChild(createThreadItem(thread)));
+      if (threads.length > 4) {
+        const expand = document.createElement('button');
+        expand.className = 'expand-threads-btn';
+        expand.textContent = expanded ? '收起' : `展开显示（${threads.length - 4}）`;
+        expand.addEventListener('click', () => {
+          state.showAllWorkspaceThreads[workspace.path] = !expanded;
+          renderProjectList();
+        });
+        container.appendChild(expand);
+      }
+      if (!threads.length) {
+        container.innerHTML = '<div style="padding:4px 8px 7px;color:var(--text-3);font-size:10.5px;">暂无对话</div>';
+      }
+      group.appendChild(container);
+    }
+    projectList.appendChild(group);
   });
 }
 
 async function selectThread(threadId) {
   stopPolling();
+  const thread = state.threads.find(t => t.id === threadId);
+  if (!thread) return;
+  state.currentWorkspace = thread.workspace;
+  state.openWorkspaces[thread.workspace] = true;
   state.activeThreadId = threadId;
   state.eventCursor = 0;
   messages.innerHTML = '';
@@ -1806,22 +2232,14 @@ async function selectThread(threadId) {
   const label = state.threadLabels[threadId] || ('对话 ' + threadId.slice(-8));
   setHeaderTitle(label);
   setStatusBadge('ready');
-  renderThreadList();
+  renderProjectList();
   await fetchAllEvents(threadId);
 }
 
 newChatBtn.addEventListener('click', async () => {
   stopPolling();
   try {
-    const t = await apiJson('/v1/threads', { method: 'POST' });
-    state.threads.unshift({ id: t.id, created_at: new Date().toISOString() });
-    state.activeThreadId = t.id;
-    state.eventCursor = 0;
-    messages.innerHTML = '';
-    showEmptyState(false);
-    setHeaderTitle('新建对话');
-    setStatusBadge('ready');
-    renderThreadList();
+    await createWorkspaceThread(state.currentWorkspace);
     promptInput.focus();
   } catch (err) { showToast('创建对话失败：' + err.message, 'error'); }
 });
@@ -2128,13 +2546,7 @@ async function sendMessage() {
   // Auto-create thread if none is active
   if (!state.activeThreadId) {
     try {
-      const t = await apiJson('/v1/threads', { method: 'POST' });
-      state.threads.unshift({ id: t.id, created_at: new Date().toISOString() });
-      state.activeThreadId = t.id;
-      state.eventCursor = 0;
-      messages.innerHTML = '';
-      showEmptyState(false);
-      renderThreadList();
+      await createWorkspaceThread(state.currentWorkspace);
     } catch (err) {
       showToast('创建对话失败：' + err.message, 'error');
       return;
@@ -2172,7 +2584,7 @@ promptInput.addEventListener('input', () => {
 function setLabel(threadId, text) {
   if (!state.threadLabels[threadId]) {
     state.threadLabels[threadId] = text.slice(0, 42) + (text.length > 42 ? '…' : '');
-    renderThreadList();
+    renderProjectList();
     setHeaderTitle(state.threadLabels[threadId]);
   }
 }
