@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
 from .paths import reject_symlink_components
@@ -27,7 +27,7 @@ MAX_USERNAME_CHARS = 64
 MAX_PASSWORD_CHARS = 1_024
 MIN_PASSWORD_CHARS = 8
 
-_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 @dataclass(slots=True)
@@ -158,8 +158,7 @@ class WebUserStore:
     def get_by_id(self, user_id: str) -> WebUser | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT id, username, hashed_password, is_admin, created_at "
-                "FROM users WHERE id=?",
+                "SELECT id, username, hashed_password, is_admin, created_at FROM users WHERE id=?",
                 (user_id,),
             ).fetchone()
         return _row_to_user(row) if row is not None else None
@@ -223,14 +222,10 @@ class WebUserStore:
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
             if isinstance(config, dict):
-                presets.append(
-                    {"name": str(name), "created_at": str(created_at), **config}
-                )
+                presets.append({"name": str(name), "created_at": str(created_at), **config})
         return presets
 
-    def save_config_preset(
-        self, user_id: str, name: str, config: dict[str, Any]
-    ) -> dict[str, Any]:
+    def save_config_preset(self, user_id: str, name: str, config: dict[str, Any]) -> dict[str, Any]:
         created_at = datetime.now(UTC).isoformat()
         payload = json.dumps(config, ensure_ascii=False, separators=(",", ":"))
         with self._connect() as connection:
@@ -308,9 +303,7 @@ class WebUserStore:
     def delete_user(self, user_id: str) -> bool:
         with self._connect() as connection:
             connection.execute("DELETE FROM user_configs WHERE user_id=?", (user_id,))
-            connection.execute(
-                "DELETE FROM user_config_presets WHERE user_id=?", (user_id,)
-            )
+            connection.execute("DELETE FROM user_config_presets WHERE user_id=?", (user_id,))
             connection.execute("DELETE FROM user_workspaces WHERE user_id=?", (user_id,))
             cursor = connection.execute("DELETE FROM users WHERE id=?", (user_id,))
         return cursor.rowcount == 1
@@ -410,19 +403,24 @@ def decode_access_token(token: str, secret: bytes) -> dict[str, Any]:
         ) from None
 
 
-def make_get_current_user(
-    user_store: WebUserStore, jwt_secret: bytes
-) -> Callable[..., Any]:
-    async def get_current_user(token: str = Depends(_oauth2_scheme)) -> WebUser:
+def make_get_current_user(user_store: WebUserStore, jwt_secret: bytes) -> Callable[..., Any]:
+    async def get_current_user(
+        request: Request,
+        token: str | None = Depends(_oauth2_scheme),
+    ) -> WebUser:
+        token = token or request.cookies.get("kairo_session")
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+            )
         payload = decode_access_token(token, jwt_secret)
         user_id = payload.get("sub")
         if not user_id:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
         user = user_store.get_by_id(str(user_id))
         if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
-            )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         return user
 
     return get_current_user
