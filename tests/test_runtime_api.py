@@ -15,7 +15,7 @@ from kairocli.brand import API_KEY_HEADER
 from kairocli.llm import LlmClient
 from kairocli.models import LlmResponse, Message
 from kairocli.paths import KairoPaths
-from kairocli.runtime_api import RuntimeThreadStore, create_app
+from kairocli.runtime_api import RuntimeDeltaBuffer, RuntimeState, RuntimeThreadStore, create_app
 from kairocli.tools import ToolRegistry
 
 
@@ -437,6 +437,7 @@ def test_runtime_store_rejects_parent_symlink_and_terminal_overwrite(
     assert store.update_turn_status(turn_id, "failed", error="first") is True
     assert store.update_turn_status(turn_id, "completed", response="late") is False
     assert store.turn_status("thread_terminal", turn_id) == "failed"
+    assert store.turn_result("thread_terminal", turn_id) == ("failed", "")
 
 
 def test_runtime_store_commits_turn_state_and_events_atomically(tmp_path: Path) -> None:
@@ -746,8 +747,44 @@ def test_runtime_streaming_chunks_large_token_sequences(tmp_path: Path) -> None:
         for line in body.splitlines()
         if line.startswith("data: ") and '"delta"' in line
     ]
-    assert len(delta_lines) == 2
-    assert "".join(json.loads(line)["delta"] for line in delta_lines) == "x" * 5_000
+    deltas = [json.loads(line)["delta"] for line in delta_lines]
+    assert len(deltas) == 40
+    assert all(0 < len(delta) <= runtime_module.RUNTIME_DELTA_CHARS for delta in deltas)
+    assert "".join(deltas) == "x" * 5_000
+
+
+async def test_runtime_delta_buffer_flushes_small_content_on_time() -> None:
+    emitted: list[str] = []
+    buffer = RuntimeDeltaBuffer(emitted.append)
+
+    buffer.push("自然流式输出")
+    assert emitted == []
+    await asyncio.sleep(runtime_module.RUNTIME_DELTA_FLUSH_SECONDS * 2)
+
+    assert emitted == ["自然流式输出"]
+
+
+async def test_runtime_event_follower_wakes_for_new_events(tmp_path: Path) -> None:
+    store = RuntimeThreadStore(tmp_path / "follow.db")
+    store.create("thread_follow")
+    state = RuntimeState(lambda: None, store)
+    cursor = 0
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    follower = runtime_module._follow_runtime_events(
+        state, "thread_follow", cursor, 100, ConnectedRequest()
+    )
+    pending = asyncio.create_task(anext(follower))
+    await asyncio.sleep(0)
+    state.event("thread_follow", "message.delta", {"delta": "live"})
+
+    chunk = await asyncio.wait_for(pending, timeout=0.2)
+    await follower.aclose()
+    assert "event: message.delta" in chunk
+    assert '"delta": "live"' in chunk
 
 
 def test_runtime_event_replay_is_byte_bounded_and_cursor_resumable(
@@ -905,12 +942,19 @@ def test_runtime_store_migrates_existing_turn_schema(tmp_path: Path) -> None:
     store.create("thread_legacy", workspace="/tmp/project")
     turn_id, _, _ = store.reserve_turn("thread_legacy", "hello", None)
     store.update_turn_status(turn_id, "completed", response="world")
+    store.append(
+        "thread_legacy",
+        "thread.title.updated",
+        {"thread_id": "thread_legacy", "title": "Generated title"},
+    )
 
     assert [message.content for message in store.completed_messages("thread_legacy")] == [
         "hello",
         "world",
     ]
-    assert store.list_threads("")[0]["workspace"] == "/tmp/project"
+    listed = store.list_threads("")[0]
+    assert listed["workspace"] == "/tmp/project"
+    assert listed["title"] == "Generated title"
 
 
 def test_runtime_store_bounds_events_turns_and_threads(tmp_path: Path) -> None:

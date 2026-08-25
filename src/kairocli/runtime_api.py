@@ -7,15 +7,15 @@ import os
 import re
 import sqlite3
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
-from fastapi.responses import PlainTextResponse
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from .agent import Agent, AgentCanceled
 from .brand import API_KEY_HEADER
@@ -33,7 +33,9 @@ MAX_RUNTIME_EVENT_JSON_NODES = 50_000
 MAX_RUNTIME_EVENTS_PER_THREAD = 10_000
 MAX_RUNTIME_TURNS_PER_THREAD = 100
 MAX_RUNTIME_THREADS = 1_000
-RUNTIME_DELTA_CHARS = 4_096
+RUNTIME_DELTA_CHARS = 128
+RUNTIME_DELTA_FLUSH_SECONDS = 0.04
+RUNTIME_EVENT_HEARTBEAT_SECONDS = 15.0
 MAX_RUNTIME_API_KEY_CHARS = 1_024
 RUNTIME_SHUTDOWN_GRACE_SECONDS = 0.5
 MAX_SQLITE_INTEGER = 2**63 - 1
@@ -62,11 +64,21 @@ class RuntimeState:
         self.active_agents: dict[str, Agent] = {}
         self.active_turn_ids: set[str] = set()
         self.active_turn_tasks: set[asyncio.Task[Any]] = set()
+        self._event_signals: dict[str, asyncio.Event] = {}
         self.owner_token = f"runtime_{uuid.uuid4().hex}"
         self.owner_pid = os.getpid()
 
     def event(self, thread_id: str, event_type: str, data: dict[str, Any]) -> None:
         self.store.append(thread_id, event_type, data)
+        self.notify_events(thread_id)
+
+    def event_signal(self, thread_id: str) -> asyncio.Event:
+        return self._event_signals.setdefault(thread_id, asyncio.Event())
+
+    def notify_events(self, thread_id: str) -> None:
+        signal = self._event_signals.get(thread_id)
+        if signal is not None:
+            signal.set()
 
     def refresh_owner_identity(self) -> None:
         current_pid = os.getpid()
@@ -78,6 +90,41 @@ class RuntimeState:
         self.active_agents.clear()
         self.active_turn_ids.clear()
         self.active_turn_tasks.clear()
+        self._event_signals.clear()
+
+
+class RuntimeDeltaBuffer:
+    """Coalesce model deltas by a short time window or a small size bound."""
+
+    def __init__(self, emit: Callable[[str], None]) -> None:
+        self._emit = emit
+        self._buffer = ""
+        self._timer: asyncio.TimerHandle | None = None
+        self.emitted = False
+
+    def push(self, delta: str) -> None:
+        if not delta:
+            return
+        self.emitted = True
+        self._buffer += delta
+        if len(self._buffer) >= RUNTIME_DELTA_CHARS:
+            self.flush()
+        elif self._timer is None:
+            self._timer = asyncio.get_running_loop().call_later(
+                RUNTIME_DELTA_FLUSH_SECONDS, self.flush
+            )
+
+    def flush(self) -> None:
+        timer, self._timer = self._timer, None
+        if timer is not None:
+            timer.cancel()
+        while self._buffer:
+            chunk = self._buffer[:RUNTIME_DELTA_CHARS]
+            self._buffer = self._buffer[len(chunk) :]
+            self._emit(chunk)
+
+    def close(self) -> None:
+        self.flush()
 
 
 class RuntimeThreadStore:
@@ -135,8 +182,7 @@ class RuntimeThreadStore:
                     "ALTER TABLE turns ADD COLUMN owner_pid INTEGER NOT NULL DEFAULT 0"
                 )
             thread_columns = {
-                str(row[1])
-                for row in connection.execute("PRAGMA table_info(threads)").fetchall()
+                str(row[1]) for row in connection.execute("PRAGMA table_info(threads)").fetchall()
             }
             if "owner_user_id" not in thread_columns:
                 connection.execute(
@@ -155,8 +201,7 @@ class RuntimeThreadStore:
                 "ON turns(thread_id, created_at)"
             )
             connection.execute(
-                "CREATE INDEX IF NOT EXISTS idx_threads_owner_user_id "
-                "ON threads(owner_user_id)"
+                "CREATE INDEX IF NOT EXISTS idx_threads_owner_user_id ON threads(owner_user_id)"
             )
             self._recover_stale_running(connection)
         if os.name != "nt":
@@ -235,6 +280,24 @@ class RuntimeThreadStore:
             connection.execute("DELETE FROM threads WHERE id=?", (thread_id,))
         return True
 
+    def clear_thread(self, thread_id: str, owner_user_id: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM threads WHERE id=? AND owner_user_id=?",
+                (thread_id, owner_user_id),
+            ).fetchone()
+            if row is None:
+                return False
+            running = connection.execute(
+                "SELECT 1 FROM turns WHERE thread_id=? AND status='running' LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+            if running is not None:
+                raise RuntimeError("Thread has a running turn")
+            connection.execute("DELETE FROM events WHERE thread_id=?", (thread_id,))
+            connection.execute("DELETE FROM turns WHERE thread_id=?", (thread_id,))
+        return True
+
     def exists_for_user(self, thread_id: str, user_id: str) -> bool:
         with self._connect() as connection:
             row = connection.execute(
@@ -261,17 +324,14 @@ class RuntimeThreadStore:
             ).fetchall()
         return [str(row[0]) for row in rows]
 
-    def delete_workspace_threads(
-        self, owner_user_id: str, workspaces: tuple[str, ...]
-    ) -> int:
+    def delete_workspace_threads(self, owner_user_id: str, workspaces: tuple[str, ...]) -> int:
         if not workspaces:
             return 0
         placeholders = ",".join("?" for _workspace in workspaces)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             thread_rows = connection.execute(
-                f"SELECT id FROM threads WHERE owner_user_id=? "
-                f"AND workspace IN ({placeholders})",
+                f"SELECT id FROM threads WHERE owner_user_id=? AND workspace IN ({placeholders})",
                 (owner_user_id, *workspaces),
             ).fetchall()
             thread_ids = [str(row[0]) for row in thread_rows]
@@ -307,7 +367,10 @@ class RuntimeThreadStore:
                 "SELECT t.id, t.created_at, t.workspace, "
                 "  (SELECT e.data FROM events e "
                 "   WHERE e.thread_id = t.id AND e.type = 'turn.started' "
-                "   ORDER BY e.sequence ASC LIMIT 1) AS first_event "
+                "   ORDER BY e.sequence ASC LIMIT 1) AS first_event, "
+                "  (SELECT e.data FROM events e "
+                "   WHERE e.thread_id = t.id AND e.type = 'thread.title.updated' "
+                "   ORDER BY e.sequence DESC LIMIT 1) AS title_event "
                 "FROM threads t WHERE t.owner_user_id=? "
                 "ORDER BY t.created_at DESC LIMIT ?",
                 (owner_user_id, max(1, min(limit, 1_000))),
@@ -320,6 +383,14 @@ class RuntimeThreadStore:
                     data = json.loads(row[3])
                     raw = data.get("input", "")
                     title = raw[:60] + ("…" if len(raw) > 60 else "")
+                except Exception:
+                    pass
+            if row[4]:
+                try:
+                    data = json.loads(row[4])
+                    generated = data.get("title", "")
+                    if isinstance(generated, str) and generated.strip():
+                        title = generated.strip()
                 except Exception:
                     pass
             result.append(
@@ -532,6 +603,21 @@ class RuntimeThreadStore:
             ).fetchone()
         return str(row[0]) if row is not None else None
 
+    def turn_result(self, thread_id: str, turn_id: str) -> tuple[str, str] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT status,response FROM turns WHERE thread_id=? AND id=?",
+                (thread_id, turn_id),
+            ).fetchone()
+        return (str(row[0]), str(row[1] or "")) if row is not None else None
+
+    def thread_id_for_turn(self, turn_id: str) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT thread_id FROM turns WHERE id=?", (turn_id,)
+            ).fetchone()
+        return str(row[0]) if row is not None else None
+
     def _recover_stale_running(self, connection: sqlite3.Connection) -> None:
         now = datetime.now(UTC).isoformat()
         rows = connection.execute("SELECT id, owner_pid FROM turns WHERE status='running'")
@@ -674,6 +760,37 @@ def _last_event_cursor(value: str) -> int:
     return cursor
 
 
+def _encode_sse_event(event: RuntimeEvent) -> str:
+    return (
+        f"id: {event.id}\nevent: {event.type}\n"
+        f"data: {json.dumps(event.data, ensure_ascii=False)}\n\n"
+    )
+
+
+async def _follow_runtime_events(
+    state: RuntimeState,
+    thread_id: str,
+    cursor: int,
+    limit: int,
+    request: Request,
+) -> AsyncIterator[str]:
+    signal = state.event_signal(thread_id)
+    while True:
+        if await request.is_disconnected():
+            return
+        signal.clear()
+        events = state.store.events(thread_id, cursor, limit)
+        if events:
+            for event in events:
+                cursor = event.id
+                yield _encode_sse_event(event)
+            continue
+        try:
+            await asyncio.wait_for(signal.wait(), timeout=RUNTIME_EVENT_HEARTBEAT_SECONDS)
+        except TimeoutError:
+            yield ": heartbeat\n\n"
+
+
 def _finish_detached_runtime_task(task: asyncio.Task[Any]) -> None:
     _DETACHED_RUNTIME_TASKS.discard(task)
     try:
@@ -728,6 +845,9 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                             event_type="turn.canceled",
                             event_data={"turn_id": turn_id},
                         )
+                        thread_id = state.store.thread_id_for_turn(turn_id)
+                        if thread_id is not None:
+                            state.notify_events(thread_id)
                     except Exception:
                         pass
                 active_tasks = tuple(state.active_turn_tasks)
@@ -783,19 +903,13 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
         if current_task is not None:
             state.active_turn_tasks.add(current_task)
         agent: Agent | None = None
-        delta_buffer = ""
-        emitted_delta = False
-
-        def flush_delta(*, final: bool = False) -> None:
-            nonlocal delta_buffer
-            while len(delta_buffer) >= RUNTIME_DELTA_CHARS or (final and delta_buffer):
-                chunk = delta_buffer[:RUNTIME_DELTA_CHARS]
-                delta_buffer = delta_buffer[len(chunk) :]
-                state.event(
-                    thread_id,
-                    "message.delta",
-                    {"turn_id": turn_id, "delta": chunk},
-                )
+        deltas = RuntimeDeltaBuffer(
+            lambda chunk: state.event(
+                thread_id,
+                "message.delta",
+                {"turn_id": turn_id, "delta": chunk},
+            )
+        )
 
         try:
             if state.store.turn_status(thread_id, turn_id) != "running":
@@ -804,19 +918,11 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
             state.active_agents[turn_id] = agent
             agent.history = state.store.completed_messages(thread_id, before_turn_id=turn_id)
 
-            def emit_delta(delta: str) -> None:
-                nonlocal delta_buffer, emitted_delta
-                if not delta:
-                    return
-                emitted_delta = True
-                delta_buffer += delta
-                flush_delta()
-
-            agent.on_content_delta = emit_delta
+            agent.on_content_delta = deltas.push
             answer = await agent.run(prompt)
-            if answer and not emitted_delta:
-                emit_delta(answer)
-            flush_delta(final=True)
+            if answer and not deltas.emitted:
+                deltas.push(answer)
+            deltas.close()
             state.store.update_turn_status(
                 turn_id,
                 "completed",
@@ -825,7 +931,9 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                 event_type="turn.completed",
                 event_data={"turn_id": turn_id},
             )
+            state.notify_events(thread_id)
         except AgentCanceled:
+            deltas.close()
             state.store.update_turn_status(
                 turn_id,
                 "canceled",
@@ -833,7 +941,9 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                 event_type="turn.canceled",
                 event_data={"turn_id": turn_id},
             )
+            state.notify_events(thread_id)
         except asyncio.CancelledError:
+            deltas.close()
             state.store.update_turn_status(
                 turn_id,
                 "canceled",
@@ -841,9 +951,10 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                 event_type="turn.canceled",
                 event_data={"turn_id": turn_id},
             )
+            state.notify_events(thread_id)
             raise
         except Exception as exc:
-            flush_delta(final=True)
+            deltas.close()
             error = safe_redacted_text(exc, 2_000, "...[runtime error truncated]")
             state.store.update_turn_status(
                 turn_id,
@@ -853,6 +964,7 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                 event_type="turn.failed",
                 event_data={"turn_id": turn_id, "error": error},
             )
+            state.notify_events(thread_id)
         finally:
             state.active_agents.pop(turn_id, None)
             state.active_turn_ids.discard(turn_id)
@@ -950,6 +1062,7 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
             event_type="turn.canceled",
             event_data={"turn_id": turn_id},
         ):
+            state.notify_events(thread_id)
             active = state.active_agents.get(turn_id)
             if active is not None:
                 active.cancel()
@@ -959,12 +1072,14 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
     @app.get("/v1/threads/{thread_id}/events", response_class=PlainTextResponse)
     async def events(
         thread_id: str,
+        request: Request,
         after: int = Query(default=0, ge=0, le=MAX_SQLITE_INTEGER),
         limit: int = Query(default=100, ge=1, le=1_000),
+        follow: bool = Query(default=False),
         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
         authorization: str | None = Header(default=None),
         x_kairocli_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
-    ) -> PlainTextResponse:
+    ) -> Response:
         authorize(authorization, x_kairocli_api_key)
         if not _valid_identifier(thread_id, _THREAD_ID):
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -976,16 +1091,22 @@ def create_app(agent_factory: Any, api_key: str | None = None, database: Path | 
                 cursor = _last_event_cursor(last_event_id)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid Last-Event-ID") from None
+        if follow:
+            return StreamingResponse(
+                _follow_runtime_events(state, thread_id, cursor, limit, request),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                },
+            )
         chunks: list[str] = []
         response_bytes = 0
         next_event_id = cursor
         selected = state.store.events(thread_id, cursor, limit + 1)
         has_more = len(selected) > limit
         for event in selected[:limit]:
-            chunk = (
-                f"id: {event.id}\nevent: {event.type}\n"
-                f"data: {json.dumps(event.data, ensure_ascii=False)}\n\n"
-            )
+            chunk = _encode_sse_event(event)
             chunk_bytes = len(chunk.encode("utf-8"))
             if chunks and response_bytes + chunk_bytes > MAX_RUNTIME_EVENT_RESPONSE_BYTES:
                 has_more = True
