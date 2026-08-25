@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kairo CLI</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImJyYW5kIiB4MT0iOCIgeTE9IjgiIHgyPSI1NiIgeTI9IjU2IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+CiAgICAgIDxzdG9wIHN0b3AtY29sb3I9IiMwZWE1ZTkiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNjM2NmYxIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNCIgZmlsbD0idXJsKCNicmFuZCkiLz4KICA8cGF0aCBmaWxsPSIjZmZmIiBkPSJNMTcgMTRoOHYxNS4yTDM4LjggMTRINDlMMzMuMiAzMWwxNyAxOUgzOS42TDI1IDMzLjJWNTBoLTh6Ii8+Cjwvc3ZnPgo=">
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark-dimmed.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -295,17 +294,25 @@
     .thread-del:hover { color: var(--red); background: rgba(248,113,113,0.1); }
 
     .sidebar-footer {
-      padding: 10px 12px; border-top: 1px solid var(--border);
-      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+      padding: 8px; border-top: 1px solid var(--border); flex-shrink: 0;
     }
+    .sidebar-account-entry {
+      width: 100%; display: flex; align-items: center; gap: 9px;
+      padding: 7px 8px; border: 0; border-radius: 8px; background: transparent;
+      color: var(--text-2); cursor: pointer; font: inherit; text-align: left;
+      transition: background .12s, color .12s;
+    }
+    .sidebar-account-entry:hover { color: var(--text-1); background: var(--bg-h); }
     .user-avatar {
       width: 26px; height: 26px; border-radius: 6px;
       background: linear-gradient(135deg, #334155, #475569);
       display: flex; align-items: center; justify-content: center;
       font-size: 11px; font-weight: 600; color: var(--text-1); flex-shrink: 0;
     }
-    #username-badge { flex: 1; font-size: 12px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .footer-btns { display: flex; align-items: center; gap: 2px; }
+    .sidebar-account-copy { flex: 1; min-width: 0; }
+    #username-badge { display: block; font-size: 12px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-account-label { display: block; margin-top: -1px; color: var(--text-3); font-size: 10.5px; }
+    .sidebar-account-entry > svg { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
 
     /* ── main area ── */
     #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
@@ -737,6 +744,65 @@
     }
     #login-error.visible, #register-error.visible { display: block; }
 
+    /* ── settings center ── */
+    #settings-modal {
+      display: none; position: fixed; inset: 0; z-index: 38;
+      background: rgba(8,12,20,.8); backdrop-filter: blur(4px);
+      align-items: center; justify-content: center;
+    }
+    #settings-modal.visible { display: flex; }
+    .settings-card {
+      width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px);
+      overflow: hidden; background: var(--bg-e); border: 1px solid var(--border-s);
+      border-radius: 14px; box-shadow: 0 24px 80px rgba(0,0,0,.5);
+      animation: slideUp .2s ease forwards;
+    }
+    .settings-header {
+      display: flex; align-items: center; gap: 12px; padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .settings-title { color: var(--text-1); font-size: 15px; font-weight: 600; }
+    .settings-subtitle { margin-top: 2px; color: var(--text-3); font-size: 11.5px; }
+    .settings-body { padding: 18px 22px 22px; overflow-y: auto; }
+    .settings-user {
+      display: flex; align-items: center; gap: 11px; margin-bottom: 20px;
+      padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px;
+      background: rgba(255,255,255,.015);
+    }
+    .settings-user-avatar {
+      width: 34px; height: 34px; border-radius: 8px; display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+      background: linear-gradient(135deg, #334155, #475569);
+      color: var(--text-1); font-size: 13px; font-weight: 600;
+    }
+    .settings-user-name { color: var(--text-1); font-size: 13px; font-weight: 500; }
+    .settings-user-hint { margin-top: 1px; color: var(--text-3); font-size: 10.5px; }
+    .settings-group + .settings-group { margin-top: 18px; }
+    .settings-group-label {
+      margin-bottom: 6px; color: var(--text-3); font-size: 10px;
+      font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .settings-list { border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+    .settings-item {
+      width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 13px;
+      border: 0; border-bottom: 1px solid var(--border); background: transparent;
+      color: var(--text-2); cursor: pointer; font: inherit; text-align: left;
+      transition: background .12s, color .12s;
+    }
+    .settings-item:last-child { border-bottom: 0; }
+    .settings-item:hover { color: var(--text-1); background: var(--bg-h); }
+    .settings-item-icon {
+      width: 30px; height: 30px; border-radius: 7px; display: flex;
+      align-items: center; justify-content: center; flex-shrink: 0;
+      color: var(--text-2); background: var(--bg-h); border: 1px solid var(--border);
+    }
+    .settings-item-icon svg { width: 15px; height: 15px; }
+    .settings-item-copy { flex: 1; min-width: 0; }
+    .settings-item-title { display: block; color: var(--text-1); font-size: 12.5px; font-weight: 500; }
+    .settings-item-desc { display: block; margin-top: 1px; color: var(--text-3); font-size: 10.5px; }
+    .settings-item-chevron { color: var(--text-3); font-size: 15px; }
+    .settings-item-danger .settings-item-icon, .settings-item-danger .settings-item-title { color: var(--red); }
+
     /* ── admin modal ── */
     #admin-modal {
       display: none; position: fixed; inset: 0;
@@ -746,25 +812,35 @@
     #admin-modal.visible { display: flex; }
     .admin-card {
       background: var(--bg-e); border: 1px solid var(--border-s);
-      border-radius: 12px; width: 100%; max-width: 560px;
-      max-height: 80vh; display: flex; flex-direction: column;
+      border-radius: 14px; width: min(760px, calc(100vw - 32px));
+      max-height: min(720px, calc(100vh - 48px)); display: flex; flex-direction: column;
       box-shadow: 0 24px 80px rgba(0,0,0,0.5);
       animation: slideUp 0.22s ease forwards;
     }
     .admin-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      padding: 18px 24px; border-bottom: 1px solid var(--border);
     }
-    .admin-title { font-weight: 600; font-size: 14px; color: var(--text-1); }
-    .admin-body { flex: 1; overflow-y: auto; padding: 14px 20px; }
+    .admin-title { font-weight: 600; font-size: 15px; color: var(--text-1); }
+    .admin-subtitle { margin-top: 2px; color: var(--text-3); font-size: 11.5px; }
+    .admin-body { flex: 1; overflow-y: auto; padding: 20px 24px 14px; }
+    .admin-billing-setting {
+      display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px;
+      padding: 12px 14px; border: 1px solid var(--border); border-radius: 9px;
+      color: var(--text-2); background: rgba(255,255,255,.015); cursor: pointer;
+    }
+    .admin-billing-setting input { margin-top: 2px; accent-color: var(--accent); }
+    .admin-billing-title { display: block; color: var(--text-1); font-size: 12px; font-weight: 500; }
+    .admin-billing-hint { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; }
     .admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
     .admin-table th {
       text-align: left; color: var(--text-3); font-weight: 500;
       font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 0 0 8px; border-bottom: 1px solid var(--border);
     }
-    .admin-table td { padding: 8px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .admin-table td { padding: 12px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
     .admin-table tr:last-child td { border-bottom: none; }
+    .admin-row-actions { display: flex; justify-content: flex-end; gap: 6px; white-space: nowrap; }
     .role-badge {
       font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 3px;
       letter-spacing: 0.03em;
@@ -772,11 +848,12 @@
     .role-admin { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(56,189,248,0.2); }
     .role-user { color: var(--text-3); background: var(--bg-h); border: 1px solid var(--border); }
 
-    .admin-add { padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg-s); border-radius: 0 0 12px 12px; }
-    .admin-add-title { font-size: 12px; font-weight: 500; color: var(--text-2); margin-bottom: 8px; }
-    .admin-add-row { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
-    .admin-add-row input { font-size: 12px !important; padding: 6px 10px !important; }
-    .admin-add-row .k-input { flex: 1; min-width: 100px; }
+    .admin-add { padding: 16px 24px 18px; border-top: 1px solid var(--border); background: var(--bg-s); border-radius: 0 0 14px 14px; }
+    .admin-add-title { font-size: 12px; font-weight: 600; color: var(--text-1); margin-bottom: 10px; }
+    .admin-add-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto auto; gap: 8px; align-items: center; }
+    .admin-add-row input { font-size: 12px !important; padding: 7px 10px !important; }
+    .admin-check { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); white-space:nowrap; cursor:pointer; }
+    .admin-check input { accent-color:var(--accent); width:13px; height:13px; }
     #admin-error {
       display: none; font-size: 11.5px; color: var(--red); margin-top: 6px;
     }
@@ -1081,6 +1158,54 @@
     .workspace-directory:hover { color: var(--text-1); background: var(--bg-h); }
     #workspace-error { flex: 1; color: var(--red); font-size: 11.5px; }
 
+    /* ── channels ── */
+    #channel-modal {
+      display:none; position:fixed; inset:0; z-index:45;
+      background:rgba(8,12,20,0.8); backdrop-filter:blur(4px);
+      align-items:center; justify-content:center;
+    }
+    #channel-modal.visible { display:flex; }
+    .channel-card {
+      width:min(560px, calc(100vw - 32px)); background:var(--bg-e);
+      border:1px solid var(--border-s); border-radius:14px;
+      box-shadow:0 24px 80px rgba(0,0,0,.5); overflow:hidden;
+    }
+    .channel-header, .channel-actions {
+      display:flex; align-items:center; gap:8px; padding:18px 22px;
+    }
+    .channel-header { border-bottom:1px solid var(--border); }
+    .channel-actions { border-top:1px solid var(--border); justify-content:flex-end; }
+    .channel-title { color:var(--text-1); font-weight:600; font-size:15px; }
+    .channel-subtitle { margin-top:2px; color:var(--text-3); font-size:11.5px; }
+    .channel-body { padding:22px; }
+    .channel-overview { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+    .channel-mark {
+      width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+      color:var(--green); background:rgba(52,211,153,.08); border:1px solid rgba(52,211,153,.18);
+    }
+    .channel-mark svg { width:20px; height:20px; }
+    .channel-overview-title { color:var(--text-1); font-size:13px; font-weight:600; }
+    .channel-overview-copy { margin-top:2px; color:var(--text-3); font-size:11.5px; }
+    .channel-status-row {
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin-bottom:18px; padding:10px 12px; border:1px solid var(--border); border-radius:8px;
+      background:rgba(255,255,255,.015);
+    }
+    .channel-status-row .channel-label { margin:0; }
+    .channel-field { margin-bottom:4px; }
+    .channel-label { display:block; margin-bottom:7px; color:var(--text-2); font-size:12px; font-weight:500; }
+    #channel-status { color:var(--text-1); font-size:13px; }
+    #channel-qr { display:none; width:220px; height:220px; margin:14px auto; border-radius:8px; }
+    #channel-error { min-height:18px; color:var(--red); font-size:12px; margin-top:8px; }
+
+    @media (max-width: 720px) {
+      .admin-card { width: calc(100vw - 20px); max-height: calc(100vh - 20px); }
+      .admin-header, .admin-body, .admin-add { padding-left: 16px; padding-right: 16px; }
+      .admin-table { min-width: 650px; }
+      .admin-add-row { grid-template-columns: 1fr 1fr; }
+      .admin-body { overflow: auto; }
+    }
+
     /* ── app layout ── */
     #app-view {
       display: none; height: 100vh;
@@ -1195,32 +1320,11 @@
     <button id="add-workspace-btn" type="button">＋ 选择其他文件夹</button>
 
     <div class="sidebar-footer">
-      <div class="user-avatar" id="user-avatar">U</div>
-      <span id="username-badge"></span>
-      <div class="footer-btns">
-        <button id="admin-btn" class="btn-icon" title="用户管理" style="display:none;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
-          </svg>
-        </button>
-        <button id="config-btn" class="btn-icon" title="模型配置" style="display:none;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
-          </svg>
-        </button>
-        <button id="chpwd-btn" class="btn-icon" title="修改密码">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0110 0v4"/>
-          </svg>
-        </button>
-        <button id="logout-btn" class="btn-icon" title="退出登录">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-        </button>
-      </div>
+      <button id="settings-hub-btn" class="sidebar-account-entry" type="button" aria-label="打开设置中心">
+        <div class="user-avatar" id="user-avatar">U</div>
+        <span class="sidebar-account-copy"><span id="username-badge"></span><span class="sidebar-account-label">设置中心</span></span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
     </div>
   </div>
 
@@ -1318,8 +1422,55 @@
           <button class="mode-btn" data-mode="plan" title="Plan 模式：先规划后执行">Plan</button>
           <button class="mode-btn" data-mode="team" title="Team 模式：多智能体协作">Team</button>
         </div>
-        <span style="color:var(--text-3);">·</span>
-        <span><kbd>Enter</kbd> 发送 &nbsp;·&nbsp; <kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ SETTINGS -->
+<div id="settings-modal">
+  <div class="settings-card">
+    <div class="settings-header">
+      <div style="flex:1;">
+        <div class="settings-title">设置中心</div>
+        <div class="settings-subtitle">统一管理账户、模型、渠道与成员权限</div>
+      </div>
+      <button id="settings-modal-close" class="btn-icon" type="button" title="关闭">×</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-user">
+        <div id="settings-user-avatar" class="settings-user-avatar">U</div>
+        <div><div id="settings-user-name" class="settings-user-name"></div><div class="settings-user-hint">当前登录账户</div></div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">系统</div>
+        <div class="settings-list">
+          <button id="config-btn" class="settings-item" type="button">
+            <span class="settings-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></span>
+            <span class="settings-item-copy"><span class="settings-item-title">模型与服务</span><span class="settings-item-desc">模型供应商、密钥和生成参数</span></span><span class="settings-item-chevron">›</span>
+          </button>
+          <button id="channel-btn" class="settings-item" type="button">
+            <span class="settings-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4z"/></svg></span>
+            <span class="settings-item-copy"><span class="settings-item-title">微信渠道</span><span class="settings-item-desc">连接微信并选择默认工作区</span></span><span class="settings-item-chevron">›</span>
+          </button>
+          <button id="admin-btn" class="settings-item" type="button" style="display:none;">
+            <span class="settings-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg></span>
+            <span class="settings-item-copy"><span class="settings-item-title">用户与额度</span><span class="settings-item-desc">成员、工作区权限和平台额度</span></span><span class="settings-item-chevron">›</span>
+          </button>
+        </div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">账户</div>
+        <div class="settings-list">
+          <button id="chpwd-btn" class="settings-item" type="button">
+            <span class="settings-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
+            <span class="settings-item-copy"><span class="settings-item-title">修改密码</span><span class="settings-item-desc">更新当前账户的登录密码</span></span><span class="settings-item-chevron">›</span>
+          </button>
+          <button id="logout-btn" class="settings-item settings-item-danger" type="button">
+            <span class="settings-item-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
+            <span class="settings-item-copy"><span class="settings-item-title">退出登录</span><span class="settings-item-desc">结束当前登录会话</span></span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1329,7 +1480,10 @@
 <div id="admin-modal">
   <div class="admin-card">
     <div class="admin-header">
-      <div class="admin-title">用户管理</div>
+      <div>
+        <div class="admin-title">用户与额度</div>
+        <div class="admin-subtitle">管理成员、工作区权限与平台额度</div>
+      </div>
       <button id="admin-modal-close" class="btn-icon">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -1337,13 +1491,21 @@
       </button>
     </div>
     <div class="admin-body">
+      <label class="admin-billing-setting">
+        <input id="monthly-reset-enabled" type="checkbox" />
+        <span>
+          <span class="admin-billing-title">每月自动重置额度</span>
+          <span class="admin-billing-hint">按管理员设置的月额度重置所有用户余额，默认关闭</span>
+        </span>
+      </label>
       <table class="admin-table">
         <thead>
           <tr>
-            <th style="width:40%">用户名</th>
-            <th style="width:20%">角色</th>
-            <th style="width:25%">创建时间</th>
-            <th></th>
+            <th style="width:24%">用户名</th>
+            <th style="width:13%">角色</th>
+            <th style="width:14%">额度</th>
+            <th style="width:18%">创建时间</th>
+            <th style="width:31%;text-align:right;">操作</th>
           </tr>
         </thead>
         <tbody id="admin-user-list"></tbody>
@@ -1354,8 +1516,8 @@
       <div class="admin-add-row">
         <input id="new-user-name" type="text" placeholder="用户名" class="k-input" />
         <input id="new-user-pwd" type="password" placeholder="密码（≥8位）" class="k-input" />
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-2);white-space:nowrap;cursor:pointer;">
-          <input id="new-user-admin" type="checkbox" style="accent-color:var(--accent);width:13px;height:13px;" />
+        <label class="admin-check">
+          <input id="new-user-admin" type="checkbox" />
           管理员
         </label>
         <button id="new-user-btn" class="btn-primary" style="padding:6px 14px;font-size:12px;white-space:nowrap;">添加</button>
@@ -1420,6 +1582,39 @@
     <div class="confirm-actions">
       <button id="confirm-cancel" class="btn-ghost">取消</button>
       <button id="confirm-ok" class="btn-danger" style="padding:6px 14px;font-size:13px;">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ CHANNELS -->
+<div id="channel-modal">
+  <div class="channel-card">
+    <div class="channel-header">
+      <div style="flex:1;">
+        <div class="channel-title">微信渠道</div>
+        <div class="channel-subtitle">将当前账户连接到指定工作区</div>
+      </div>
+      <button id="channel-modal-close" class="btn-icon" title="关闭">×</button>
+    </div>
+    <div class="channel-body">
+      <div class="channel-overview">
+        <div class="channel-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a4 4 0 01-4 4H8l-5 3V7a4 4 0 014-4h10a4 4 0 014 4z"/></svg>
+        </div>
+        <div><div class="channel-overview-title">微信机器人</div><div class="channel-overview-copy">扫码连接后，可从微信继续工作区中的对话</div></div>
+      </div>
+      <div class="channel-status-row"><span class="channel-label">连接状态</span><span id="channel-status">加载中…</span></div>
+      <div class="channel-field">
+        <label class="channel-label" for="channel-workspace">工作区</label>
+        <select id="channel-workspace" class="k-input"></select>
+      </div>
+      <img id="channel-qr" alt="微信连接二维码" />
+      <div id="channel-error"></div>
+    </div>
+    <div class="channel-actions">
+      <button id="channel-disconnect" class="btn-danger" style="display:none;">断开</button>
+      <button id="channel-toggle" class="btn-ghost" style="display:none;">启用</button>
+      <button id="channel-connect" class="btn-primary">连接微信</button>
     </div>
   </div>
 </div>
@@ -1500,14 +1695,15 @@ marked.setOptions({
 
 // ─── state ────────────────────────────────────────────────────────────────────
 const state = {
-  token: localStorage.getItem('kairo_token'),
+  token: null,
   currentUser: null,
   threads: [],
   workspaces: [],
   activeThreadId: null,
   threadLabels: {},
   eventCursor: 0,
-  pollTimer: null,
+  eventStreamController: null,
+  eventStreamRetryTimer: null,
   pendingApproval: null,
   approvalCountdownTimer: null,
   pendingPlanReview: null,
@@ -1521,6 +1717,11 @@ const state = {
   workspaceBrowserRequest: 0,
   openWorkspaces: {},
   showAllWorkspaceThreads: {},
+  pendingTitleThreadId: null,
+  pendingTitleDeadline: 0,
+  channelBinding: null,
+  channelLoginId: null,
+  channelPollTimer: null,
 };
 
 // ─── DOM refs ─────────────────────────────────────────────────────────────────
@@ -1559,8 +1760,14 @@ const sendBtn        = document.getElementById('send-btn');
 const cancelBtn      = document.getElementById('cancel-btn');
 const usernameBadge  = document.getElementById('username-badge');
 const userAvatar     = document.getElementById('user-avatar');
+const settingsHubBtn = document.getElementById('settings-hub-btn');
+const settingsModal  = document.getElementById('settings-modal');
+const settingsModalClose = document.getElementById('settings-modal-close');
+const settingsUserAvatar = document.getElementById('settings-user-avatar');
+const settingsUserName = document.getElementById('settings-user-name');
 const adminBtn       = document.getElementById('admin-btn');
 const configBtn      = document.getElementById('config-btn');
+const channelBtn     = document.getElementById('channel-btn');
 const chpwdBtn       = document.getElementById('chpwd-btn');
 const logoutBtn      = document.getElementById('logout-btn');
 const approvalOverlay      = document.getElementById('approval-overlay');
@@ -1571,6 +1778,7 @@ const approvalApproveBtn   = document.getElementById('approval-approve-btn');
 const approvalDenyBtn      = document.getElementById('approval-deny-btn');
 const adminModal           = document.getElementById('admin-modal');
 const adminModalClose      = document.getElementById('admin-modal-close');
+const monthlyResetEnabled  = document.getElementById('monthly-reset-enabled');
 const adminUserList        = document.getElementById('admin-user-list');
 const adminError           = document.getElementById('admin-error');
 const newUserName          = document.getElementById('new-user-name');
@@ -1591,6 +1799,15 @@ const planApproveBtn       = document.getElementById('plan-approve-btn');
 const planCancelBtn        = document.getElementById('plan-cancel-btn');
 const planSupplementBtn    = document.getElementById('plan-supplement-btn');
 const planFeedbackInput    = document.getElementById('plan-feedback-input');
+const channelModal         = document.getElementById('channel-modal');
+const channelModalClose    = document.getElementById('channel-modal-close');
+const channelStatus        = document.getElementById('channel-status');
+const channelWorkspace     = document.getElementById('channel-workspace');
+const channelQr            = document.getElementById('channel-qr');
+const channelError         = document.getElementById('channel-error');
+const channelConnect       = document.getElementById('channel-connect');
+const channelToggle        = document.getElementById('channel-toggle');
+const channelDisconnect    = document.getElementById('channel-disconnect');
 
 // ─── confirm dialog ──────────────────────────────────────────────────────────
 function showConfirm(msg, okLabel = '确认删除') {
@@ -1631,35 +1848,46 @@ modeButtons.forEach(btn => {
   });
 });
 
-// ─── typewriter ───────────────────────────────────────────────────────────────
-const typewriters = {}; // turnId → { buffer, cursor, rafId }
+// ─── streaming message rendering ─────────────────────────────────────────────
+const typewriters = {}; // turnId → { buffer, pending, rafId, completed, onDone }
 
 function typewriterPush(turnId, delta) {
-  if (!typewriters[turnId]) typewriters[turnId] = { buffer: '', cursor: 0, rafId: null };
-  typewriters[turnId].buffer += delta;
-  if (typewriters[turnId].rafId === null) {
-    typewriters[turnId].rafId = requestAnimationFrame(() => typewriterStep(turnId));
+  if (!delta) return;
+  if (!typewriters[turnId]) {
+    typewriters[turnId] = {
+      buffer: '', pending: '', rafId: null, completed: false, onDone: null,
+    };
   }
+  const tw = typewriters[turnId];
+  tw.pending += delta;
+  if (tw.rafId === null) tw.rafId = requestAnimationFrame(() => typewriterStep(turnId));
 }
 
 function typewriterStep(turnId) {
   const tw = typewriters[turnId];
   if (!tw) return;
   tw.rafId = null;
-  const speed = 20; // chars per frame (~1200 chars/s at 60fps)
-  tw.cursor = Math.min(tw.cursor + speed, tw.buffer.length);
-  renderBubble(turnId, tw.buffer.slice(0, tw.cursor), false);
-  if (tw.cursor < tw.buffer.length) {
-    tw.rafId = requestAnimationFrame(() => typewriterStep(turnId));
+  tw.buffer += tw.pending;
+  tw.pending = '';
+  renderStreamingText(turnId, tw.buffer);
+  if (tw.completed) {
+    renderBubble(turnId, tw.buffer, true);
+    const onDone = tw.onDone;
+    delete typewriters[turnId];
+    if (onDone) onDone();
   }
 }
 
-function typewriterFlush(turnId) {
+function typewriterComplete(turnId, onDone = null) {
   const tw = typewriters[turnId];
-  if (!tw) return;
-  if (tw.rafId !== null) { cancelAnimationFrame(tw.rafId); tw.rafId = null; }
-  renderBubble(turnId, tw.buffer, true);
-  delete typewriters[turnId];
+  if (!tw) {
+    renderBubble(turnId, '', true);
+    if (onDone) onDone();
+    return;
+  }
+  tw.completed = true;
+  tw.onDone = onDone;
+  if (tw.rafId === null) tw.rafId = requestAnimationFrame(() => typewriterStep(turnId));
 }
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
@@ -1668,7 +1896,10 @@ async function apiFetch(path, opts = {}) {
   if (!(opts.body instanceof URLSearchParams)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   }
-  if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+  const csrf = document.cookie.split('; ').find(item => item.startsWith('kairo_csrf='));
+  if (csrf && !['GET', 'HEAD'].includes((opts.method || 'GET').toUpperCase())) {
+    headers['X-CSRF-Token'] = decodeURIComponent(csrf.split('=').slice(1).join('='));
+  }
   const res = await fetch(path, { ...opts, headers });
   if (res.status === 401) { clearAuth(); showLogin(); }
   return res;
@@ -1686,9 +1917,9 @@ async function apiJson(path, opts = {}) {
 
 // ─── auth ─────────────────────────────────────────────────────────────────────
 function clearAuth() {
+  stopEventStream();
   state.token = null;
   state.currentUser = null;
-  localStorage.removeItem('kairo_token');
 }
 
 function showLogin() {
@@ -1749,9 +1980,7 @@ registerBtn.addEventListener('click', async () => {
     const loginBody = new URLSearchParams({ username, password });
     const loginRes = await fetch('/auth/login', { method: 'POST', body: loginBody });
     if (loginRes.ok) {
-      const data = await loginRes.json();
-      state.token = data.access_token;
-      localStorage.setItem('kairo_token', state.token);
+      await loginRes.json();
       await initApp();
     } else {
       switchToLogin();
@@ -1785,9 +2014,7 @@ loginForm.addEventListener('submit', async (e) => {
       loginError.classList.add('visible');
       return;
     }
-    const data = await res.json();
-    state.token = data.access_token;
-    localStorage.setItem('kairo_token', state.token);
+    await res.json();
     await initApp();
   } catch (err) {
     loginError.textContent = '网络错误：' + err.message;
@@ -1795,12 +2022,19 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
+settingsHubBtn.addEventListener('click', () => settingsModal.classList.add('visible'));
+settingsModalClose.addEventListener('click', () => settingsModal.classList.remove('visible'));
+settingsModal.addEventListener('click', event => {
+  if (event.target === settingsModal) settingsModal.classList.remove('visible');
+});
 logoutBtn.addEventListener('click', async () => {
   if (!await showConfirm('确认退出登录？', '退出')) return;
+  settingsModal.classList.remove('visible');
   await apiFetch('/auth/logout', { method: 'POST' }).catch(() => {});
   clearAuth();
   adminBtn.style.display = 'none';
   configBtn.style.display = 'none';
+  channelBtn.style.display = 'none';
   messages.innerHTML = '';
   projectList.innerHTML = '';
   state.threads = [];
@@ -1868,7 +2102,7 @@ async function loadWorkspaceBrowser(path = null) {
   }
 }
 
-async function createWorkspaceThread(workspace) {
+async function createWorkspaceThread(workspace, initialText) {
   const t = await apiJson('/v1/threads', {
     method: 'POST',
     body: JSON.stringify({ workspace }),
@@ -1880,14 +2114,31 @@ async function createWorkspaceThread(workspace) {
     created_at: new Date().toISOString(),
     workspace: t.workspace,
   });
+  const initialLabel = initialText.slice(0, 42) + (initialText.length > 42 ? '…' : '');
+  state.threadLabels[t.id] = initialLabel;
+  state.pendingTitleThreadId = t.id;
+  state.pendingTitleDeadline = Date.now() + 35000;
   state.activeThreadId = t.id;
   state.eventCursor = 0;
   messages.innerHTML = '';
   showEmptyState(false);
-  setHeaderTitle('新建对话');
+  setHeaderTitle(initialLabel);
   setStatusBadge('ready');
   renderProjectList();
   return t;
+}
+
+function startWorkspaceDraft(workspace) {
+  state.currentWorkspace = workspace;
+  state.openWorkspaces[workspace] = true;
+  state.activeThreadId = null;
+  state.eventCursor = 0;
+  messages.innerHTML = '';
+  showEmptyState(false);
+  clearStreaming();
+  setHeaderTitle('新建对话');
+  setStatusBadge('ready');
+  renderProjectList();
 }
 
 function rememberWorkspace(path) {
@@ -1907,7 +2158,7 @@ function toggleWorkspace(path) {
     showToast('请等待当前任务结束后再切换工作区', 'error');
     return;
   }
-  stopPolling();
+  stopEventStream();
   rememberWorkspace(path);
   state.openWorkspaces[path] = true;
   state.currentWorkspace = path;
@@ -1972,8 +2223,12 @@ async function initApp() {
   const u = state.currentUser;
   usernameBadge.textContent = u.username;
   userAvatar.textContent = u.username.charAt(0).toUpperCase();
+  settingsUserName.textContent = u.username;
+  settingsUserAvatar.textContent = u.username.charAt(0).toUpperCase();
   adminBtn.style.display = u.is_admin ? '' : 'none';
+  addWorkspaceBtn.style.display = u.is_admin ? '' : 'none';
   configBtn.style.display = '';
+  channelBtn.style.display = '';
 
   try {
     const workspaceInfo = await apiJson('/v1/workspaces');
@@ -2040,9 +2295,12 @@ async function loadThreads() {
     state.threads = data.data || [];
     for (const t of state.threads) {
       rememberWorkspace(t.workspace);
-      if (t.title && !state.threadLabels[t.id]) {
+      if (t.title) {
         state.threadLabels[t.id] = t.title;
       }
+    }
+    if (state.activeThreadId && state.threadLabels[state.activeThreadId]) {
+      setHeaderTitle(state.threadLabels[state.activeThreadId]);
     }
     renderProjectList();
   } catch {}
@@ -2113,7 +2371,7 @@ async function removeWorkspace(workspace) {
   delete state.openWorkspaces[workspace.path];
   delete state.showAllWorkspaceThreads[workspace.path];
   if (state.currentWorkspace === workspace.path) {
-    stopPolling();
+    stopEventStream();
     state.currentWorkspace = state.workspaces[0]?.path || null;
     state.activeThreadId = null;
     state.eventCursor = 0;
@@ -2174,19 +2432,15 @@ function renderProjectList() {
     create.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M12 5v14M5 12h14"/>
     </svg>`;
-    create.addEventListener('click', async (event) => {
+    create.addEventListener('click', (event) => {
       event.stopPropagation();
       if (state.isStreaming) {
         showToast('请等待当前任务结束后再新建会话', 'error');
         return;
       }
-      try {
-        stopPolling();
-        await createWorkspaceThread(workspace.path);
-        promptInput.focus();
-      } catch (err) {
-        showToast('创建会话失败：' + err.message, 'error');
-      }
+      stopEventStream();
+      startWorkspaceDraft(workspace.path);
+      promptInput.focus();
     });
     actions.append(remove, create);
     header.appendChild(actions);
@@ -2219,7 +2473,7 @@ function renderProjectList() {
 }
 
 async function selectThread(threadId) {
-  stopPolling();
+  stopEventStream();
   const thread = state.threads.find(t => t.id === threadId);
   if (!thread) return;
   state.currentWorkspace = thread.workspace;
@@ -2236,12 +2490,10 @@ async function selectThread(threadId) {
   await fetchAllEvents(threadId);
 }
 
-newChatBtn.addEventListener('click', async () => {
-  stopPolling();
-  try {
-    await createWorkspaceThread(state.currentWorkspace);
-    promptInput.focus();
-  } catch (err) { showToast('创建对话失败：' + err.message, 'error'); }
+newChatBtn.addEventListener('click', () => {
+  stopEventStream();
+  startWorkspaceDraft(state.currentWorkspace);
+  promptInput.focus();
 });
 
 function setHeaderTitle(text) {
@@ -2303,12 +2555,23 @@ function renderBubble(turnId, buffer, final) {
   if (!div) return;
   const content = div.querySelector('.bubble-content');
   if (!content) return;
+  content.style.whiteSpace = '';
   if (buffer) {
     content.innerHTML = marked.parse(buffer);
     content.querySelectorAll('pre code').forEach(el => hljs.highlightElement(el));
   } else if (final) {
     content.innerHTML = '<span style="color:var(--text-3);font-size:12px;font-style:italic;">(无内容)</span>';
   }
+  scrollToBottom();
+}
+
+function renderStreamingText(turnId, buffer) {
+  const div = document.querySelector(`[data-turn="${turnId}"]`);
+  if (!div) return;
+  const content = div.querySelector('.bubble-content');
+  if (!content) return;
+  content.style.whiteSpace = 'pre-wrap';
+  content.textContent = buffer;
   scrollToBottom();
 }
 
@@ -2546,7 +2809,7 @@ async function sendMessage() {
   // Auto-create thread if none is active
   if (!state.activeThreadId) {
     try {
-      await createWorkspaceThread(state.currentWorkspace);
+      await createWorkspaceThread(state.currentWorkspace, text);
     } catch (err) {
       showToast('创建对话失败：' + err.message, 'error');
       return;
@@ -2565,7 +2828,7 @@ async function sendMessage() {
     });
     bubble.setAttribute('data-turn', turn.id);
     setStreaming(turn.id);
-    startPolling(state.activeThreadId, turn.id);
+    startEventStream(state.activeThreadId, turn.id);
   } catch (err) {
     const content = bubble.querySelector('.bubble-content');
     if (content) content.innerHTML = `<span style="color:var(--red);font-size:12.5px;">错误：${escHtml(err.message)}</span>`;
@@ -2589,36 +2852,55 @@ function setLabel(threadId, text) {
   }
 }
 
-// ─── SSE polling ──────────────────────────────────────────────────────────────
-function startPolling(threadId, turnId) {
-  stopPolling();
-  poll(threadId, turnId);
+// ─── live SSE stream ──────────────────────────────────────────────────────────
+function startEventStream(threadId, turnId) {
+  stopEventStream();
+  const controller = new AbortController();
+  state.eventStreamController = controller;
+  consumeEventStream(threadId, turnId, controller);
 }
 
-function stopPolling() {
-  if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
-}
-
-async function poll(threadId, turnId) {
-  if (state.activeThreadId !== threadId) return;
-  try {
-    const res = await apiFetch(
-      `/v1/threads/${threadId}/events?after=${state.eventCursor}&limit=50`
-    );
-    if (!res.ok) { scheduleNextPoll(threadId, turnId); return; }
-    const text = await res.text();
-    const hasMore = res.headers.get('X-Kairo-CLI-Has-More') === 'true';
-    const finished = processSSE(text, threadId, turnId);
-    if (finished) { clearStreaming(); return; }
-    if (hasMore) { poll(threadId, turnId); return; }
-    scheduleNextPoll(threadId, turnId);
-  } catch {
-    scheduleNextPoll(threadId, turnId);
+function stopEventStream() {
+  if (state.eventStreamRetryTimer) {
+    clearTimeout(state.eventStreamRetryTimer);
+    state.eventStreamRetryTimer = null;
+  }
+  if (state.eventStreamController) {
+    state.eventStreamController.abort();
+    state.eventStreamController = null;
   }
 }
 
-function scheduleNextPoll(threadId, turnId) {
-  state.pollTimer = setTimeout(() => poll(threadId, turnId), 400);
+async function consumeEventStream(threadId, turnId, controller) {
+  try {
+    const res = await apiFetch(
+      `/v1/threads/${threadId}/events?after=${state.eventCursor}&limit=100&follow=true`,
+      { signal: controller.signal }
+    );
+    if (!res.ok || !res.body) throw new Error('Event stream unavailable');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let pending = '';
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+      let boundary;
+      while ((boundary = pending.indexOf('\n\n')) !== -1) {
+        const block = pending.slice(0, boundary);
+        pending = pending.slice(boundary + 2);
+        if (block.trim() && !block.startsWith(':')) {
+          processSSE(block + '\n\n', threadId, turnId);
+        }
+      }
+      if (done) break;
+    }
+  } catch (err) {
+    if (controller.signal.aborted) return;
+  }
+  if (state.eventStreamController !== controller || state.activeThreadId !== threadId) return;
+  state.eventStreamRetryTimer = setTimeout(() => {
+    if (state.eventStreamController === controller) startEventStream(threadId, turnId);
+  }, 500);
 }
 
 function processSSE(text, threadId, turnId) {
@@ -2637,30 +2919,39 @@ function processSSE(text, threadId, turnId) {
     let data;
     try { data = JSON.parse(dataStr); } catch { continue; }
 
-    if (eventType === 'message.delta' && data.turn_id === turnId) {
+    if (eventType === 'thread.title.updated' && data.thread_id === threadId && data.title) {
+      state.threadLabels[threadId] = data.title;
+      state.pendingTitleThreadId = null;
+      state.pendingTitleDeadline = 0;
+      renderProjectList();
+      if (state.activeThreadId === threadId) setHeaderTitle(data.title);
+    } else if (eventType === 'thread.title.failed' && data.thread_id === threadId) {
+      state.pendingTitleThreadId = null;
+      state.pendingTitleDeadline = 0;
+    } else if (eventType === 'message.delta' && data.turn_id === turnId) {
       typewriterPush(turnId, data.delta || '');
     } else if (eventType === 'turn.completed' && data.turn_id === turnId) {
-      typewriterFlush(turnId);
+      typewriterComplete(turnId);
       collapseBlocks(turnId);
+      clearStreaming();
       done = true;
     } else if ((eventType === 'turn.failed' || eventType === 'turn.canceled') && data.turn_id === turnId) {
-      typewriterFlush(turnId);
       collapseBlocks(turnId);
-      const div = document.querySelector(`[data-turn="${turnId}"]`);
-      if (div) {
-        const c = div.querySelector('.bubble-content');
-        if (c) {
-          const hasText = c.innerText.trim().length > 0 && !c.querySelector('.typing-dot');
-          const notice = `<div style="color:var(--${eventType === 'turn.failed' ? 'red' : 'text-3'});font-size:12px;margin-top:${hasText ? 6 : 0}px;">${
-            eventType === 'turn.failed' ? '⚠ ' + escHtml(data.error || '执行失败') : '已取消'
-          }</div>`;
-          if (hasText) {
-            c.innerHTML += notice;
-          } else {
-            c.innerHTML = notice;
+      typewriterComplete(turnId, () => {
+        const div = document.querySelector(`[data-turn="${turnId}"]`);
+        if (div) {
+          const c = div.querySelector('.bubble-content');
+          if (c) {
+            const hasText = c.innerText.trim().length > 0;
+            const notice = `<div style="color:var(--${eventType === 'turn.failed' ? 'red' : 'text-3'});font-size:12px;margin-top:${hasText ? 6 : 0}px;">${
+              eventType === 'turn.failed' ? '⚠ ' + escHtml(data.error || '执行失败') : '已取消'
+            }</div>`;
+            if (hasText) c.innerHTML += notice;
+            else c.innerHTML = notice;
           }
         }
-      }
+      });
+      clearStreaming();
       done = true;
     } else if (eventType === 'reasoning.delta' && data.turn_id === turnId) {
       const block = ensureReasoningBlock(turnId, true);
@@ -2742,6 +3033,122 @@ async function respondApproval(approved) {
 
 approvalApproveBtn.addEventListener('click', () => respondApproval(true));
 approvalDenyBtn.addEventListener('click', () => respondApproval(false));
+
+// ─── channel UI ──────────────────────────────────────────────────────────────
+function stopChannelPolling() {
+  if (state.channelPollTimer) clearTimeout(state.channelPollTimer);
+  state.channelPollTimer = null;
+}
+
+function renderChannel(binding) {
+  state.channelBinding = binding || null;
+  channelQr.style.display = 'none';
+  if (!binding) {
+    channelStatus.textContent = '未连接';
+    channelConnect.style.display = '';
+    channelToggle.style.display = 'none';
+    channelDisconnect.style.display = 'none';
+    return;
+  }
+  const labels = { connected: '已连接，未启用', active: '运行中', disconnected: '已断开' };
+  channelStatus.textContent = `${labels[binding.status] || binding.status}${binding.account ? ` · ${binding.account}` : ''}`;
+  channelConnect.style.display = binding.status === 'disconnected' ? '' : 'none';
+  channelToggle.style.display = binding.status === 'disconnected' ? 'none' : '';
+  channelToggle.textContent = binding.enabled ? '暂停' : '启用';
+  channelDisconnect.style.display = binding.status === 'disconnected' ? 'none' : '';
+  if (binding.workspace) channelWorkspace.value = binding.workspace;
+}
+
+async function loadChannels() {
+  channelError.textContent = '';
+  channelWorkspace.innerHTML = state.workspaces.map(w =>
+    `<option value="${escHtml(w.path)}">${escHtml(w.name || workspaceLabel(w.path))}</option>`
+  ).join('');
+  const data = await apiJson('/v1/channels');
+  renderChannel((data.data || [])[0] || null);
+}
+
+async function pollChannelLogin() {
+  if (!state.channelLoginId || !channelModal.classList.contains('visible')) return;
+  try {
+    const binding = await apiJson(`/v1/channels/wechat/login/${encodeURIComponent(state.channelLoginId)}`);
+    if (binding.id && binding.type === 'wechat') {
+      state.channelLoginId = null;
+      renderChannel(binding);
+      showToast('微信已连接', 'success');
+      return;
+    }
+  } catch (err) {
+    state.channelLoginId = null;
+    channelError.textContent = err.message;
+    return;
+  }
+  state.channelPollTimer = setTimeout(pollChannelLogin, 3000);
+}
+
+channelBtn.addEventListener('click', async () => {
+  channelModal.classList.add('visible');
+  try { await loadChannels(); } catch (err) { channelError.textContent = err.message; }
+});
+channelModalClose.addEventListener('click', () => {
+  channelModal.classList.remove('visible');
+  stopChannelPolling();
+});
+channelModal.addEventListener('click', event => {
+  if (event.target === channelModal) {
+    channelModal.classList.remove('visible');
+    stopChannelPolling();
+  }
+});
+
+channelConnect.addEventListener('click', async () => {
+  const workspace = channelWorkspace.value;
+  if (!workspace) { channelError.textContent = '管理员尚未授权工作区'; return; }
+  channelError.textContent = '';
+  channelConnect.disabled = true;
+  try {
+    const login = await apiJson('/v1/channels/wechat/login', {
+      method: 'POST', body: JSON.stringify({ workspace }),
+    });
+    state.channelLoginId = login.id;
+    channelQr.src = login.qrcode_image;
+    channelQr.style.display = 'block';
+    channelStatus.textContent = '等待微信扫码…';
+    stopChannelPolling();
+    state.channelPollTimer = setTimeout(pollChannelLogin, 1000);
+  } catch (err) { channelError.textContent = err.message; }
+  finally { channelConnect.disabled = false; }
+});
+
+channelToggle.addEventListener('click', async () => {
+  if (!state.channelBinding) return;
+  try {
+    renderChannel(await apiJson('/v1/channels/wechat', {
+      method: 'PUT',
+      body: JSON.stringify({
+        enabled: !state.channelBinding.enabled,
+        workspace: channelWorkspace.value,
+      }),
+    }));
+  } catch (err) { channelError.textContent = err.message; }
+});
+
+channelWorkspace.addEventListener('change', async () => {
+  if (!state.channelBinding || state.channelBinding.status === 'disconnected') return;
+  try {
+    renderChannel(await apiJson('/v1/channels/wechat', {
+      method: 'PUT', body: JSON.stringify({ workspace: channelWorkspace.value }),
+    }));
+  } catch (err) { channelError.textContent = err.message; }
+});
+
+channelDisconnect.addEventListener('click', async () => {
+  if (!await showConfirm('断开微信？历史会话将按保留策略保存。', '断开')) return;
+  try {
+    await apiJson('/v1/channels/wechat', { method: 'DELETE' });
+    renderChannel(null);
+  } catch (err) { channelError.textContent = err.message; }
+});
 
 // ─── config UI ───────────────────────────────────────────────────────────────
 const configModal          = document.getElementById('config-modal');
@@ -3121,7 +3528,24 @@ function renderSnapshots(snapshots) {
 }
 
 // ─── admin UI ─────────────────────────────────────────────────────────────────
-adminBtn.addEventListener('click', () => { adminModal.classList.add('visible'); loadAdminUsers(); });
+adminBtn.addEventListener('click', () => {
+  adminModal.classList.add('visible');
+  loadAdminUsers();
+  apiJson('/admin/billing-settings').then(data => {
+    monthlyResetEnabled.checked = Boolean(data.monthly_reset_enabled);
+  }).catch(err => showAdminErr(err.message));
+});
+monthlyResetEnabled.addEventListener('change', async () => {
+  try {
+    await apiJson('/admin/billing-settings', {
+      method: 'PUT',
+      body: JSON.stringify({ monthly_reset_enabled: monthlyResetEnabled.checked }),
+    });
+  } catch (err) {
+    monthlyResetEnabled.checked = !monthlyResetEnabled.checked;
+    showAdminErr(err.message);
+  }
+});
 adminModalClose.addEventListener('click', () => adminModal.classList.remove('visible'));
 adminModal.addEventListener('click', (e) => { if (e.target === adminModal) adminModal.classList.remove('visible'); });
 
@@ -3139,10 +3563,12 @@ async function loadAdminUsers() {
           ${isSelf ? '<span style="font-size:10px;color:var(--text-3);margin-left:4px;">(我)</span>' : ''}
         </td>
         <td><span class="role-badge ${u.is_admin ? 'role-admin' : 'role-user'}">${u.is_admin ? 'admin' : 'user'}</span></td>
+        <td><button class="quota-btn btn-ghost" data-uid="${u.id}" data-quota="${escHtml(u.quota || '1.00')}">¥${escHtml(u.quota || '1.00')}</button></td>
         <td style="color:var(--text-3);font-size:12px;">${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
-        <td style="text-align:right;">
+        <td><div class="admin-row-actions">
+          <button class="workspace-grant-btn btn-ghost" data-uid="${u.id}">授权目录</button>
           ${!isSelf ? `<button class="del-btn btn-danger" data-uid="${u.id}">删除</button>` : ''}
-        </td>`;
+        </div></td>`;
       adminUserList.appendChild(tr);
     });
     adminUserList.querySelectorAll('.del-btn').forEach(btn => {
@@ -3151,6 +3577,30 @@ async function loadAdminUsers() {
         try {
           await apiJson(`/admin/users/${btn.dataset.uid}`, { method: 'DELETE' });
           loadAdminUsers();
+        } catch (err) { showAdminErr(err.message); }
+      });
+    });
+    adminUserList.querySelectorAll('.quota-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const value = window.prompt('设置人民币余额', btn.dataset.quota || '1.00');
+        if (value === null) return;
+        try {
+          await apiJson(`/admin/users/${btn.dataset.uid}/quota`, {
+            method: 'PUT', body: JSON.stringify({ balance_cny: value, monthly_cny: value }),
+          });
+          loadAdminUsers();
+        } catch (err) { showAdminErr(err.message); }
+      });
+    });
+    adminUserList.querySelectorAll('.workspace-grant-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const path = window.prompt('输入要授权的服务器绝对路径');
+        if (!path) return;
+        try {
+          await apiJson(`/admin/users/${btn.dataset.uid}/workspaces`, {
+            method: 'PUT', body: JSON.stringify({ path }),
+          });
+          showToast('工作区已授权', 'success');
         } catch (err) { showAdminErr(err.message); }
       });
     });
@@ -3356,11 +3806,7 @@ function escHtml(str) {
 (async function boot() {
   // init empty state
   showEmptyState(true);
-  if (state.token) {
-    await initApp();
-  } else {
-    showLogin();
-  }
+  await initApp();
 })();
 
 })();

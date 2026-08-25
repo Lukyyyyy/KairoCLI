@@ -6,21 +6,47 @@ import kairocli.web_app as web_app_module
 
 
 def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
-    html = (
-        Path(web_app_module.__file__).parent / "web_static" / "index.html"
-    ).read_text(encoding="utf-8")
+    html = (Path(web_app_module.__file__).parent / "web_static" / "index.html").read_text(
+        encoding="utf-8"
+    )
 
     assert 'data-mode="agent"' in html
     assert 'data-mode="agent" title="ReAct 模式：直接执行">ReAct</button>' in html
     assert 'data-mode="plan"' in html
     assert 'data-mode="team"' in html
+    assert "<kbd>Enter</kbd> 发送" not in html
+    assert "<kbd>Shift</kbd>+<kbd>Enter</kbd> 换行" not in html
     assert 'id="plan-review-overlay"' in html
     assert 'id="model-badge"' in html
     assert 'id="project-list"' in html
     assert 'id="add-workspace-btn"' in html
     assert 'id="workspace-modal"' in html
+    sidebar = html.split("<!-- Sidebar -->", 1)[1].split("<!-- Main chat area -->", 1)[0]
+    assert 'id="settings-hub-btn"' in sidebar
+    assert 'id="admin-btn"' not in sidebar
+    assert 'id="config-btn"' not in sidebar
+    assert 'id="channel-btn"' not in sidebar
+    assert 'id="chpwd-btn"' not in sidebar
+    assert 'id="logout-btn"' not in sidebar
+    assert 'id="settings-modal"' in html
+    assert 'class="settings-list"' in html
+    assert '<span class="settings-item-title">用户与额度</span>' in html
+    assert '<span class="settings-item-title">模型与服务</span>' in html
+    assert '<span class="settings-item-title">微信渠道</span>' in html
+    assert "[adminBtn, configBtn, channelBtn, chpwdBtn].forEach" not in html
+    assert 'class="admin-row-actions"' in html
     assert "'/v1/workspaces'" in html
     assert "JSON.stringify({ workspace })" in html
+    assert "startWorkspaceDraft(state.currentWorkspace)" in html
+    assert "createWorkspaceThread(state.currentWorkspace, text)" in html
+    assert "eventType === 'thread.title.updated'" in html
+    assert "eventType === 'thread.title.failed'" in html
+    assert "startEventStream(state.activeThreadId, turn.id)" in html
+    assert "follow=true" in html
+    assert "res.body.getReader()" in html
+    assert "requestAnimationFrame(() => typewriterStep(turnId))" in html
+    assert "typewriterComplete(turnId)" in html
+    assert "poll(threadId" not in html
     assert "toggleWorkspace(workspace.path)" in html
     assert "state.openWorkspaces[path] = false" in html
     assert "JSON.stringify({ path: state.workspaceBrowserPath })" in html
