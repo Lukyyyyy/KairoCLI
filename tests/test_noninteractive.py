@@ -407,7 +407,16 @@ def test_serve_parser_rejects_invalid_ports(port: str, capsys: Any) -> None:
 
 def test_serve_parser_accepts_web_options() -> None:
     args = build_parser().parse_args(
-        ["serve", "--http", "--web", "--lan", "--port", "9090"]
+        [
+            "serve",
+            "--http",
+            "--web",
+            "--lan",
+            "--port",
+            "9090",
+            "--max-active-channel-accounts",
+            "50",
+        ]
     )
 
     assert args.subcommand == "serve"
@@ -415,6 +424,15 @@ def test_serve_parser_accepts_web_options() -> None:
     assert args.web is True
     assert args.lan is True
     assert args.port == 9090
+    assert args.max_active_channel_accounts == 50
+    assert args.channel_history_retention_days == 30
+
+
+def test_wechat_parser_accepts_explicit_web_migration() -> None:
+    args = build_parser().parse_args(["wechat", "migrate-web", "--user", "alice"])
+
+    assert args.action == "migrate-web"
+    assert args.migration_user == "alice"
 
 
 def test_run_server_rejects_invalid_programmatic_port(tmp_path: Path) -> None:

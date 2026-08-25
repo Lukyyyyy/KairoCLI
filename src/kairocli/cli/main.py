@@ -73,12 +73,22 @@ def run_web_server(
     port: int,
     *,
     lan: bool = False,
+    max_active_channel_accounts: int = 100,
+    channel_history_retention_days: int = 30,
 ) -> int:
     if type(port) is not int or not 1 <= port <= 65_535:
         raise ValueError("Web server port must be an integer from 1 to 65535")
+    if type(max_active_channel_accounts) is not int or max_active_channel_accounts < 1:
+        raise ValueError("Maximum active channel accounts must be a positive integer")
+    if type(channel_history_retention_days) is not int or channel_history_retention_days < 1:
+        raise ValueError("Channel history retention must be a positive integer")
+    from ..channels.wechat.daemon import _read_live_pid, daemon_paths
     from ..llm import create_llm_client
     from ..policy import ApprovalPolicy as _ApprovalPolicy
     from ..web_app import create_web_app
+
+    if _read_live_pid(daemon_paths(paths)[0]):
+        raise RuntimeError("Stop the legacy WeChat daemon before starting web mode")
 
     # Each web turn gets its own agent instance with a WebApprover injected by web_app.
     # Two independent RuntimeState instances against the same DB are safe (WAL mode,
@@ -114,6 +124,8 @@ def run_web_server(
         app_config=app_config,
         default_workspace=paths.workspace,
         workspace_roots=[paths.workspace.parent],
+        max_active_channel_accounts=max_active_channel_accounts,
+        channel_history_retention_days=channel_history_retention_days,
     )
     try:
         import uvicorn
@@ -130,9 +142,12 @@ async def handle_wechat(
     config: AppConfig,
     action: str,
     daemon_action: str | None,
+    migration_user: str | None = None,
 ) -> int:
     from datetime import UTC, datetime
 
+    from ..channels.wechat.accounts import _normalize_wechat_base_url
+    from ..channels.wechat.daemon import _read_live_pid
     from ..wechat import (
         IlinkClient,
         WechatAccount,
@@ -140,6 +155,7 @@ async def handle_wechat(
         WechatChannel,
         WechatPolicy,
         daemon_command,
+        daemon_paths,
     )
 
     store = WechatAccountStore(paths)
@@ -154,6 +170,44 @@ async def handle_wechat(
             masked = _mask_secret(account.bound_user_id)
             print(f"WeChat channel bound\nAccount: {account.account_id}\nUser: {masked}")
             print(f"Workspace: {account.workspace}")
+        return 0
+    if action == "migrate-web":
+        from urllib.parse import urlsplit
+
+        from ..channels.store import ChannelStore
+        from ..web_auth import WebUserStore
+
+        if _read_live_pid(daemon_paths(paths)[0]):
+            raise RuntimeError("Stop the legacy WeChat daemon before migrating")
+        account = store.load()
+        if account is None:
+            raise RuntimeError("No legacy WeChat binding was found")
+        user_store = WebUserStore(paths.user_dir / "web" / "users.db")
+        user = user_store.get_by_username(migration_user or "")
+        if user is None:
+            raise ValueError("Web user does not exist")
+        migration_workspace = str(
+            await asyncio.to_thread(Path(account.workspace).resolve, strict=True)
+        )
+        if migration_workspace not in user_store.list_workspaces(user.id):
+            raise ValueError("Authorize the legacy workspace for this Web user first")
+        base_url = _normalize_wechat_base_url(account.base_url)
+        parsed = urlsplit(base_url)
+        if parsed.hostname != "ilinkai.weixin.qq.com" or parsed.port not in {None, 443}:
+            raise ValueError("Legacy WeChat binding does not use the official service host")
+        backup = store.file.with_name("account.migrated.json")
+        if await asyncio.to_thread(backup.exists):
+            raise ValueError("Legacy migration backup already exists")
+        ChannelStore(paths.user_dir / "web" / "users.db").save_wechat_binding(
+            user.id,
+            token=account.token,
+            account_id=account.account_id,
+            external_user_id=account.bound_user_id,
+            base_url=base_url,
+            workspace=migration_workspace,
+        )
+        await asyncio.to_thread(store.file.replace, backup)
+        print(f"WeChat binding migrated to Web user {user.username}; enable it in Web settings.")
         return 0
     client = IlinkClient()
     if action == "setup":
@@ -304,11 +358,27 @@ def main(argv: list[str] | None = None) -> None:
             )
         elif args.subcommand == "serve":
             if args.web:
-                code = run_web_server(paths, config, args.provider, args.port, lan=args.lan)
+                code = run_web_server(
+                    paths,
+                    config,
+                    args.provider,
+                    args.port,
+                    lan=args.lan,
+                    max_active_channel_accounts=args.max_active_channel_accounts,
+                    channel_history_retention_days=args.channel_history_retention_days,
+                )
             else:
                 code = run_server(paths, config, args.provider, args.port)
         elif args.subcommand == "wechat":
-            code = asyncio.run(handle_wechat(paths, config, args.action, args.daemon_action))
+            code = asyncio.run(
+                handle_wechat(
+                    paths,
+                    config,
+                    args.action,
+                    args.daemon_action,
+                    args.migration_user,
+                )
+            )
         elif renderer.mode == "tui":
             from ..tui import run_tui
 

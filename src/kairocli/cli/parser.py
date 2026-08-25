@@ -18,6 +18,16 @@ def runtime_port(value: str) -> int:
     return port
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kairocli", description="Kairo CLI agent runtime")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
@@ -74,12 +84,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="bind to 0.0.0.0 for LAN access (requires --web)",
     )
+    serve.add_argument(
+        "--max-active-channel-accounts",
+        type=positive_int,
+        default=100,
+        help="maximum concurrently active IM accounts in web mode (default: 100)",
+    )
+    serve.add_argument(
+        "--channel-history-retention-days",
+        type=positive_int,
+        default=30,
+        help="days to retain conversations after an IM disconnect (default: 30)",
+    )
     wechat = subparsers.add_parser("wechat", help="manage the WeChat channel")
-    wechat.set_defaults(daemon_action=None)
+    wechat.set_defaults(daemon_action=None, migration_user=None)
     wechat_actions = wechat.add_subparsers(dest="action", required=True)
     wechat_actions.add_parser("setup", help="bind a WeChat account")
     wechat_actions.add_parser("start", help="run the WeChat channel in foreground")
     wechat_actions.add_parser("status", help="show the current WeChat binding")
+    migrate = wechat_actions.add_parser(
+        "migrate-web", help="move the legacy CLI binding into the multi-user web service"
+    )
+    migrate.add_argument("--user", dest="migration_user", required=True)
     wechat_daemon = wechat_actions.add_parser("daemon", help="manage the background WeChat channel")
     wechat_daemon.add_argument(
         "daemon_action", nargs="?", choices=["start", "stop", "restart", "status", "logs"]

@@ -15,7 +15,8 @@ import pytest
 
 import kairocli.tasks as tasks_module
 from kairocli.agent import Agent, AgentCanceled
-from kairocli.cli import _handle_task, _InteractiveWechatRuntime
+from kairocli.channels.store import ChannelStore
+from kairocli.cli import _handle_task, _InteractiveWechatRuntime, handle_wechat
 from kairocli.cli.wechat_ui import QR_SCAN_PROMPT, workspace_prompt
 from kairocli.llm import LlmClient
 from kairocli.models import LlmResponse, Message
@@ -28,6 +29,7 @@ from kairocli.tasks import (
     DurableTaskStore,
 )
 from kairocli.tools import ToolRegistry
+from kairocli.web_auth import WebUserStore
 from kairocli.wechat import (
     IlinkClient,
     WechatAccount,
@@ -526,6 +528,56 @@ async def test_wechat_channel_queues_work_and_stop_bypasses_active_turn() -> Non
     assert any("answer: second" in text for text in client.sent)
 
 
+async def test_wechat_workspace_command_switches_agent_and_thread() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, *args: object) -> None:
+            self.sent.append(str(args[-1]))
+
+    class FakeTools:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.tools = FakeTools()
+
+        def cancel(self) -> None:
+            return None
+
+    old_agent = FakeAgent()
+    new_agent = FakeAgent()
+
+    async def switch(argument: str) -> tuple[Any, str, str, str]:
+        assert argument == "2"
+        return new_agent, "thread_two", "/work/two", "已切换到工作区：two"
+
+    client = FakeClient()
+    channel = WechatChannel(
+        client,  # type: ignore[arg-type]
+        object(),  # type: ignore[arg-type]
+        WechatAccount("token", "bot", "https://example.test", "user", "/work/one"),
+        old_agent,  # type: ignore[arg-type]
+        workspace_switcher=switch,
+    )
+
+    assert await channel.handle(WechatMessage("1", "user", "ctx", "/workspace 2"))
+    assert channel.active_task is not None
+    await channel.active_task
+    await channel._reap_active()
+
+    assert channel.agent is new_agent
+    assert channel.runtime_thread_id == "thread_two"
+    assert channel.account.workspace == "/work/two"
+    assert old_agent.tools.closed is True
+    assert client.sent == ["已切换到工作区：two"]
+
+
 async def test_wechat_media_only_message_passes_metadata_notice_without_keys() -> None:
     class FakeClient:
         sent: list[str] = []
@@ -591,6 +643,36 @@ def test_wechat_account_store_is_private_atomic_and_validated(tmp_path: Path) ->
     store.save(normalized)
     assert normalized.base_url == "https://example.test/root"
     assert store.load() == normalized
+
+
+async def test_legacy_wechat_binding_migrates_to_web_and_leaves_backup(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    legacy = WechatAccountStore(paths)
+    legacy.save(
+        WechatAccount(
+            "secret-token",
+            "bot",
+            "https://ilinkai.weixin.qq.com",
+            "bound-user",
+            str(workspace),
+        )
+    )
+    users = WebUserStore(paths.user_dir / "web" / "users.db")
+    user = users.create_user("alice", "password-123")
+    users.add_workspace(user.id, str(workspace))
+
+    assert await handle_wechat(paths, SimpleNamespace(), "migrate-web", None, "alice") == 0
+
+    assert not legacy.file.exists()
+    assert legacy.file.with_name("account.migrated.json").is_file()
+    channels = ChannelStore(paths.user_dir / "web" / "users.db")
+    binding = channels.binding_for_user(user.id, "wechat")
+    assert binding is not None and binding.enabled is False
+    assert channels.wechat_credentials(binding.id).token == "secret-token"
 
 
 @pytest.mark.parametrize("kind", ["duplicate", "nonfinite", "overdeep"])

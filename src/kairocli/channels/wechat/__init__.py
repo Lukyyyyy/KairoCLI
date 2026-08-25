@@ -17,6 +17,7 @@ from .accounts import _validate_wechat_request_url as _validate_wechat_request_u
 from .accounts import _wechat_account_file_lock as _wechat_account_file_lock
 from .accounts import _wechat_object_without_duplicates as _wechat_object_without_duplicates
 from .accounts import _wechat_string as _wechat_string
+from .channel import WechatApprovalHandler as WechatApprovalHandler
 from .channel import WechatChannel as WechatChannel
 from .channel import WechatPolicy as WechatPolicy
 from .client import IlinkClient as IlinkClient
@@ -38,6 +39,7 @@ __all__ = [
     "QrLogin",
     "WechatAccount",
     "WechatAccountStore",
+    "WechatApprovalHandler",
     "WechatChannel",
     "WechatMediaItem",
     "WechatMessage",
