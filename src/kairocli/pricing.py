@@ -6,6 +6,7 @@ import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import ROUND_HALF_UP, Decimal
 from importlib.resources import files
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -128,6 +129,33 @@ class PricingConfig:
             + cached / 1_000_000 * rates.cached
             + max(0, output_tokens) / 1_000_000 * rates.output
         )
+
+    def cost_units_and_rates(
+        self,
+        provider: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_tokens: int,
+        *,
+        model: str | None = None,
+        at: datetime | None = None,
+    ) -> tuple[int, tuple[str, str, str]]:
+        """Return exact 1e-8 CNY units plus the rate snapshot used."""
+
+        pricing = self.providers.get(provider.casefold(), self.providers["default"])
+        rates = pricing.rates(model, at)
+        cached = min(max(0, cached_tokens), max(0, input_tokens))
+        uncached = max(0, input_tokens - cached)
+        input_rate = Decimal(str(rates.input))
+        cached_rate = Decimal(str(rates.cached))
+        output_rate = Decimal(str(rates.output))
+        # Prices are CNY per million tokens; one stored unit is 1e-8 CNY.
+        units = (
+            Decimal(uncached) * input_rate * 100
+            + Decimal(cached) * cached_rate * 100
+            + Decimal(max(0, output_tokens)) * output_rate * 100
+        ).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return int(units), (str(input_rate), str(cached_rate), str(output_rate))
 
 
 def ensure_default_pricing_config(paths: KairoPaths) -> bool:

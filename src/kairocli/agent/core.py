@@ -135,6 +135,8 @@ class Agent:
         self.on_reasoning_delta: Callable[[str], Any] | None = None
         self.on_tool_calls: Callable[[list[ToolCall]], Any] | None = None
         self.on_tool_results: Callable[[list[ToolCall], list[ToolOutput]], Any] | None = None
+        self.on_before_llm_request: Callable[[], Any] | None = None
+        self.on_usage: Callable[[str, str, LlmResponse, datetime], Any] | None = None
         self.last_response_streamed = False
         self._run_generation = 0
         self._run_lock = asyncio.Lock()
@@ -224,8 +226,11 @@ class Agent:
                         tools=tool_schemas,
                     )
                 request_started = time.monotonic()
+                request_started_at = datetime.now().astimezone()
                 try:
                     async with self._budget_request() as shared_budget:
+                        if self.on_before_llm_request is not None:
+                            self.on_before_llm_request()
                         response = await self._complete_streaming_with_retry(
                             messages,
                             tool_schemas,
@@ -233,7 +238,7 @@ class Agent:
                             run_generation,
                         )
                         raise_if_canceled(self.cancel_event)
-                        self.record_usage(response)
+                        self.record_usage(response, request_started_at)
                         if shared_budget is not None:
                             shared_budget.charge(response)
                 except Exception as exc:
@@ -404,6 +409,8 @@ class Agent:
         child.on_tool_results = self.on_tool_results
         child.on_reasoning = self.on_reasoning
         child.on_reasoning_delta = self.on_reasoning_delta
+        child.on_before_llm_request = self.on_before_llm_request
+        child.on_usage = self.on_usage
 
     async def complete_auxiliary(
         self,
@@ -412,14 +419,17 @@ class Agent:
         cancel_event: asyncio.Event | None = None,
     ) -> LlmResponse:
         event = cancel_event or self.cancel_event
+        request_started_at = datetime.now().astimezone()
         try:
             async with self._budget_request() as shared_budget:
+                if self.on_before_llm_request is not None:
+                    self.on_before_llm_request()
                 response = await self._retry_llm_request(
                     lambda: self.llm.complete(messages),
                     event,
                 )
                 raise_if_canceled(event)
-                self.record_usage(response)
+                self.record_usage(response, request_started_at)
                 if shared_budget is not None:
                     shared_budget.charge(response)
         except Exception:
@@ -633,11 +643,18 @@ class Agent:
             [Message("system", self.system_prompt), *self.history]
         ) + estimate_schema_tokens(self.tools.schemas())
 
-    def record_usage(self, response: Any) -> None:
+    def record_usage(self, response: LlmResponse, at: datetime | None = None) -> None:
         self.total_input_tokens += max(0, response.usage.input_tokens)
         self.total_output_tokens += max(0, response.usage.output_tokens)
         self.total_cached_tokens += max(0, response.usage.cache_tokens)
         self.llm_call_count += 1
+        if self.on_usage is not None:
+            self.on_usage(
+                self.llm.provider,
+                self.llm.model or "",
+                response,
+                at or datetime.now().astimezone(),
+            )
 
     def absorb_usage(self, child: Agent) -> None:
         self.total_input_tokens += child.total_input_tokens
