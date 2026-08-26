@@ -123,7 +123,7 @@ def run_web_server(
         model_info=_model_info,
         app_config=app_config,
         default_workspace=paths.workspace,
-        workspace_roots=[paths.workspace.parent],
+        workspace_roots=[Path(paths.workspace.anchor)],
         max_active_channel_accounts=max_active_channel_accounts,
         channel_history_retention_days=channel_history_retention_days,
     )

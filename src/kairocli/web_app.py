@@ -445,11 +445,9 @@ def create_web_app(
     wechat_allowed_hosts: set[str] | None = None,
 ) -> FastAPI:
     selected_default_workspace = (default_workspace or Path.cwd()).resolve(strict=True)
+    host_root = Path(selected_default_workspace.anchor).resolve(strict=True)
     selected_workspace_roots = tuple(
-        dict.fromkeys(
-            root.resolve(strict=True)
-            for root in (workspace_roots or [selected_default_workspace.parent])
-        )
+        dict.fromkeys(root.resolve(strict=True) for root in (workspace_roots or [host_root]))
     )
     if not selected_workspace_roots or not any(
         selected_default_workspace == root or selected_default_workspace.is_relative_to(root)
@@ -485,9 +483,15 @@ def create_web_app(
 
     def workspace_for_user(user_id: str, value: str) -> Path:
         workspace = _workspace_in_roots(value, selected_workspace_roots)
-        if str(workspace) not in user_store.list_workspaces(user_id):
+        user = user_store.get_by_id(user_id)
+        if user is None or (
+            not user.is_admin and str(workspace) not in user_store.list_workspaces(user_id)
+        ):
             raise ValueError("Workspace is not authorized for this user")
         return workspace
+
+    def workspace_is_authorized(user: WebUser, workspace: Path) -> bool:
+        return user.is_admin or str(workspace) in user_store.list_workspaces(user.id)
 
     def workspaces_for_user(user_id: str) -> list[Path]:
         workspaces: list[Path] = []
@@ -1069,7 +1073,7 @@ def create_web_app(
             workspace = _workspace_in_roots(payload.get("workspace", ""), selected_workspace_roots)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        if str(workspace) not in user_store.list_workspaces(user.id):
+        if not workspace_is_authorized(user, workspace):
             raise HTTPException(status_code=403, detail="工作区尚未由管理员授权")
         from .channels.wechat import IlinkClient
 
@@ -1158,7 +1162,7 @@ def create_web_app(
                 workspace = _workspace_in_roots(payload["workspace"], selected_workspace_roots)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
-            if str(workspace) not in user_store.list_workspaces(user.id):
+            if not workspace_is_authorized(user, workspace):
                 raise HTTPException(status_code=403, detail="工作区尚未由管理员授权")
             channel_store.set_workspace(binding.id, str(workspace))
         if "enabled" in payload:
@@ -1282,14 +1286,17 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         allowed = user_store.list_workspaces(user.id)
-        requested_workspace = (payload or {}).get("workspace", allowed[0] if allowed else "")
+        default_for_user = (
+            allowed[0] if allowed else (str(selected_default_workspace) if user.is_admin else "")
+        )
+        requested_workspace = (payload or {}).get("workspace", default_for_user)
         if not requested_workspace:
             raise HTTPException(status_code=403, detail="管理员尚未授权工作区")
         try:
             workspace = _workspace_in_roots(requested_workspace, selected_workspace_roots)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        if str(workspace) not in allowed:
+        if not workspace_is_authorized(user, workspace):
             raise HTTPException(status_code=403, detail="工作区尚未由管理员授权")
         thread_id = f"thread_{uuid.uuid4().hex[:12]}"
         state.store.create(

@@ -299,6 +299,59 @@ def test_web_workspace_browser_and_thread_binding(tmp_path: Path) -> None:
     assert used_workspaces == [second]
 
 
+def test_admin_has_implicit_access_to_host_directories(tmp_path: Path) -> None:
+    default_workspace = tmp_path / "projects" / "first"
+    other_workspace = tmp_path / "elsewhere" / "second"
+    default_workspace.mkdir(parents=True)
+    other_workspace.mkdir(parents=True)
+    users_database = tmp_path / "web" / "users.db"
+    secret_path = tmp_path / "web" / "jwt_secret.bin"
+    user_store = WebUserStore(users_database)
+    admin = user_store.create_user("admin-user", "password-123", is_admin=True)
+    member = user_store.create_user("member", "password-123")
+    user_store.add_workspace(member.id, str(default_workspace))
+    secret = JwtSecretStore(secret_path).load_or_generate()
+    admin_headers = {
+        "Authorization": f"Bearer {create_access_token(admin.id, admin.username, True, secret)}"
+    }
+    member_headers = {
+        "Authorization": f"Bearer {create_access_token(member.id, member.username, False, secret)}"
+    }
+
+    app = create_web_app(
+        lambda approver=None, workspace=None: Agent(
+            WebClient(),
+            ToolRegistry(workspace or default_workspace, approver=approver),
+            "system",
+        ),
+        runtime_database=tmp_path / "runtime" / "runtime.db",
+        users_database=users_database,
+        jwt_secret_path=secret_path,
+        default_workspace=default_workspace,
+    )
+
+    with TestClient(app) as client:
+        listing = client.get(
+            "/v1/workspaces", headers=admin_headers, params={"path": str(other_workspace.parent)}
+        )
+        assert listing.status_code == 200
+        assert str(Path(default_workspace.anchor)) in listing.json()["roots"]
+
+        created = client.post(
+            "/v1/threads", headers=admin_headers, json={"workspace": str(other_workspace)}
+        )
+        assert created.status_code == 200
+        assert created.json()["workspace"] == str(other_workspace)
+
+        denied = client.post(
+            "/v1/threads", headers=member_headers, json={"workspace": str(other_workspace)}
+        )
+        assert denied.status_code == 403
+
+        default_created = client.post("/v1/threads", headers=admin_headers)
+        assert default_created.status_code == 200
+        assert default_created.json()["workspace"] == str(default_workspace)
+
 @pytest.mark.parametrize(
     ("mode", "class_name", "answer"),
     [("plan", "PlanExecuteAgent", "planned"), ("team", "AgentOrchestrator", "teamed")],
