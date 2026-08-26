@@ -35,8 +35,13 @@ def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
     assert '<span class="settings-item-title">微信渠道</span>' in html
     assert "[adminBtn, configBtn, channelBtn, chpwdBtn].forEach" not in html
     assert 'class="admin-row-actions"' in html
+    assert '<div class="sidebar-section-label">工作区</div>' in html
     assert "'/v1/workspaces'" in html
     assert "JSON.stringify({ workspace })" in html
+    assert "const workspaces = state.workspaces" in html
+    assert "暂无可用工作区" in html
+    assert "channelWorkspace.disabled = workspaces.length === 0" in html
+    assert 'id="channel-workspace-browse"' not in html
     assert "startWorkspaceDraft(state.currentWorkspace)" in html
     assert "createWorkspaceThread(state.currentWorkspace, text)" in html
     assert "eventType === 'thread.title.updated'" in html
