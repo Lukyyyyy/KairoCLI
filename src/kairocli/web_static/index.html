@@ -1959,6 +1959,18 @@ async function apiJson(path, opts = {}) {
   return res.json();
 }
 
+// 模型切换后立即刷新头部徽标（保存配置、应用快照、初次进入时调用）
+async function refreshModelBadge() {
+  try {
+    const info = await apiJson('/v1/info');
+    if (info.model || info.provider) {
+      const label = [info.provider, info.model].filter(Boolean).join('/');
+      modelBadge.textContent = label;
+      modelBadge.classList.add('visible');
+    }
+  } catch {}
+}
+
 // ─── auth ─────────────────────────────────────────────────────────────────────
 function clearAuth() {
   stopEventStream();
@@ -2284,14 +2296,7 @@ async function initApp() {
   }
 
   // Fetch model info
-  try {
-    const info = await apiJson('/v1/info');
-    if (info.model || info.provider) {
-      const label = [info.provider, info.model].filter(Boolean).join('/');
-      modelBadge.textContent = label;
-      modelBadge.classList.add('visible');
-    }
-  } catch {}
+  await refreshModelBadge();
 
   showApp();
   await loadThreads();
@@ -3473,15 +3478,7 @@ configSaveBtn.addEventListener('click', async () => {
     syncUnsavedBadge();
     await loadConfig();
     await loadSnapshots();
-
-    try {
-      const info = await apiJson('/v1/info');
-      if (info.model || info.provider) {
-        const label = [info.provider, info.model].filter(Boolean).join('/');
-        modelBadge.textContent = label;
-        modelBadge.classList.add('visible');
-      }
-    } catch {}
+    await refreshModelBadge();
 
     showToast('配置已保存', 'success');
   } catch (err) {
@@ -3546,6 +3543,7 @@ function renderSnapshots(snapshots) {
           configState.dirty = {};
           await loadConfig();
           await loadSnapshots();
+          await refreshModelBadge();
           showToast(`已切换至「${p.name}」`, 'success');
         } catch (err) {
           showToast('切换失败：' + err.message, 'error');
