@@ -1231,7 +1231,7 @@
       <div class="login-brand-icon">K</div>
       <div class="login-brand-text">
         <div class="login-brand-name">Kairo CLI</div>
-        <div class="login-brand-sub">Web Interface</div>
+        <div class="login-brand-sub">网页控制台</div>
       </div>
     </div>
 
@@ -1305,7 +1305,7 @@
       <div style="flex:1; min-width:0;">
         <div class="brand-name">Kairo CLI</div>
       </div>
-      <div class="brand-tag">WEB</div>
+      <div class="brand-tag">网页版</div>
     </div>
 
     <div class="sidebar-actions">
@@ -1338,7 +1338,7 @@
       </svg>
       <div id="header-title" style="color:var(--text-3);">选择或新建对话</div>
       <div id="model-badge"></div>
-      <div id="status-badge" class="header-badge status-idle">IDLE</div>
+      <div id="status-badge" class="header-badge status-idle">空闲</div>
     </div>
 
     <div id="chat-area">
@@ -1348,7 +1348,7 @@
       <!-- Empty state (inside chat-area, overlay) -->
       <div id="empty-state">
         <div class="empty-icon">⌨</div>
-        <div class="empty-title">Kairo CLI Web</div>
+        <div class="empty-title">Kairo CLI 网页版</div>
         <div class="empty-desc">选择左侧对话，或新建一个开始与 AI 代理交互</div>
       </div>
 
@@ -1905,12 +1905,56 @@ async function apiFetch(path, opts = {}) {
   return res;
 }
 
+// 把后端 detail（可能是字符串、对象或数组，如 FastAPI 422 校验错误）规范成可读中文
+const HTTP_STATUS_ZH = {
+  400: '请求有误',
+  401: '登录已失效，请重新登录',
+  403: '没有权限执行该操作',
+  404: '资源不存在',
+  409: '资源状态冲突，请刷新后重试',
+  413: '请求内容过大',
+  422: '请求参数有误',
+  429: '请求过于频繁，请稍后再试',
+  500: '服务器内部错误',
+  502: '网关错误',
+  503: '服务暂时不可用',
+  504: '网关超时',
+};
+
+function readableApiError(status, detail) {
+  let msg = '';
+  if (typeof detail === 'string' && detail.trim()) {
+    msg = detail.trim();
+  } else if (Array.isArray(detail)) {
+    // FastAPI 422 校验错误：把字段名和错误类型拼成中文
+    const parts = detail.map(item => {
+      if (!item || typeof item !== 'object') return typeof item === 'string' ? item.trim() : '';
+      const field = Array.isArray(item.loc)
+        ? item.loc.filter(p => p !== 'body' && p !== 'form').join('.')
+        : '';
+      const type = String(item.type || item.msg || '');
+      let why = '取值无效';
+      if (/missing/i.test(type)) why = '缺少必填字段';
+      else if (/string/i.test(type)) why = '必须是字符串';
+      else if (/integer|number/i.test(type)) why = '必须是数字';
+      else if (/bool/i.test(type)) why = '必须是布尔值';
+      else if (/unexpected/i.test(type)) why = '取值不被允许';
+      return field ? `${field}：${why}` : why;
+    }).filter(Boolean);
+    if (parts.length) msg = `请求参数有误：${parts.join('；')}`;
+  } else if (detail && typeof detail === 'object') {
+    const v = detail.msg || detail.message;
+    if (typeof v === 'string' && v.trim()) msg = v.trim();
+  }
+  return msg || HTTP_STATUS_ZH[status] || (status ? `请求失败（HTTP ${status}）` : '网络错误，请检查连接后重试');
+}
+
 async function apiJson(path, opts = {}) {
   const res = await apiFetch(path, opts);
   if (!res.ok) {
-    let detail = res.statusText;
-    try { const j = await res.json(); detail = j.detail || detail; } catch {}
-    throw new Error(detail);
+    let detail = null;
+    try { const j = await res.json(); detail = j.detail; } catch {}
+    throw new Error(readableApiError(res.status, detail));
   }
   return res.json();
 }
@@ -1973,7 +2017,7 @@ registerBtn.addEventListener('click', async () => {
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      registerError.textContent = j.detail || '注册失败';
+      registerError.textContent = readableApiError(res.status, j.detail) || '注册失败';
       registerError.classList.add('visible'); return;
     }
     // auto-login after registration
@@ -1988,7 +2032,7 @@ registerBtn.addEventListener('click', async () => {
       loginPassword.focus();
     }
   } catch (err) {
-    registerError.textContent = '网络错误：' + err.message;
+    registerError.textContent = '网络错误，请检查连接后重试';
     registerError.classList.add('visible');
   } finally {
     registerBtn.disabled = false; registerBtn.textContent = '注册';
@@ -2010,14 +2054,14 @@ loginForm.addEventListener('submit', async (e) => {
     const res = await fetch('/auth/login', { method: 'POST', body });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      loginError.textContent = j.detail || '登录失败，请检查用户名和密码';
+      loginError.textContent = readableApiError(res.status, j.detail) || '登录失败，请检查用户名和密码';
       loginError.classList.add('visible');
       return;
     }
     await res.json();
     await initApp();
   } catch (err) {
-    loginError.textContent = '网络错误：' + err.message;
+    loginError.textContent = '网络错误，请检查连接后重试';
     loginError.classList.add('visible');
   }
 });
@@ -2275,7 +2319,7 @@ function clearStreaming() {
 
 function setStatusBadge(s) {
   statusBadge.className = 'header-badge status-' + s;
-  const labels = { ready: 'READY', running: 'RUNNING', idle: 'IDLE' };
+  const labels = { ready: '就绪', running: '运行中', idle: '空闲' };
   statusBadge.textContent = labels[s] || s.toUpperCase();
 }
 

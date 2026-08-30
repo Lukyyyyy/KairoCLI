@@ -398,7 +398,7 @@ def decode_access_token(token: str, secret: bytes) -> dict[str, Any]:
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
+            detail="登录凭证无效，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
 
@@ -412,15 +412,15 @@ def make_get_current_user(user_store: WebUserStore, jwt_secret: bytes) -> Callab
         if not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Could not validate credentials",
+                detail="登录凭证无效，请重新登录",
             )
         payload = decode_access_token(token, jwt_secret)
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="登录凭证无效")
         user = user_store.get_by_id(str(user_id))
         if user is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
         return user
 
     return get_current_user
@@ -430,7 +430,7 @@ def make_require_admin(get_current_user: Callable[..., Any]) -> Callable[..., An
     async def require_admin(user: WebUser = Depends(get_current_user)) -> WebUser:
         if not user.is_admin:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
+                status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限"
             )
         return user
 
@@ -454,6 +454,6 @@ class LoginRateLimiter:
         if len(times) >= self._max:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many login attempts. Please wait before trying again.",
+                detail="登录尝试过于频繁，请稍后再试",
             )
         times.append(now)

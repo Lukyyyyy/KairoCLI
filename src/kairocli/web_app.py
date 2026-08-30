@@ -174,18 +174,18 @@ async def _publish_thread_title(
 def _workspace_in_roots(value: str | Path, roots: tuple[Path, ...]) -> Path:
     raw = str(value).strip()
     if not raw or len(raw) > MAX_WORKSPACE_PATH_CHARS:
-        raise ValueError("Workspace path is empty or too long")
+        raise ValueError("工作区路径为空或过长")
     candidate = Path(raw).expanduser()
     if not candidate.is_absolute():
-        raise ValueError("Workspace path must be absolute")
+        raise ValueError("工作区路径必须是绝对路径")
     try:
         resolved = candidate.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
-        raise ValueError("Workspace does not exist") from exc
+        raise ValueError("工作区不存在") from exc
     if not resolved.is_dir():
-        raise ValueError("Workspace is not a directory")
+        raise ValueError("工作区不是目录")
     if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
-        raise ValueError("Workspace is outside the allowed roots")
+        raise ValueError("工作区不在允许的目录范围内")
     return resolved
 
 
@@ -195,7 +195,7 @@ def _workspace_listing(path: Path, roots: tuple[Path, ...]) -> dict[str, Any]:
     try:
         children = sorted(path.iterdir(), key=lambda item: item.name.casefold())
     except OSError as exc:
-        raise ValueError("Workspace directory cannot be read") from exc
+        raise ValueError("无法读取工作区目录") from exc
     for child in children:
         if child.is_symlink():
             continue
@@ -487,7 +487,7 @@ def create_web_app(
         if user is None or (
             not user.is_admin and str(workspace) not in user_store.list_workspaces(user_id)
         ):
-            raise ValueError("Workspace is not authorized for this user")
+            raise ValueError("该工作区未授权给此用户")
         return workspace
 
     def workspace_is_authorized(user: WebUser, workspace: Path) -> bool:
@@ -638,7 +638,7 @@ def create_web_app(
             cookie = request.cookies.get("kairo_csrf", "")
             header = request.headers.get("X-CSRF-Token", "")
             if not cookie or not header or not secrets.compare_digest(cookie, header):
-                return JSONResponse({"detail": "CSRF validation failed"}, status_code=403)
+                return JSONResponse({"detail": "CSRF 校验失败，请刷新页面后重试"}, status_code=403)
         return await call_next(request)
 
     from fastapi.middleware.cors import CORSMiddleware
@@ -781,7 +781,7 @@ def create_web_app(
     ) -> dict[str, bool]:
         enabled = payload.get("monthly_reset_enabled")
         if not isinstance(enabled, bool):
-            raise HTTPException(status_code=422, detail="monthly_reset_enabled must be boolean")
+            raise HTTPException(status_code=422, detail="monthly_reset_enabled 必须是布尔值")
         billing_store.set_monthly_reset_enabled(enabled)
         return {"monthly_reset_enabled": enabled}
 
@@ -886,7 +886,7 @@ def create_web_app(
     @app.get("/v1/config")
     async def get_config(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
         if app_config is None:
-            raise HTTPException(status_code=503, detail="Config not available")
+            raise HTTPException(status_code=503, detail="配置服务不可用")
         return _public_config(_effective_user_config(app_config, user_store.get_config(user.id)))
 
     @app.put("/v1/config")
@@ -895,16 +895,16 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if app_config is None:
-            raise HTTPException(status_code=503, detail="Config not available")
+            raise HTTPException(status_code=503, detail="配置服务不可用")
         existing = user_store.get_config(user.id)
         config = _effective_user_config(app_config, existing)
         provider_name = normalize_provider_name(str(payload.get("provider", "")))
         if provider_name and provider_name not in config.providers:
-            raise HTTPException(status_code=422, detail=f"Unknown provider: {provider_name}")
+            raise HTTPException(status_code=422, detail=f"未知的模型提供商：{provider_name}")
         if "default_provider" in payload:
             dp = normalize_provider_name(str(payload["default_provider"]))
             if dp not in config.providers:
-                raise HTTPException(status_code=422, detail=f"Unknown provider: {dp}")
+                raise HTTPException(status_code=422, detail=f"未知的模型提供商：{dp}")
             config.default_provider = dp
         if provider_name:
             provider = config.providers[provider_name]
@@ -920,7 +920,7 @@ def create_web_app(
                         except ValueError as exc:
                             raise HTTPException(status_code=422, detail=str(exc)) from None
                     if field_name == "model" and not value:
-                        raise HTTPException(status_code=422, detail="model cannot be empty")
+                        raise HTTPException(status_code=422, detail="模型名称不能为空")
                     if (
                         field_name in {"model", "base_url"}
                         and not has_personal_key
@@ -955,13 +955,13 @@ def create_web_app(
                             if num_field == "context_window" and v_int != 0 and v_int < 8_000:
                                 raise HTTPException(
                                     status_code=422,
-                                    detail="context_window must be 0 or at least 8000",
+                                    detail="context_window 必须为 0 或不小于 8000",
                                 )
                             setattr(provider, num_field, v_int)
                     except (ValueError, TypeError):
                         raise HTTPException(
                             status_code=422,
-                            detail=f"Invalid value for {num_field}",
+                            detail=f"{num_field} 的值无效",
                         ) from None
             try:
                 validate_provider_protocol_fields(provider, provider_name)
@@ -992,12 +992,12 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, Any]:
         if app_config is None:
-            raise HTTPException(status_code=503, detail="Config not available")
+            raise HTTPException(status_code=503, detail="配置服务不可用")
         name = str(payload.get("name", "")).strip()
         if not name or len(name) > MAX_CONFIG_PRESET_NAME_CHARS:
             raise HTTPException(
                 status_code=422,
-                detail=f"name must be 1–{MAX_CONFIG_PRESET_NAME_CHARS} characters",
+                detail=f"名称长度须在 1–{MAX_CONFIG_PRESET_NAME_CHARS} 个字符之间",
             )
         config = _effective_user_config(app_config, user_store.get_config(user.id))
         return user_store.save_config_preset(user.id, name, _preset_config(config))
@@ -1008,7 +1008,7 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if not user_store.delete_config_preset(user.id, preset_name):
-            raise HTTPException(status_code=404, detail="Preset not found")
+            raise HTTPException(status_code=404, detail="预设不存在")
         return {"status": "ok"}
 
     @app.post("/v1/config/presets/{preset_name}/apply")
@@ -1017,10 +1017,10 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if app_config is None:
-            raise HTTPException(status_code=503, detail="Config not available")
+            raise HTTPException(status_code=503, detail="配置服务不可用")
         preset = user_store.get_config_preset(user.id, preset_name)
         if preset is None:
-            raise HTTPException(status_code=404, detail="Preset not found")
+            raise HTTPException(status_code=404, detail="预设不存在")
         existing = user_store.get_config(user.id)
         config = _effective_user_config(app_config, existing)
         preset_config = _effective_user_config(config, preset)
@@ -1270,14 +1270,14 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if state.active_turn_ids & {
             t for t in state.active_turn_ids if state.store.exists_for_user(thread_id, user.id)
         }:
             pass  # allow deletion even with running turns; cancel is separate
         ok = state.store.delete_thread(thread_id, user.id)
         if not ok:
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         return {"status": "ok"}
 
     @app.post("/v1/threads")
@@ -1369,7 +1369,7 @@ def create_web_app(
                 return
             stored_workspace = state.store.workspace_for_user(thread_id, user_id)
             if stored_workspace is None:
-                raise ValueError("Thread workspace was not found")
+                raise ValueError("找不到对话所属的工作区")
             workspace = _workspace_in_roots(
                 stored_workspace or selected_default_workspace, selected_workspace_roots
             )
@@ -1521,16 +1521,16 @@ def create_web_app(
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ) -> dict[str, str]:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not state.store.exists_for_user(thread_id, user.id):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         raw_prompt = payload.get("input") if "input" in payload else payload.get("prompt")
         if raw_prompt is None:
-            raise HTTPException(status_code=422, detail="input is required")
+            raise HTTPException(status_code=422, detail="请输入内容")
         if not isinstance(raw_prompt, str):
-            raise HTTPException(status_code=422, detail="input must be a string")
+            raise HTTPException(status_code=422, detail="输入内容必须是字符串")
         if not raw_prompt:
-            raise HTTPException(status_code=422, detail="input is required")
+            raise HTTPException(status_code=422, detail="请输入内容")
         raw_mode = str(payload.get("mode", "agent")).lower().strip()
         turn_mode = raw_mode if raw_mode in {"agent", "plan", "team"} else "agent"
         try:
@@ -1541,7 +1541,7 @@ def create_web_app(
                 detail=safe_redacted_text(exc, 4_000, "...[runtime error truncated]"),
             ) from None
         if not prompt.strip():
-            raise HTTPException(status_code=422, detail="input is required")
+            raise HTTPException(status_code=422, detail="请输入内容")
         if app_config is None:
             provider_name = str((model_info or {}).get("provider", "default"))
         else:
@@ -1553,7 +1553,7 @@ def create_web_app(
             raise HTTPException(status_code=402, detail="人民币额度已耗尽")
         if idempotency_key is not None:
             if not _IDEMPOTENCY_KEY.fullmatch(idempotency_key):
-                raise HTTPException(status_code=422, detail="Invalid Idempotency-Key")
+                raise HTTPException(status_code=422, detail="无效的 Idempotency-Key")
         state.refresh_owner_identity()
         try:
             turn_id, status_str, created = state.store.reserve_turn(
@@ -1590,14 +1590,14 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not state.store.exists_for_user(thread_id, user.id):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not _valid_identifier(turn_id, _TURN_ID):
-            raise HTTPException(status_code=404, detail="Turn not found")
+            raise HTTPException(status_code=404, detail="回合不存在")
         turn_status = state.store.turn_status(thread_id, turn_id)
         if turn_status is None:
-            raise HTTPException(status_code=404, detail="Turn not found")
+            raise HTTPException(status_code=404, detail="回合不存在")
         if turn_status == "running" and state.store.update_turn_status(
             turn_id,
             "canceled",
@@ -1622,14 +1622,14 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not state.store.exists_for_user(thread_id, user.id):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not _valid_identifier(turn_id, _TURN_ID):
-            raise HTTPException(status_code=404, detail="Turn not found")
+            raise HTTPException(status_code=404, detail="回合不存在")
         approver = state.active_approvers.get(turn_id)
         if approver is None:
-            raise HTTPException(status_code=404, detail="No pending approval for this turn")
+            raise HTTPException(status_code=404, detail="该回合没有待审批的请求")
         approver.respond(bool(payload.get("approved", False)))
         return {"status": "ok"}
 
@@ -1641,14 +1641,14 @@ def create_web_app(
         user: WebUser = Depends(get_current_user),
     ) -> dict[str, str]:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not state.store.exists_for_user(thread_id, user.id):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not _valid_identifier(turn_id, _TURN_ID):
-            raise HTTPException(status_code=404, detail="Turn not found")
+            raise HTTPException(status_code=404, detail="回合不存在")
         reviewer = state.active_plan_reviewers.get(turn_id)
         if reviewer is None:
-            raise HTTPException(status_code=404, detail="No pending plan review for this turn")
+            raise HTTPException(status_code=404, detail="该回合没有待审核的计划")
         action = str(payload.get("action", "approve"))
         feedback = str(payload.get("feedback", ""))
         reviewer.respond(action, feedback)
@@ -1665,9 +1665,9 @@ def create_web_app(
         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     ) -> Response:
         if not _valid_identifier(thread_id, _THREAD_ID):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         if not state.store.exists_for_user(thread_id, user.id):
-            raise HTTPException(status_code=404, detail="Thread not found")
+            raise HTTPException(status_code=404, detail="对话不存在")
         cursor = after
         if after == 0 and last_event_id:
             try:
@@ -1675,7 +1675,7 @@ def create_web_app(
 
                 cursor = _last_event_cursor(last_event_id)
             except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid Last-Event-ID") from None
+                raise HTTPException(status_code=400, detail="无效的 Last-Event-ID") from None
         if follow:
             return StreamingResponse(
                 _follow_runtime_events(state, thread_id, cursor, limit, request),

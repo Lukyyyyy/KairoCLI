@@ -102,7 +102,7 @@ class BillingStore:
                 (user_id,),
             ).fetchone()
         if row is None:
-            raise ValueError("User does not exist")
+            raise ValueError("用户不存在")
         return UserQuota(str(row[0]), int(row[1]), int(row[2]))
 
     def monthly_reset_enabled(self) -> bool:
@@ -160,7 +160,7 @@ class BillingStore:
 
     def set_quota(self, user_id: str, balance_units: int, monthly_units: int) -> UserQuota:
         if not -(2**63) < balance_units < 2**63 or not 0 <= monthly_units < 2**63:
-            raise ValueError("Quota amount is out of range")
+            raise ValueError("配额数值超出范围")
         with self._connect() as connection:
             connection.execute(
                 """INSERT INTO user_quotas(user_id,balance_units,monthly_units,updated_at)
@@ -187,7 +187,7 @@ class BillingStore:
         call_id: str | None = None,
     ) -> UserQuota:
         if min(input_tokens, cached_tokens, output_tokens, cost_units) < 0:
-            raise ValueError("Usage cannot be negative")
+            raise ValueError("用量不能为负数")
         ledger_id = call_id or f"llm_{uuid.uuid4().hex}"
         now = charged_at.astimezone(UTC).isoformat()
         with self._connect() as connection:
@@ -276,10 +276,10 @@ def cny_to_units(value: str) -> int:
     try:
         amount = Decimal(value)
     except InvalidOperation as exc:
-        raise ValueError("Invalid CNY amount") from exc
+        raise ValueError("金额无效") from exc
     units = amount * CNY_UNITS
     if not amount.is_finite() or units != units.to_integral_value():
-        raise ValueError("CNY amount supports at most 8 decimal places")
+        raise ValueError("金额最多支持 8 位小数")
     return int(units)
 
 
