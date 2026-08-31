@@ -280,6 +280,13 @@ class RuntimeThreadStore:
             connection.execute("DELETE FROM threads WHERE id=?", (thread_id,))
         return True
 
+    def clear_all(self) -> None:
+        """Delete all user-owned runtime history after an authentication schema reset."""
+        with self._connect() as connection:
+            connection.execute("DELETE FROM events")
+            connection.execute("DELETE FROM turns")
+            connection.execute("DELETE FROM threads")
+
     def clear_thread(self, thread_id: str, owner_user_id: str) -> bool:
         with self._connect() as connection:
             row = connection.execute(

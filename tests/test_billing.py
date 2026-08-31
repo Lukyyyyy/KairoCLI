@@ -9,7 +9,7 @@ from kairocli.web_auth import WebUserStore
 
 def test_default_quota_and_idempotent_usage_charge(tmp_path: Path) -> None:
     database = tmp_path / "web" / "users.db"
-    user = WebUserStore(database).create_user("user", "password-123")
+    user = WebUserStore(database).create_user("user@example.com", "password-123")
     billing = BillingStore(database)
     pricing = PricingConfig.default()
     at = datetime(2026, 8, 17, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
@@ -56,7 +56,7 @@ def test_default_quota_and_idempotent_usage_charge(tmp_path: Path) -> None:
 
 def test_monthly_reset_is_opt_in_and_replaces_balance(tmp_path: Path) -> None:
     database = tmp_path / "web" / "users.db"
-    user = WebUserStore(database).create_user("user", "password-123")
+    user = WebUserStore(database).create_user("user@example.com", "password-123")
     billing = BillingStore(database)
     billing.set_quota(user.id, cny_to_units("0.25"), cny_to_units("2.00"))
 

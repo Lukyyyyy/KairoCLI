@@ -25,7 +25,6 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from fastapi.security import OAuth2PasswordRequestForm
 
 from .agent import AgentCanceled
 from .billing import BillingStore, cny_to_units
@@ -40,6 +39,7 @@ from .config import (
     validate_provider_protocol_fields,
 )
 from .llm import create_llm_client
+from .mail import MailCodeService, MailSendError, build_mail_service, validate_email
 from .models import Message
 from .runtime_api import (
     _IDEMPOTENCY_KEY,
@@ -443,6 +443,7 @@ def create_web_app(
     max_active_channel_accounts: int = 100,
     channel_history_retention_days: int = 30,
     wechat_allowed_hosts: set[str] | None = None,
+    mail_builder: Callable[[], MailCodeService | None] = build_mail_service,
 ) -> FastAPI:
     selected_default_workspace = (default_workspace or Path.cwd()).resolve(strict=True)
     host_root = Path(selected_default_workspace.anchor).resolve(strict=True)
@@ -469,10 +470,18 @@ def create_web_app(
     pending_wechat_logins: dict[str, dict[str, Any]] = {}
     jwt_secret = JwtSecretStore(jwt_secret_path).load_or_generate()
     store = RuntimeThreadStore(runtime_database)
+    if user_store.legacy_reset:
+        store.clear_all()
     state = WebRuntimeState(agent_factory, store)
     get_current_user = make_get_current_user(user_store, jwt_secret)
     require_admin = make_require_admin(get_current_user)
     rate_limiter = LoginRateLimiter()
+    mail_service = mail_builder()
+    email_code_limiter = LoginRateLimiter(
+        max_attempts=10,
+        window_seconds=60.0,
+        message="验证码发送过于频繁，请稍后再试",
+    )
 
     def config_for_user(user_id: str) -> AppConfig | None:
         return (
@@ -544,18 +553,6 @@ def create_web_app(
         configure_billing,
         store,
     )
-
-    if user_store.count() == 0:
-        temp_password = secrets.token_urlsafe(16)
-        admin_user = user_store.create_user("admin", temp_password, is_admin=True)
-        user_store.add_workspace(admin_user.id, str(selected_default_workspace))
-        print(
-            f"\n[KairoCLI Web] First run — admin account created.\n"
-            f"  Username : admin\n"
-            f"  Password : {temp_password}\n"
-            f"  Please change this password after first login.\n",
-            flush=True,
-        )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> Any:
@@ -632,7 +629,13 @@ def create_web_app(
     ) -> Response:
         if (
             request.method in {"POST", "PUT", "DELETE", "PATCH"}
-            and request.url.path not in {"/auth/login", "/auth/register"}
+            and request.url.path
+            not in {
+                "/auth/login",
+                "/auth/register",
+                "/auth/email/code",
+                "/auth/password/reset",
+            }
             and request.cookies.get("kairo_session")
         ):
             cookie = request.cookies.get("kairo_csrf", "")
@@ -659,14 +662,76 @@ def create_web_app(
 
     # ── Auth endpoints ───────────────────────────────────────────────────────
 
+    @app.get("/auth/config")
+    async def auth_config() -> dict[str, bool]:
+        return {"registration_enabled": mail_service is not None}
+
+    @app.post("/auth/email/code")
+    async def send_email_code(request: Request, payload: dict[str, Any]) -> dict[str, str]:
+        if mail_service is None:
+            raise HTTPException(status_code=503, detail="邮件服务未启用")
+        email = str(payload.get("email", ""))
+        purpose = str(payload.get("purpose", "register"))
+        if purpose not in {"register", "reset"}:
+            raise HTTPException(status_code=422, detail="验证码用途无效")
+        try:
+            normalized = validate_email(email)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        ip = request.client.host if request.client else "unknown"
+        email_code_limiter.check_and_record(ip)
+        try:
+            if purpose == "register" or user_store.get_by_email(normalized) is not None:
+                await mail_service.issue(normalized, purpose)
+        except ValueError as exc:
+            raise HTTPException(status_code=429, detail=str(exc)) from None
+        except MailSendError:
+            raise HTTPException(status_code=502, detail="邮件发送失败，请稍后重试") from None
+        return {"status": "ok", "ttl_minutes": str(mail_service.ttl_minutes)}
+
     @app.post("/auth/register", status_code=201)
     async def register(payload: dict[str, Any]) -> dict[str, str]:
-        username = str(payload.get("username", "")).strip()
         password = str(payload.get("password", ""))
-        if not username or not password:
-            raise HTTPException(status_code=422, detail="用户名和密码不能为空")
+        email = str(payload.get("email", "")).strip()
+        code = str(payload.get("code", "")).strip()
+        if mail_service is None:
+            raise HTTPException(status_code=503, detail="注册暂不可用，请联系管理员")
+        if not email or not password or not code:
+            raise HTTPException(status_code=422, detail="邮箱、验证码和密码不能为空")
         try:
-            user_store.create_user(username, password, is_admin=False)
+            normalized_email = validate_email(email)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        if user_store.get_by_email(normalized_email) is not None:
+            raise HTTPException(status_code=409, detail="该邮箱已被注册")
+        if not mail_service.verify(normalized_email, code, "register"):
+            raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        try:
+            user_store.create_user(normalized_email, password)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return {"status": "ok"}
+
+    @app.post("/auth/password/reset")
+    async def reset_own_password(payload: dict[str, Any]) -> dict[str, str]:
+        email = str(payload.get("email", ""))
+        code = str(payload.get("code", ""))
+        password = str(payload.get("password", ""))
+        if not email or not code or not password:
+            raise HTTPException(status_code=422, detail="邮箱、验证码和新密码不能为空")
+        try:
+            normalized = validate_email(email)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        user = user_store.get_by_email(normalized)
+        if (
+            mail_service is None
+            or user is None
+            or not mail_service.verify(normalized, code, "reset")
+        ):
+            raise HTTPException(status_code=400, detail="验证码错误或已过期")
+        try:
+            user_store.update_password(user.id, password)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return {"status": "ok"}
@@ -674,14 +739,19 @@ def create_web_app(
     @app.post("/auth/login")
     async def login(
         request: Request,
-        form: OAuth2PasswordRequestForm = Depends(),
+        payload: dict[str, Any],
     ) -> Response:
         ip = request.client.host if request.client else "unknown"
         rate_limiter.check_and_record(ip)
-        user = user_store.get_by_username(form.username)
-        if user is None or not verify_password(form.password, user.hashed_password):
-            raise HTTPException(status_code=401, detail="用户名或密码错误")
-        token = create_access_token(user.id, user.username, user.is_admin, jwt_secret)
+        try:
+            email = validate_email(str(payload.get("email", "")))
+        except ValueError:
+            raise HTTPException(status_code=401, detail="邮箱或密码错误") from None
+        password = str(payload.get("password", ""))
+        user = user_store.get_by_email(email)
+        if user is None or not verify_password(password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="邮箱或密码错误")
+        token = create_access_token(user.id, user.is_admin, user.auth_version, jwt_secret)
         csrf = secrets.token_urlsafe(32)
         response = JSONResponse({"status": "ok", "access_token": token, "token_type": "bearer"})
         secure = request.url.scheme == "https"
@@ -707,7 +777,12 @@ def create_web_app(
 
     @app.get("/auth/me")
     async def me(user: WebUser = Depends(get_current_user)) -> dict[str, Any]:
-        return {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+        return {
+            "id": user.id,
+            "email": user.email,
+            "is_admin": user.is_admin,
+            "must_change_password": user.must_change_password,
+        }
 
     @app.post("/auth/logout")
     async def logout(
@@ -722,12 +797,12 @@ def create_web_app(
     async def change_own_password(
         payload: dict[str, Any],
         user: WebUser = Depends(get_current_user),
-    ) -> dict[str, str]:
+    ) -> Response:
         old_password = str(payload.get("old_password", ""))
         new_password = str(payload.get("new_password", ""))
         if not old_password or not new_password:
             raise HTTPException(status_code=422, detail="旧密码和新密码不能为空")
-        stored = user_store.get_by_username(user.username)
+        stored = user_store.get_by_id(user.id)
         if stored is None or not verify_password(old_password, stored.hashed_password):
             raise HTTPException(status_code=400, detail="旧密码不正确")
         try:
@@ -736,7 +811,10 @@ def create_web_app(
             raise HTTPException(status_code=422, detail=str(exc)) from None
         if not ok:
             raise HTTPException(status_code=404, detail="用户不存在")
-        return {"status": "ok"}
+        response = JSONResponse({"status": "ok"})
+        response.delete_cookie("kairo_session", path="/")
+        response.delete_cookie("kairo_csrf", path="/")
+        return response
 
     # ── Admin endpoints ──────────────────────────────────────────────────────
 
@@ -750,7 +828,7 @@ def create_web_app(
             "data": [
                 {
                     "id": u.id,
-                    "username": u.username,
+                    "email": u.email,
                     "is_admin": u.is_admin,
                     "created_at": u.created_at,
                     "quota": billing_store.quota(u.id).balance_cny,
@@ -841,16 +919,21 @@ def create_web_app(
         payload: dict[str, Any],
         _admin: WebUser = Depends(require_admin),
     ) -> dict[str, Any]:
-        username = payload.get("username", "")
+        email = payload.get("email", "")
         password = payload.get("password", "")
         is_admin = bool(payload.get("is_admin", False))
-        if not username or not password:
-            raise HTTPException(status_code=422, detail="用户名和密码不能为空")
+        if not email or not password:
+            raise HTTPException(status_code=422, detail="邮箱和密码不能为空")
         try:
-            user = user_store.create_user(str(username), str(password), is_admin=is_admin)
+            user = user_store.create_user(
+                str(email),
+                str(password),
+                is_admin=is_admin,
+                must_change_password=True,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
-        return {"id": user.id, "username": user.username, "is_admin": user.is_admin}
+        return {"id": user.id, "email": user.email, "is_admin": user.is_admin}
 
     @app.put("/admin/users/{user_id}/password")
     async def reset_password(
@@ -862,7 +945,9 @@ def create_web_app(
         if not new_password:
             raise HTTPException(status_code=422, detail="密码不能为空")
         try:
-            ok = user_store.update_password(user_id, str(new_password))
+            ok = user_store.update_password(
+                user_id, str(new_password), must_change_password=True
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         if not ok:

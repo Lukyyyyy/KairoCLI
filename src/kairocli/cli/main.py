@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import shutil
 import sys
 import time
@@ -85,10 +86,45 @@ def run_web_server(
     from ..channels.wechat.daemon import _read_live_pid, daemon_paths
     from ..llm import create_llm_client
     from ..policy import ApprovalPolicy as _ApprovalPolicy
+    from ..runtime_api import RuntimeThreadStore
     from ..web_app import create_web_app
+    from ..web_auth import WebUserStore
 
     if _read_live_pid(daemon_paths(paths)[0]):
         raise RuntimeError("Stop the legacy WeChat daemon before starting web mode")
+
+    users_database = paths.user_dir / "web" / "users.db"
+    user_store = WebUserStore(users_database)
+    if user_store.legacy_reset:
+        RuntimeThreadStore(paths.runtime_dir / "runtime.db").clear_all()
+    if user_store.count() == 0:
+        import getpass
+
+        interactive = sys.stdin.isatty()
+        admin_email = os.getenv("KAIROCLI_WEB_ADMIN_EMAIL", "").strip()
+        if interactive:
+            admin_email = admin_email or input("Administrator email: ").strip()
+            password = getpass.getpass("Administrator password: ")
+            if password != getpass.getpass("Confirm password: "):
+                raise ValueError("Administrator passwords do not match")
+            must_change_password = False
+        else:
+            if not admin_email:
+                raise RuntimeError(
+                    "First Web start requires KAIROCLI_WEB_ADMIN_EMAIL in non-interactive mode"
+                )
+            password = secrets.token_urlsafe(16)
+            must_change_password = True
+        admin = user_store.create_user(
+            admin_email,
+            password,
+            is_admin=True,
+            must_change_password=must_change_password,
+        )
+        user_store.add_workspace(admin.id, str(paths.workspace))
+        print(f"[KairoCLI Web] Administrator created: {admin.email} ({admin.id})", flush=True)
+        if must_change_password:
+            print(f"[KairoCLI Web] Temporary password: {password}", flush=True)
 
     # Each web turn gets its own agent instance with a WebApprover injected by web_app.
     # Two independent RuntimeState instances against the same DB are safe (WAL mode,
@@ -118,7 +154,7 @@ def run_web_server(
     app = create_web_app(
         agent_factory,
         runtime_database=paths.runtime_dir / "runtime.db",
-        users_database=paths.user_dir / "web" / "users.db",
+        users_database=users_database,
         jwt_secret_path=paths.user_dir / "web" / "jwt_secret.bin",
         model_info=_model_info,
         app_config=app_config,
@@ -137,12 +173,41 @@ def run_web_server(
     return 0
 
 
+async def handle_mail_test(recipient: str) -> int:
+    """发送测试邮件，验证邮件服务配置是否可用。"""
+    from ..mail import MailSender, MailSendError, MailSettings, validate_email
+
+    settings = MailSettings.from_environ()
+    if not settings.enabled or not settings.is_configured:
+        print(
+            "邮件服务未启用或配置不完整：请在 .env 中设置 KAIROCLI_MAIL_ENABLED=true，"
+            "以及 KAIROCLI_TENCENT_SECRET_ID、KAIROCLI_TENCENT_SECRET_KEY、"
+            "KAIROCLI_MAIL_FROM_ADDRESS"
+        )
+        return 1
+    if settings.test_template_id <= 0:
+        print("未配置 KAIROCLI_MAIL_TEMPLATE_TEST，无法发送测试邮件")
+        return 1
+    try:
+        address = validate_email(recipient)
+    except ValueError as exc:
+        print(f"测试邮件发送失败：{exc}")
+        return 1
+    try:
+        await MailSender(settings).send_test_mail(address)
+    except MailSendError as exc:
+        print(f"测试邮件发送失败：{exc.code} {exc}")
+        return 1
+    print(f"测试邮件已提交发送至 {address}，查收后即表示邮件服务配置成功。")
+    return 0
+
+
 async def handle_wechat(
     paths: KairoPaths,
     config: AppConfig,
     action: str,
     daemon_action: str | None,
-    migration_user: str | None = None,
+    migration_account_id: str | None = None,
 ) -> int:
     from datetime import UTC, datetime
 
@@ -183,7 +248,7 @@ async def handle_wechat(
         if account is None:
             raise RuntimeError("No legacy WeChat binding was found")
         user_store = WebUserStore(paths.user_dir / "web" / "users.db")
-        user = user_store.get_by_username(migration_user or "")
+        user = user_store.get_by_id(migration_account_id or "")
         if user is None:
             raise ValueError("Web user does not exist")
         migration_workspace = str(
@@ -207,7 +272,7 @@ async def handle_wechat(
             workspace=migration_workspace,
         )
         await asyncio.to_thread(store.file.replace, backup)
-        print(f"WeChat binding migrated to Web user {user.username}; enable it in Web settings.")
+        print(f"WeChat binding migrated to Web account {user.id}; enable it in Web settings.")
         return 0
     client = IlinkClient()
     if action == "setup":
@@ -376,9 +441,11 @@ def main(argv: list[str] | None = None) -> None:
                     config,
                     args.action,
                     args.daemon_action,
-                    args.migration_user,
+                    args.migration_account_id,
                 )
             )
+        elif args.subcommand == "mail":
+            code = asyncio.run(handle_mail_test(args.to))
         elif renderer.mode == "tui":
             from ..tui import run_tui
 

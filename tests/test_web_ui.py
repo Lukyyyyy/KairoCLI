@@ -21,6 +21,15 @@ def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
     assert 'id="project-list"' in html
     assert 'id="add-workspace-btn"' in html
     assert 'id="workspace-modal"' in html
+    assert 'id="reg-email" type="email"' in html
+    assert 'id="reg-code" type="text"' in html
+    assert "'/auth/email/code'" in html
+    assert "registration_enabled" in html
+    assert 'id="login-email" type="email"' in html
+    assert 'id="reset-panel"' in html
+    assert ".k-input:-webkit-autofill" in html
+    assert ".btn-secondary" in html
+    assert "username" not in html.lower()
     sidebar = html.split("<!-- Sidebar -->", 1)[1].split("<!-- Main chat area -->", 1)[0]
     assert 'id="settings-hub-btn"' in sidebar
     assert 'id="admin-btn"' not in sidebar
@@ -29,6 +38,12 @@ def test_web_ui_contains_mode_plan_and_ime_controls() -> None:
     assert 'id="chpwd-btn"' not in sidebar
     assert 'id="logout-btn"' not in sidebar
     assert 'id="settings-modal"' in html
+    assert '账号 ID：<span id="settings-account-id"></span>' in html
+    assert 'id="copy-account-id" type="button" class="btn-icon"' in html
+    assert 'aria-label="复制账号 ID"' in html
+    assert 'class="admin-user-id">账号 ID：' in html
+    assert 'class="admin-self-badge">当前账号</span>' in html
+    assert 'class="copy-id-btn btn-icon"' in html
     assert 'class="settings-list"' in html
     assert '<span class="settings-item-title">用户与额度</span>' in html
     assert '<span class="settings-item-title">模型与服务</span>' in html

@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="days to retain conversations after an IM disconnect (default: 30)",
     )
     wechat = subparsers.add_parser("wechat", help="manage the WeChat channel")
-    wechat.set_defaults(daemon_action=None, migration_user=None)
+    wechat.set_defaults(daemon_action=None, migration_account_id=None)
     wechat_actions = wechat.add_subparsers(dest="action", required=True)
     wechat_actions.add_parser("setup", help="bind a WeChat account")
     wechat_actions.add_parser("start", help="run the WeChat channel in foreground")
@@ -105,9 +105,13 @@ def build_parser() -> argparse.ArgumentParser:
     migrate = wechat_actions.add_parser(
         "migrate-web", help="move the legacy CLI binding into the multi-user web service"
     )
-    migrate.add_argument("--user", dest="migration_user", required=True)
+    migrate.add_argument("--account-id", dest="migration_account_id", required=True)
     wechat_daemon = wechat_actions.add_parser("daemon", help="manage the background WeChat channel")
     wechat_daemon.add_argument(
         "daemon_action", nargs="?", choices=["start", "stop", "restart", "status", "logs"]
     )
+    mail = subparsers.add_parser("mail", help="verify the mail service configuration")
+    mail_actions = mail.add_subparsers(dest="action", required=True)
+    mail_test = mail_actions.add_parser("test", help="send a test email to verify the mail setup")
+    mail_test.add_argument("--to", required=True, metavar="EMAIL", help="recipient email address")
     return parser

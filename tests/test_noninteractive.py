@@ -17,6 +17,7 @@ from kairocli.policy import ApprovalPolicy
 from kairocli.sessions import SessionStore
 from kairocli.todos import SessionTodoController
 from kairocli.tools import ToolRegistry
+from kairocli.web_auth import WebUserStore
 
 cli_interactive_module = importlib.import_module("kairocli.cli.interactive")
 cli_main_module = importlib.import_module("kairocli.cli.main")
@@ -429,10 +430,48 @@ def test_serve_parser_accepts_web_options() -> None:
 
 
 def test_wechat_parser_accepts_explicit_web_migration() -> None:
-    args = build_parser().parse_args(["wechat", "migrate-web", "--user", "alice"])
+    args = build_parser().parse_args(
+        ["wechat", "migrate-web", "--account-id", "user_123"]
+    )
 
     assert args.action == "migrate-web"
-    assert args.migration_user == "alice"
+    assert args.migration_account_id == "user_123"
+
+
+def test_web_first_start_interactively_creates_email_admin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _paths(tmp_path)
+    passwords = iter(["password-123", "password-123"])
+    monkeypatch.setattr(cli_main_module.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", lambda _prompt: "Admin@Example.com")
+    monkeypatch.setattr("getpass.getpass", lambda _prompt: next(passwords))
+    monkeypatch.setattr("kairocli.channels.wechat.daemon._read_live_pid", lambda _path: None)
+    monkeypatch.setattr("uvicorn.run", lambda *_args, **_kwargs: None)
+
+    assert cli_main_module.run_web_server(paths, AppConfig(), None, 8080) == 0
+
+    admin = WebUserStore(paths.user_dir / "web" / "users.db").get_by_email(
+        "admin@example.com"
+    )
+    assert admin is not None and admin.is_admin and not admin.must_change_password
+
+
+def test_web_first_start_noninteractive_uses_temporary_password(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = _paths(tmp_path)
+    monkeypatch.setattr(cli_main_module.sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    monkeypatch.setenv("KAIROCLI_WEB_ADMIN_EMAIL", "admin@example.com")
+    monkeypatch.setattr("kairocli.channels.wechat.daemon._read_live_pid", lambda _path: None)
+    monkeypatch.setattr("uvicorn.run", lambda *_args, **_kwargs: None)
+
+    assert cli_main_module.run_web_server(paths, AppConfig(), None, 8080) == 0
+
+    admin = WebUserStore(paths.user_dir / "web" / "users.db").get_by_email(
+        "admin@example.com"
+    )
+    assert admin is not None and admin.must_change_password
 
 
 def test_run_server_rejects_invalid_programmatic_port(tmp_path: Path) -> None:

@@ -12,8 +12,8 @@ def test_wechat_bindings_are_user_scoped_and_external_identity_is_unique(
 ) -> None:
     database = tmp_path / "web" / "users.db"
     users = WebUserStore(database)
-    alice = users.create_user("alice", "password-123")
-    bob = users.create_user("bob", "password-456")
+    alice = users.create_user("alice@example.com", "password-123")
+    bob = users.create_user("bob@example.com", "password-456")
     store = ChannelStore(database)
 
     binding = store.save_wechat_binding(
@@ -44,7 +44,7 @@ def test_wechat_bindings_are_user_scoped_and_external_identity_is_unique(
 def test_inbox_deduplicates_before_advancing_sync_state(tmp_path: Path) -> None:
     database = tmp_path / "web" / "users.db"
     users = WebUserStore(database)
-    user = users.create_user("user", "password-123")
+    user = users.create_user("user@example.com", "password-123")
     store = ChannelStore(database)
     binding = store.save_wechat_binding(
         user.id,
@@ -63,7 +63,7 @@ def test_inbox_deduplicates_before_advancing_sync_state(tmp_path: Path) -> None:
 
 def test_disconnected_channel_threads_expire_after_retention(tmp_path: Path) -> None:
     database = tmp_path / "web" / "users.db"
-    user = WebUserStore(database).create_user("user", "password-123")
+    user = WebUserStore(database).create_user("user@example.com", "password-123")
     store = ChannelStore(database)
     binding = store.save_wechat_binding(
         user.id,

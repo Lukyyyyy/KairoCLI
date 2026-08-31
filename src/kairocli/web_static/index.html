@@ -127,6 +127,15 @@
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(56,189,248,0.08);
     }
+    .k-input:-webkit-autofill {
+      -webkit-text-fill-color: var(--text-1);
+      caret-color: var(--text-1);
+      -webkit-box-shadow: 0 0 0 1000px var(--bg-e) inset;
+    }
+    .k-input:-webkit-autofill:focus {
+      -webkit-box-shadow: 0 0 0 1000px var(--bg-e) inset, 0 0 0 3px rgba(56,189,248,0.08);
+    }
+    .k-input:autofill { box-shadow: 0 0 0 1000px var(--bg-e) inset; }
 
     /* ── buttons ── */
     .btn-primary {
@@ -139,6 +148,19 @@
     }
     .btn-primary:hover { filter: brightness(1.08); }
     .btn-primary:active { transform: scale(0.97); }
+
+    .btn-secondary {
+      background: var(--accent-dim); color: var(--accent);
+      border: 1px solid rgba(56,189,248,0.28); border-radius: 7px;
+      padding: 8px 12px; cursor: pointer;
+      font-family: inherit; font-size: 12.5px; font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: rgba(56,189,248,0.18); border-color: rgba(56,189,248,0.5);
+    }
+    .btn-secondary:active:not(:disabled) { transform: scale(0.97); }
+    .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
     .btn-ghost {
       background: transparent; color: var(--text-2);
@@ -310,7 +332,7 @@
       font-size: 11px; font-weight: 600; color: var(--text-1); flex-shrink: 0;
     }
     .sidebar-account-copy { flex: 1; min-width: 0; }
-    #username-badge { display: block; font-size: 12px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #email-badge { display: block; font-size: 12px; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sidebar-account-label { display: block; margin-top: -1px; color: var(--text-3); font-size: 10.5px; }
     .sidebar-account-entry > svg { width: 15px; height: 15px; color: var(--text-3); flex-shrink: 0; }
 
@@ -737,12 +759,12 @@
     .login-sub { font-size: 12px; color: var(--text-3); margin-bottom: 22px; }
     .form-field { margin-bottom: 14px; }
     .form-label { font-size: 12px; color: var(--text-2); font-weight: 500; margin-bottom: 6px; display: block; }
-    #login-error, #register-error {
+    #login-error, #register-error, #reset-error {
       display: none; font-size: 12px; color: var(--red);
       background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.2);
       border-radius: 6px; padding: 7px 10px; margin-bottom: 14px;
     }
-    #login-error.visible, #register-error.visible { display: block; }
+    #login-error.visible, #register-error.visible, #reset-error.visible { display: block; }
 
     /* ── settings center ── */
     #settings-modal {
@@ -775,8 +797,14 @@
       background: linear-gradient(135deg, #334155, #475569);
       color: var(--text-1); font-size: 13px; font-weight: 600;
     }
+    .settings-user-copy { min-width: 0; }
     .settings-user-name { color: var(--text-1); font-size: 13px; font-weight: 500; }
-    .settings-user-hint { margin-top: 1px; color: var(--text-3); font-size: 10.5px; }
+    .settings-user-hint {
+      display: flex; align-items: center; gap: 4px; margin-top: 1px;
+      color: var(--text-3); font-size: 10.5px; white-space: nowrap;
+    }
+    #copy-account-id { width: 22px; height: 22px; padding: 3px; flex-shrink: 0; }
+    #copy-account-id svg { width: 13px; height: 13px; }
     .settings-group + .settings-group { margin-top: 18px; }
     .settings-group-label {
       margin-bottom: 6px; color: var(--text-3); font-size: 10px;
@@ -812,7 +840,7 @@
     #admin-modal.visible { display: flex; }
     .admin-card {
       background: var(--bg-e); border: 1px solid var(--border-s);
-      border-radius: 14px; width: min(760px, calc(100vw - 32px));
+      border-radius: 14px; width: min(860px, calc(100vw - 32px));
       max-height: min(720px, calc(100vh - 48px)); display: flex; flex-direction: column;
       box-shadow: 0 24px 80px rgba(0,0,0,0.5);
       animation: slideUp 0.22s ease forwards;
@@ -832,14 +860,26 @@
     .admin-billing-setting input { margin-top: 2px; accent-color: var(--accent); }
     .admin-billing-title { display: block; color: var(--text-1); font-size: 12px; font-weight: 500; }
     .admin-billing-hint { display: block; margin-top: 2px; color: var(--text-3); font-size: 11px; }
-    .admin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .admin-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12.5px; }
     .admin-table th {
       text-align: left; color: var(--text-3); font-weight: 500;
       font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase;
       padding: 0 0 8px; border-bottom: 1px solid var(--border);
     }
-    .admin-table td { padding: 12px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .admin-table td { padding: 14px 0; border-bottom: 1px solid var(--border); vertical-align: middle; }
     .admin-table tr:last-child td { border-bottom: none; }
+    .admin-user-email { display: flex; align-items: center; gap: 6px; color: var(--text-1); font-size: 13px; font-weight: 500; }
+    .admin-self-badge {
+      padding: 1px 5px; border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text-3); background: var(--bg-h); font-size: 9.5px; font-weight: 400;
+    }
+    .admin-user-id {
+      display: flex; align-items: center; gap: 3px; margin-top: 3px;
+      color: var(--text-3); font-size: 10px; white-space: nowrap;
+    }
+    .admin-user-id-value { font-family: 'JetBrains Mono', monospace; }
+    .copy-id-btn { width: 20px; height: 20px; padding: 3px; flex-shrink: 0; }
+    .copy-id-btn svg { width: 12px; height: 12px; }
     .admin-row-actions { display: flex; justify-content: flex-end; gap: 6px; white-space: nowrap; }
     .role-badge {
       font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 3px;
@@ -1241,9 +1281,9 @@
       <div id="login-error"></div>
       <form id="login-form">
         <div class="form-field">
-          <label class="form-label" for="login-username">用户名</label>
-          <input id="login-username" type="text" autocomplete="username"
-            class="k-input" placeholder="输入用户名" />
+          <label class="form-label" for="login-email">邮箱</label>
+          <input id="login-email" type="email" autocomplete="email"
+            class="k-input" placeholder="输入邮箱" />
         </div>
         <div class="form-field">
           <label class="form-label" for="login-password">密码</label>
@@ -1254,6 +1294,9 @@
           登录
         </button>
       </form>
+      <div style="text-align:right;margin-top:8px;">
+        <button id="go-reset" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">忘记密码？</button>
+      </div>
       <div style="text-align:center; margin-top:14px; font-size:12px; color:var(--text-3);">
         没有账号？
         <button id="go-register" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">
@@ -1266,10 +1309,21 @@
     <div id="register-panel" style="display:none;">
       <div class="login-title">创建账号</div>
       <div id="register-error"></div>
-      <div class="form-field">
-        <label class="form-label" for="reg-username">用户名</label>
-        <input id="reg-username" type="text" autocomplete="username"
-          class="k-input" placeholder="输入用户名" />
+      <div id="reg-mail-fields">
+        <div class="form-field">
+          <label class="form-label" for="reg-email">邮箱</label>
+          <input id="reg-email" type="email" autocomplete="email"
+            class="k-input" placeholder="用于接收验证码" />
+        </div>
+        <div class="form-field">
+          <label class="form-label" for="reg-code">邮箱验证码</label>
+          <div style="display:flex;gap:8px;">
+            <input id="reg-code" type="text" inputmode="numeric" autocomplete="one-time-code"
+              class="k-input" maxlength="8" placeholder="输入验证码" />
+            <button id="send-code-btn" type="button" class="btn-secondary"
+              style="flex:none;white-space:nowrap;">发送验证码</button>
+          </div>
+        </div>
       </div>
       <div class="form-field">
         <label class="form-label" for="reg-password">密码</label>
@@ -1289,6 +1343,31 @@
         <button id="go-login" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">
           登录
         </button>
+      </div>
+    </div>
+
+    <!-- Reset password form -->
+    <div id="reset-panel" style="display:none;">
+      <div class="login-title">重置密码</div>
+      <div id="reset-error"></div>
+      <div class="form-field">
+        <label class="form-label" for="reset-email">邮箱</label>
+        <input id="reset-email" type="email" autocomplete="email" class="k-input" placeholder="输入邮箱" />
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="reset-code">邮箱验证码</label>
+        <div style="display:flex;gap:8px;">
+          <input id="reset-code" type="text" inputmode="numeric" autocomplete="one-time-code" class="k-input" maxlength="8" placeholder="输入验证码" />
+          <button id="reset-send-code" type="button" class="btn-secondary" style="flex:none;white-space:nowrap;">发送验证码</button>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label" for="reset-password">新密码</label>
+        <input id="reset-password" type="password" autocomplete="new-password" class="k-input" placeholder="至少 8 位" />
+      </div>
+      <button id="reset-btn" class="btn-primary" style="width:100%;margin-top:4px;">重置密码</button>
+      <div style="text-align:center;margin-top:14px;font-size:12px;color:var(--text-3);">
+        <button id="reset-go-login" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;padding:0;font-family:inherit;">返回登录</button>
       </div>
     </div>
 
@@ -1322,7 +1401,7 @@
     <div class="sidebar-footer">
       <button id="settings-hub-btn" class="sidebar-account-entry" type="button" aria-label="打开设置中心">
         <div class="user-avatar" id="user-avatar">U</div>
-        <span class="sidebar-account-copy"><span id="username-badge"></span><span class="sidebar-account-label">设置中心</span></span>
+        <span class="sidebar-account-copy"><span id="email-badge"></span><span class="sidebar-account-label">设置中心</span></span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
@@ -1440,7 +1519,10 @@
     <div class="settings-body">
       <div class="settings-user">
         <div id="settings-user-avatar" class="settings-user-avatar">U</div>
-        <div><div id="settings-user-name" class="settings-user-name"></div><div class="settings-user-hint">当前登录账户</div></div>
+        <div class="settings-user-copy">
+          <div id="settings-user-name" class="settings-user-name"></div>
+          <div class="settings-user-hint">账号 ID：<span id="settings-account-id"></span><button id="copy-account-id" type="button" class="btn-icon" title="复制账号 ID" aria-label="复制账号 ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2h3"/></svg></button></div>
+        </div>
       </div>
       <div class="settings-group">
         <div class="settings-group-label">系统</div>
@@ -1501,11 +1583,11 @@
       <table class="admin-table">
         <thead>
           <tr>
-            <th style="width:24%">用户名</th>
-            <th style="width:13%">角色</th>
-            <th style="width:14%">额度</th>
-            <th style="width:18%">创建时间</th>
-            <th style="width:31%;text-align:right;">操作</th>
+            <th style="width:39%">用户</th>
+            <th style="width:11%">角色</th>
+            <th style="width:12%">额度</th>
+            <th style="width:14%">创建时间</th>
+            <th style="width:24%;text-align:right;">操作</th>
           </tr>
         </thead>
         <tbody id="admin-user-list"></tbody>
@@ -1514,7 +1596,7 @@
     <div class="admin-add">
       <div class="admin-add-title">添加用户</div>
       <div class="admin-add-row">
-        <input id="new-user-name" type="text" placeholder="用户名" class="k-input" />
+        <input id="new-user-email" type="email" placeholder="邮箱" class="k-input" />
         <input id="new-user-pwd" type="password" placeholder="密码（≥8位）" class="k-input" />
         <label class="admin-check">
           <input id="new-user-admin" type="checkbox" />
@@ -1728,18 +1810,31 @@ const state = {
 const loginView      = document.getElementById('login-view');
 const appView        = document.getElementById('app-view');
 const loginForm      = document.getElementById('login-form');
-const loginUsername  = document.getElementById('login-username');
+const loginEmail     = document.getElementById('login-email');
 const loginPassword  = document.getElementById('login-password');
 const loginError     = document.getElementById('login-error');
 const loginPanel     = document.getElementById('login-panel');
 const registerPanel  = document.getElementById('register-panel');
 const registerError  = document.getElementById('register-error');
-const regUsername    = document.getElementById('reg-username');
+const regMailFields  = document.getElementById('reg-mail-fields');
+const regEmail       = document.getElementById('reg-email');
+const regCode        = document.getElementById('reg-code');
+const sendCodeBtn    = document.getElementById('send-code-btn');
 const regPassword    = document.getElementById('reg-password');
 const regConfirm     = document.getElementById('reg-confirm');
 const registerBtn    = document.getElementById('register-btn');
 const goRegisterBtn  = document.getElementById('go-register');
 const goLoginBtn     = document.getElementById('go-login');
+const goResetBtn     = document.getElementById('go-reset');
+const resetPanel     = document.getElementById('reset-panel');
+const resetError     = document.getElementById('reset-error');
+const resetEmail     = document.getElementById('reset-email');
+const resetCode      = document.getElementById('reset-code');
+const resetPassword  = document.getElementById('reset-password');
+const resetSendCode  = document.getElementById('reset-send-code');
+const resetBtn       = document.getElementById('reset-btn');
+const resetGoLogin   = document.getElementById('reset-go-login');
+let registrationEnabled = false;
 const projectList    = document.getElementById('project-list');
 const newChatBtn     = document.getElementById('new-chat-btn');
 const addWorkspaceBtn = document.getElementById('add-workspace-btn');
@@ -1758,13 +1853,15 @@ const emptyState     = document.getElementById('empty-state');
 const promptInput    = document.getElementById('prompt-input');
 const sendBtn        = document.getElementById('send-btn');
 const cancelBtn      = document.getElementById('cancel-btn');
-const usernameBadge  = document.getElementById('username-badge');
+const emailBadge     = document.getElementById('email-badge');
 const userAvatar     = document.getElementById('user-avatar');
 const settingsHubBtn = document.getElementById('settings-hub-btn');
 const settingsModal  = document.getElementById('settings-modal');
 const settingsModalClose = document.getElementById('settings-modal-close');
 const settingsUserAvatar = document.getElementById('settings-user-avatar');
-const settingsUserName = document.getElementById('settings-user-name');
+const settingsUserEmail = document.getElementById('settings-user-name');
+const settingsAccountId = document.getElementById('settings-account-id');
+const copyAccountId = document.getElementById('copy-account-id');
 const adminBtn       = document.getElementById('admin-btn');
 const configBtn      = document.getElementById('config-btn');
 const channelBtn     = document.getElementById('channel-btn');
@@ -1781,7 +1878,7 @@ const adminModalClose      = document.getElementById('admin-modal-close');
 const monthlyResetEnabled  = document.getElementById('monthly-reset-enabled');
 const adminUserList        = document.getElementById('admin-user-list');
 const adminError           = document.getElementById('admin-error');
-const newUserName          = document.getElementById('new-user-name');
+const newUserEmail         = document.getElementById('new-user-email');
 const newUserPwd           = document.getElementById('new-user-pwd');
 const newUserAdmin         = document.getElementById('new-user-admin');
 const newUserBtn           = document.getElementById('new-user-btn');
@@ -1981,7 +2078,7 @@ function clearAuth() {
 function showLogin() {
   appView.classList.remove('visible');
   loginView.classList.add('visible');
-  loginUsername.focus();
+  switchToLogin();
 }
 
 function showApp() {
@@ -1989,30 +2086,83 @@ function showApp() {
   appView.classList.add('visible');
 }
 
-function switchToRegister() {
+async function switchToRegister() {
   loginPanel.style.display = 'none';
+  resetPanel.style.display = 'none';
   registerPanel.style.display = '';
   registerError.classList.remove('visible');
-  regUsername.value = ''; regPassword.value = ''; regConfirm.value = '';
-  regUsername.focus();
+  regEmail.value = ''; regCode.value = '';
+  regPassword.value = ''; regConfirm.value = '';
+  try {
+    const res = await fetch('/auth/config');
+    const config = res.ok ? await res.json() : {};
+    registrationEnabled = config.registration_enabled === true;
+  } catch { registrationEnabled = false; }
+  sendCodeBtn.disabled = !registrationEnabled;
+  registerBtn.disabled = !registrationEnabled;
+  if (!registrationEnabled) {
+    registerError.textContent = '注册暂不可用，请联系管理员';
+    registerError.classList.add('visible');
+  }
+  regEmail.focus();
 }
 
 function switchToLogin() {
   registerPanel.style.display = 'none';
+  resetPanel.style.display = 'none';
   loginPanel.style.display = '';
   loginError.classList.remove('visible');
-  loginUsername.focus();
+  loginEmail.focus();
+}
+
+async function switchToReset() {
+  loginPanel.style.display = 'none';
+  registerPanel.style.display = 'none';
+  resetPanel.style.display = '';
+  resetError.classList.remove('visible');
+  resetEmail.value = loginEmail.value.trim();
+  resetCode.value = ''; resetPassword.value = '';
+  resetEmail.focus();
 }
 
 goRegisterBtn.addEventListener('click', switchToRegister);
 goLoginBtn.addEventListener('click', switchToLogin);
+goResetBtn.addEventListener('click', switchToReset);
+resetGoLogin.addEventListener('click', switchToLogin);
+
+sendCodeBtn.addEventListener('click', async () => {
+  registerError.classList.remove('visible');
+  const email = regEmail.value.trim();
+  if (!email) {
+    registerError.textContent = '请先填写邮箱地址';
+    registerError.classList.add('visible'); regEmail.focus(); return;
+  }
+  sendCodeBtn.disabled = true; sendCodeBtn.textContent = '发送中…';
+  try {
+    const res = await fetch('/auth/email/code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, purpose: 'register' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(readableApiError(res.status, data.detail) || '发送失败');
+    showToast('验证码已发送，请检查邮箱', 'success');
+    regCode.focus();
+  } catch (err) {
+    registerError.textContent = err.message || '验证码发送失败';
+    registerError.classList.add('visible');
+  } finally {
+    sendCodeBtn.disabled = false; sendCodeBtn.textContent = '发送验证码';
+  }
+});
 
 registerBtn.addEventListener('click', async () => {
   registerError.classList.remove('visible');
-  const username = regUsername.value.trim();
+  const email = regEmail.value.trim();
+  const code = regCode.value.trim();
   const password = regPassword.value;
   const confirm  = regConfirm.value;
-  if (!username || !password || !confirm) {
+  if (!email || !code || !password || !confirm) {
     registerError.textContent = '请填写所有字段';
     registerError.classList.add('visible'); return;
   }
@@ -2025,7 +2175,7 @@ registerBtn.addEventListener('click', async () => {
     const res = await fetch('/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ email, password, code }),
     });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
@@ -2033,14 +2183,16 @@ registerBtn.addEventListener('click', async () => {
       registerError.classList.add('visible'); return;
     }
     // auto-login after registration
-    const loginBody = new URLSearchParams({ username, password });
-    const loginRes = await fetch('/auth/login', { method: 'POST', body: loginBody });
+    const loginRes = await fetch('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
     if (loginRes.ok) {
       await loginRes.json();
       await initApp();
     } else {
       switchToLogin();
-      loginUsername.value = username;
+      loginEmail.value = email;
       loginPassword.focus();
     }
   } catch (err) {
@@ -2051,22 +2203,21 @@ registerBtn.addEventListener('click', async () => {
   }
 });
 
-[regUsername, regPassword, regConfirm].forEach(el => {
+[regEmail, regCode, regPassword, regConfirm].forEach(el => {
   el.addEventListener('keydown', (e) => { if (e.key === 'Enter') registerBtn.click(); });
 });
 
 loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   loginError.classList.remove('visible');
-  const body = new URLSearchParams({
-    username: loginUsername.value,
-    password: loginPassword.value,
-  });
   try {
-    const res = await fetch('/auth/login', { method: 'POST', body });
+    const res = await fetch('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: loginEmail.value, password: loginPassword.value }),
+    });
     if (!res.ok) {
       const j = await res.json().catch(() => ({}));
-      loginError.textContent = readableApiError(res.status, j.detail) || '登录失败，请检查用户名和密码';
+      loginError.textContent = readableApiError(res.status, j.detail) || '登录失败，请检查邮箱和密码';
       loginError.classList.add('visible');
       return;
     }
@@ -2078,10 +2229,55 @@ loginForm.addEventListener('submit', async (e) => {
   }
 });
 
+resetSendCode.addEventListener('click', async () => {
+  resetError.classList.remove('visible');
+  const email = resetEmail.value.trim();
+  if (!email) { resetError.textContent = '请先填写邮箱地址'; resetError.classList.add('visible'); return; }
+  resetSendCode.disabled = true;
+  try {
+    const res = await fetch('/auth/email/code', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, purpose: 'reset' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(readableApiError(res.status, data.detail) || '发送失败');
+    showToast('如果该邮箱已注册，验证码将发送至邮箱', 'success');
+    resetCode.focus();
+  } catch (err) {
+    resetError.textContent = err.message || '验证码发送失败';
+    resetError.classList.add('visible');
+  } finally { resetSendCode.disabled = false; }
+});
+
+resetBtn.addEventListener('click', async () => {
+  resetError.classList.remove('visible');
+  const email = resetEmail.value.trim();
+  const code = resetCode.value.trim();
+  const password = resetPassword.value;
+  if (!email || !code || !password) { resetError.textContent = '请填写所有字段'; resetError.classList.add('visible'); return; }
+  resetBtn.disabled = true;
+  try {
+    const res = await fetch('/auth/password/reset', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(readableApiError(res.status, data.detail) || '重置失败');
+    switchToLogin(); loginEmail.value = email; loginPassword.focus();
+    showToast('密码已重置，请重新登录', 'success');
+  } catch (err) {
+    resetError.textContent = err.message || '重置失败'; resetError.classList.add('visible');
+  } finally { resetBtn.disabled = false; }
+});
+
 settingsHubBtn.addEventListener('click', () => settingsModal.classList.add('visible'));
 settingsModalClose.addEventListener('click', () => settingsModal.classList.remove('visible'));
 settingsModal.addEventListener('click', event => {
   if (event.target === settingsModal) settingsModal.classList.remove('visible');
+});
+copyAccountId.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(state.currentUser?.id || '');
+  showToast('账号 ID 已复制', 'success');
 });
 logoutBtn.addEventListener('click', async () => {
   if (!await showConfirm('确认退出登录？', '退出')) return;
@@ -2277,14 +2473,22 @@ async function initApp() {
   } catch { clearAuth(); showLogin(); return; }
 
   const u = state.currentUser;
-  usernameBadge.textContent = u.username;
-  userAvatar.textContent = u.username.charAt(0).toUpperCase();
-  settingsUserName.textContent = u.username;
-  settingsUserAvatar.textContent = u.username.charAt(0).toUpperCase();
+  emailBadge.textContent = u.email;
+  userAvatar.textContent = u.email.charAt(0).toUpperCase();
+  settingsUserEmail.textContent = u.email;
+  settingsUserAvatar.textContent = u.email.charAt(0).toUpperCase();
+  settingsAccountId.textContent = u.id;
   adminBtn.style.display = u.is_admin ? '' : 'none';
   addWorkspaceBtn.style.display = u.is_admin ? '' : 'none';
   configBtn.style.display = '';
   channelBtn.style.display = '';
+
+  if (u.must_change_password) {
+    settingsModal.classList.add('visible');
+    openChpwdModal();
+    showToast('请先修改临时密码', 'error');
+    return;
+  }
 
   try {
     const workspaceInfo = await apiJson('/v1/workspaces');
@@ -3606,11 +3810,11 @@ async function loadAdminUsers() {
       const isSelf = u.id === state.currentUser?.id;
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td style="font-size:13px;">
-          ${escHtml(u.username)}
-          ${isSelf ? '<span style="font-size:10px;color:var(--text-3);margin-left:4px;">(我)</span>' : ''}
+        <td>
+          <div class="admin-user-email">${escHtml(u.email)}${isSelf ? '<span class="admin-self-badge">当前账号</span>' : ''}</div>
+          <div class="admin-user-id">账号 ID：<span class="admin-user-id-value">${escHtml(u.id)}</span><button class="copy-id-btn btn-icon" data-uid="${escHtml(u.id)}" title="复制账号 ID" aria-label="复制账号 ID"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7a2 2 0 002 2h3"/></svg></button></div>
         </td>
-        <td><span class="role-badge ${u.is_admin ? 'role-admin' : 'role-user'}">${u.is_admin ? 'admin' : 'user'}</span></td>
+        <td><span class="role-badge ${u.is_admin ? 'role-admin' : 'role-user'}">${u.is_admin ? '管理员' : '用户'}</span></td>
         <td><button class="quota-btn btn-ghost" data-uid="${u.id}" data-quota="${escHtml(u.quota || '1.00')}">¥${escHtml(u.quota || '1.00')}</button></td>
         <td style="color:var(--text-3);font-size:12px;">${new Date(u.created_at).toLocaleDateString('zh-CN')}</td>
         <td><div class="admin-row-actions">
@@ -3626,6 +3830,12 @@ async function loadAdminUsers() {
           await apiJson(`/admin/users/${btn.dataset.uid}`, { method: 'DELETE' });
           loadAdminUsers();
         } catch (err) { showAdminErr(err.message); }
+      });
+    });
+    adminUserList.querySelectorAll('.copy-id-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(btn.dataset.uid || '');
+        showToast('账号 ID 已复制', 'success');
       });
     });
     adminUserList.querySelectorAll('.quota-btn').forEach(btn => {
@@ -3657,16 +3867,16 @@ async function loadAdminUsers() {
 
 newUserBtn.addEventListener('click', async () => {
   adminError.classList.remove('visible');
-  const username = newUserName.value.trim();
+  const email = newUserEmail.value.trim();
   const password = newUserPwd.value;
   const isAdmin = newUserAdmin.checked;
-  if (!username || !password) { showAdminErr('请填写用户名和密码'); return; }
+  if (!email || !password) { showAdminErr('请填写邮箱和密码'); return; }
   try {
     await apiJson('/admin/users', {
       method: 'POST',
-      body: JSON.stringify({ username, password, is_admin: isAdmin }),
+      body: JSON.stringify({ email, password, is_admin: isAdmin }),
     });
-    newUserName.value = '';
+    newUserEmail.value = '';
     newUserPwd.value = '';
     newUserAdmin.checked = false;
     loadAdminUsers();
@@ -3734,7 +3944,10 @@ chpwdSubmit.addEventListener('click', async () => {
       body: JSON.stringify({ old_password: oldPwd, new_password: newPwd }),
     });
     closeChpwdModal();
-    showToast('密码已修改', 'success');
+    settingsModal.classList.remove('visible');
+    clearAuth();
+    showLogin();
+    showToast('密码已修改，请重新登录', 'success');
   } catch (err) {
     chpwdError.textContent = err.message;
     chpwdError.classList.add('visible');

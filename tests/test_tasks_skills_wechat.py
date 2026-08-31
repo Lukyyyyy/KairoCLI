@@ -662,10 +662,10 @@ async def test_legacy_wechat_binding_migrates_to_web_and_leaves_backup(
         )
     )
     users = WebUserStore(paths.user_dir / "web" / "users.db")
-    user = users.create_user("alice", "password-123")
+    user = users.create_user("alice@example.com", "password-123")
     users.add_workspace(user.id, str(workspace))
 
-    assert await handle_wechat(paths, SimpleNamespace(), "migrate-web", None, "alice") == 0
+    assert await handle_wechat(paths, SimpleNamespace(), "migrate-web", None, user.id) == 0
 
     assert not legacy.file.exists()
     assert legacy.file.with_name("account.migrated.json").is_file()

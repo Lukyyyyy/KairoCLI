@@ -19,11 +19,11 @@ from typing import Any, cast
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 
+from .mail import validate_email
 from .paths import reject_symlink_components
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_MINUTES = 60 * 8
-MAX_USERNAME_CHARS = 64
 MAX_PASSWORD_CHARS = 1_024
 MIN_PASSWORD_CHARS = 8
 
@@ -33,10 +33,12 @@ _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 @dataclass(slots=True)
 class WebUser:
     id: str
-    username: str
+    email: str
     hashed_password: str
     is_admin: bool
     created_at: str
+    auth_version: int = 0
+    must_change_password: bool = False
 
 
 def hash_password(plain: str) -> str:
@@ -54,19 +56,43 @@ def verify_password(plain: str, hashed: str) -> bool:
 class WebUserStore:
     def __init__(self, database: Path) -> None:
         self.database = database
+        self.legacy_reset = False
         reject_symlink_components(database, "Users database")
         database.parent.mkdir(parents=True, exist_ok=True)
         reject_symlink_components(database.parent, "Users database")
         if os.name != "nt":
             database.parent.chmod(0o700)
         with self._connect() as connection:
+            user_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(users)").fetchall()
+            }
+            if "username" in user_columns:
+                self.legacy_reset = True
+                connection.execute("PRAGMA foreign_keys=OFF")
+                for table in (
+                    "channel_inbox",
+                    "channel_threads",
+                    "wechat_binding_details",
+                    "channel_bindings",
+                    "usage_ledger",
+                    "user_quotas",
+                    "billing_settings",
+                    "user_configs",
+                    "user_config_presets",
+                    "user_workspaces",
+                    "users",
+                ):
+                    connection.execute(f"DROP TABLE IF EXISTS {table}")
+                connection.execute("PRAGMA foreign_keys=ON")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
-                username TEXT NOT NULL UNIQUE,
+                email TEXT NOT NULL UNIQUE,
                 hashed_password TEXT NOT NULL,
                 is_admin INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                auth_version INTEGER NOT NULL DEFAULT 0,
+                must_change_password INTEGER NOT NULL DEFAULT 0
                 )"""
             )
             connection.execute(
@@ -120,9 +146,15 @@ class WebUserStore:
             connection.close()
             _harden_db(self.database)
 
-    def create_user(self, username: str, password: str, *, is_admin: bool = False) -> WebUser:
-        if not username or len(username) > MAX_USERNAME_CHARS:
-            raise ValueError(f"用户名长度须在 1–{MAX_USERNAME_CHARS} 个字符之间")
+    def create_user(
+        self,
+        email: str,
+        password: str,
+        *,
+        is_admin: bool = False,
+        must_change_password: bool = False,
+    ) -> WebUser:
+        normalized_email = validate_email(email)
         if len(password) < MIN_PASSWORD_CHARS:
             raise ValueError(f"密码至少需要 {MIN_PASSWORD_CHARS} 位")
         if len(password) > MAX_PASSWORD_CHARS:
@@ -133,32 +165,46 @@ class WebUserStore:
         with self._connect() as connection:
             try:
                 connection.execute(
-                    "INSERT INTO users VALUES (?, ?, ?, ?, ?)",
-                    (user_id, username, hashed, int(is_admin), now),
+                    """INSERT INTO users
+                    (id, email, hashed_password, is_admin, created_at, must_change_password)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        user_id,
+                        normalized_email,
+                        hashed,
+                        int(is_admin),
+                        now,
+                        int(must_change_password),
+                    ),
                 )
             except sqlite3.IntegrityError:
-                raise ValueError(f"用户名已存在：{username}") from None
+                raise ValueError("该邮箱已被注册") from None
         return WebUser(
             id=user_id,
-            username=username,
+            email=normalized_email,
             hashed_password=hashed,
             is_admin=is_admin,
             created_at=now,
+            must_change_password=must_change_password,
         )
 
-    def get_by_username(self, username: str) -> WebUser | None:
+    def get_by_email(self, email: str) -> WebUser | None:
+        normalized_email = validate_email(email)
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT id, username, hashed_password, is_admin, created_at "
-                "FROM users WHERE username=?",
-                (username,),
+                "SELECT id,email,hashed_password,is_admin,created_at,auth_version,"
+                "must_change_password "
+                "FROM users WHERE email=?",
+                (normalized_email,),
             ).fetchone()
         return _row_to_user(row) if row is not None else None
 
     def get_by_id(self, user_id: str) -> WebUser | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT id, username, hashed_password, is_admin, created_at FROM users WHERE id=?",
+                "SELECT id,email,hashed_password,is_admin,created_at,auth_version,"
+                "must_change_password "
+                "FROM users WHERE id=?",
                 (user_id,),
             ).fetchone()
         return _row_to_user(row) if row is not None else None
@@ -166,18 +212,23 @@ class WebUserStore:
     def list_users(self) -> list[WebUser]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, username, hashed_password, is_admin, created_at "
+                "SELECT id,email,hashed_password,is_admin,created_at,auth_version,"
+                "must_change_password "
                 "FROM users ORDER BY created_at"
             ).fetchall()
         return [_row_to_user(row) for row in rows]
 
-    def update_password(self, user_id: str, new_password: str) -> bool:
+    def update_password(
+        self, user_id: str, new_password: str, *, must_change_password: bool = False
+    ) -> bool:
         if len(new_password) < MIN_PASSWORD_CHARS:
             raise ValueError(f"密码至少需要 {MIN_PASSWORD_CHARS} 位")
         hashed = hash_password(new_password)
         with self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE users SET hashed_password=? WHERE id=?", (hashed, user_id)
+                "UPDATE users SET hashed_password=?,auth_version=auth_version+1,"
+                "must_change_password=? WHERE id=?",
+                (hashed, int(must_change_password), user_id),
             )
         return cursor.rowcount == 1
 
@@ -317,10 +368,12 @@ class WebUserStore:
 def _row_to_user(row: tuple[Any, ...]) -> WebUser:
     return WebUser(
         id=str(row[0]),
-        username=str(row[1]),
+        email=str(row[1]),
         hashed_password=str(row[2]),
         is_admin=bool(row[3]),
         created_at=str(row[4]),
+        auth_version=int(row[5]),
+        must_change_password=bool(row[6]),
     )
 
 
@@ -371,8 +424,8 @@ class JwtSecretStore:
 
 def create_access_token(
     user_id: str,
-    username: str,
     is_admin: bool,
+    auth_version: int,
     secret: bytes,
     expiry_minutes: int = JWT_EXPIRY_MINUTES,
 ) -> str:
@@ -380,8 +433,8 @@ def create_access_token(
 
     payload = {
         "sub": user_id,
-        "username": username,
         "is_admin": is_admin,
+        "ver": auth_version,
         "exp": datetime.now(UTC) + timedelta(minutes=expiry_minutes),
     }
     return cast(str, jwt.encode(payload, secret.hex(), algorithm=JWT_ALGORITHM))
@@ -421,6 +474,17 @@ def make_get_current_user(user_store: WebUserStore, jwt_secret: bytes) -> Callab
         user = user_store.get_by_id(str(user_id))
         if user is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在")
+        if payload.get("ver") != user.auth_version:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="登录凭证已失效，请重新登录",
+            )
+        if user.must_change_password and request.url.path not in {
+            "/auth/me",
+            "/auth/me/password",
+            "/auth/logout",
+        }:
+            raise HTTPException(status_code=403, detail="请先修改临时密码")
         return user
 
     return get_current_user
@@ -440,9 +504,15 @@ def make_require_admin(get_current_user: Callable[..., Any]) -> Callable[..., An
 class LoginRateLimiter:
     """Sliding window: 5 attempts per IP per 60 seconds."""
 
-    def __init__(self, max_attempts: int = 5, window_seconds: float = 60.0) -> None:
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        window_seconds: float = 60.0,
+        message: str = "登录尝试过于频繁，请稍后再试",
+    ) -> None:
         self._max = max_attempts
         self._window = window_seconds
+        self._message = message
         self._log: dict[str, deque[float]] = {}
 
     def check_and_record(self, ip: str) -> None:
@@ -454,6 +524,6 @@ class LoginRateLimiter:
         if len(times) >= self._max:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="登录尝试过于频繁，请稍后再试",
+                detail=self._message,
             )
         times.append(now)

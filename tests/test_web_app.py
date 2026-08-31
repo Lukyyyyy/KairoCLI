@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +35,10 @@ def _web_app(tmp_path: Path) -> tuple[Any, dict[str, str]]:
     users_database = tmp_path / "web" / "users.db"
     secret_path = tmp_path / "web" / "jwt_secret.bin"
     user_store = WebUserStore(users_database)
-    user = user_store.create_user("tester", "password-123")
+    user = user_store.create_user("tester@example.com", "password-123")
     user_store.add_workspace(user.id, str(tmp_path))
     secret = JwtSecretStore(secret_path).load_or_generate()
-    token = create_access_token(user.id, user.username, user.is_admin, secret)
+    token = create_access_token(user.id, user.is_admin, user.auth_version, secret)
 
     def factory(approver: Any = None, workspace: Path | None = None) -> Agent:
         return Agent(
@@ -71,6 +72,28 @@ def _sse_events(body: str) -> list[tuple[str, dict[str, Any]]]:
         if event_type:
             events.append((event_type, data))
     return events
+
+
+def test_legacy_username_schema_is_reset(tmp_path: Path) -> None:
+    database = tmp_path / "web" / "users.db"
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, "
+            "hashed_password TEXT NOT NULL, is_admin INTEGER NOT NULL, created_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO users VALUES ('old', 'alice', 'hash', 1, '2026-01-01')"
+        )
+
+    store = WebUserStore(database)
+
+    assert store.legacy_reset is True
+    assert store.count() == 0
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+    assert "username" not in columns
+    assert {"id", "email", "auth_version"} <= columns
 
 
 def test_web_info_and_invalid_mode_fallback(tmp_path: Path) -> None:
@@ -110,11 +133,84 @@ def test_web_favicon_uses_the_kairo_brand_icon(tmp_path: Path) -> None:
     assert b'<linearGradient id="brand"' in response.content
 
 
+def test_web_registration_uses_mail_verification_when_enabled(tmp_path: Path) -> None:
+    class FakeMailService:
+        ttl_minutes = 5
+
+        def __init__(self) -> None:
+            self.issued: list[str] = []
+
+        async def issue(self, email: str, purpose: str = "register") -> str:
+            self.issued.append(f"{purpose}:{email}")
+            return email
+
+        def verify(self, email: str, code: str, purpose: str = "register") -> bool:
+            return f"{purpose}:{email}" in self.issued and code == "123456"
+
+    mail = FakeMailService()
+    users_database = tmp_path / "web" / "users.db"
+    app = create_web_app(
+        lambda: None,
+        runtime_database=tmp_path / "runtime" / "runtime.db",
+        users_database=users_database,
+        jwt_secret_path=tmp_path / "web" / "jwt_secret.bin",
+        default_workspace=tmp_path,
+        workspace_roots=[tmp_path],
+        mail_builder=lambda: mail,  # type: ignore[arg-type]
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/auth/config").json() == {"registration_enabled": True}
+        assert client.post(
+            "/auth/register", json={"email": "alice@example.com", "password": "password-123"}
+        ).status_code == 422
+        sent = client.post("/auth/email/code", json={"email": "Alice@Example.com"})
+        assert sent.status_code == 200
+        registered = client.post(
+            "/auth/register",
+            json={
+                "password": "password-123",
+                "email": "Alice@Example.com",
+                "code": "123456",
+            },
+        )
+        logged_in = client.post(
+            "/auth/login",
+            json={"email": "alice@example.com", "password": "password-123"},
+        )
+        old_token = logged_in.json()["access_token"]
+        client.cookies.clear()
+        reset_sent = client.post(
+            "/auth/email/code",
+            json={"email": "Alice@Example.com", "purpose": "reset"},
+        )
+        reset = client.post(
+            "/auth/password/reset",
+            json={
+                "email": "Alice@Example.com",
+                "code": "123456",
+                "password": "new-password-123",
+            },
+        )
+        stale_session = client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {old_token}"}
+        )
+
+    assert registered.status_code == 201
+    assert reset_sent.status_code == 200
+    assert reset.status_code == 200
+    assert stale_session.status_code == 401
+    assert mail.issued == ["register:alice@example.com", "reset:alice@example.com"]
+    assert WebUserStore(users_database).get_by_email("alice@example.com") is not None
+
+
 def test_cookie_login_requires_csrf_for_writes(tmp_path: Path) -> None:
     app, _headers = _web_app(tmp_path)
 
     with TestClient(app) as client:
-        login = client.post("/auth/login", data={"username": "tester", "password": "password-123"})
+        login = client.post(
+            "/auth/login", json={"email": "tester@example.com", "password": "password-123"}
+        )
         assert login.status_code == 200
         assert login.json()["token_type"] == "bearer"
         assert "HttpOnly" in login.headers["set-cookie"]
@@ -206,11 +302,11 @@ def test_web_workspace_browser_and_thread_binding(tmp_path: Path) -> None:
     users_database = tmp_path / "web" / "users.db"
     secret_path = tmp_path / "web" / "jwt_secret.bin"
     user_store = WebUserStore(users_database)
-    user = user_store.create_user("tester", "password-123", is_admin=True)
+    user = user_store.create_user("tester@example.com", "password-123", is_admin=True)
     user_store.add_workspace(user.id, str(first))
     secret = JwtSecretStore(secret_path).load_or_generate()
     headers = {
-        "Authorization": f"Bearer {create_access_token(user.id, user.username, True, secret)}"
+        "Authorization": f"Bearer {create_access_token(user.id, True, user.auth_version, secret)}"
     }
 
     def factory(approver: Any = None, workspace: Path | None = None) -> Agent:
@@ -307,15 +403,17 @@ def test_admin_has_implicit_access_to_host_directories(tmp_path: Path) -> None:
     users_database = tmp_path / "web" / "users.db"
     secret_path = tmp_path / "web" / "jwt_secret.bin"
     user_store = WebUserStore(users_database)
-    admin = user_store.create_user("admin-user", "password-123", is_admin=True)
-    member = user_store.create_user("member", "password-123")
+    admin = user_store.create_user("admin@example.com", "password-123", is_admin=True)
+    member = user_store.create_user("member@example.com", "password-123")
     user_store.add_workspace(member.id, str(default_workspace))
     secret = JwtSecretStore(secret_path).load_or_generate()
     admin_headers = {
-        "Authorization": f"Bearer {create_access_token(admin.id, admin.username, True, secret)}"
+        "Authorization": f"Bearer {create_access_token(admin.id, True, admin.auth_version, secret)}"
     }
     member_headers = {
-        "Authorization": f"Bearer {create_access_token(member.id, member.username, False, secret)}"
+        "Authorization": (
+            f"Bearer {create_access_token(member.id, False, member.auth_version, secret)}"
+        )
     }
 
     app = create_web_app(
@@ -431,15 +529,17 @@ def test_model_config_and_presets_are_isolated_per_user(
     users_database = tmp_path / "web" / "users.db"
     secret_path = tmp_path / "web" / "jwt_secret.bin"
     user_store = WebUserStore(users_database)
-    alice = user_store.create_user("alice", "password-123")
-    bob = user_store.create_user("bob", "password-456")
+    alice = user_store.create_user("alice@example.com", "password-123")
+    bob = user_store.create_user("bob@example.com", "password-456")
     user_store.add_workspace(alice.id, str(tmp_path))
     secret = JwtSecretStore(secret_path).load_or_generate()
     alice_headers = {
-        "Authorization": f"Bearer {create_access_token(alice.id, alice.username, False, secret)}"
+        "Authorization": (
+            f"Bearer {create_access_token(alice.id, False, alice.auth_version, secret)}"
+        )
     }
     bob_headers = {
-        "Authorization": f"Bearer {create_access_token(bob.id, bob.username, False, secret)}"
+        "Authorization": f"Bearer {create_access_token(bob.id, False, bob.auth_version, secret)}"
     }
     base_config = AppConfig(
         default_provider="glm",
@@ -591,11 +691,11 @@ def test_thread_title_is_published_before_the_main_answer_finishes(
     users_database = tmp_path / "web" / "users.db"
     secret_path = tmp_path / "web" / "jwt_secret.bin"
     user_store = WebUserStore(users_database)
-    user = user_store.create_user("tester", "password-123")
+    user = user_store.create_user("tester@example.com", "password-123")
     user_store.add_workspace(user.id, str(tmp_path))
     secret = JwtSecretStore(secret_path).load_or_generate()
     headers = {
-        "Authorization": f"Bearer {create_access_token(user.id, user.username, False, secret)}"
+        "Authorization": f"Bearer {create_access_token(user.id, False, user.auth_version, secret)}"
     }
     config = AppConfig(
         default_provider="deepseek",
