@@ -267,10 +267,13 @@ kairocli serve --http --web \
 ```
 
 Web 服务默认仅监听 `127.0.0.1`；需要在可信局域网内访问时额外传入 `--lan`，绑定到
-`0.0.0.0`。首次启动会在终端输出临时管理员密码，用户与 JWT 密钥保存在
+`0.0.0.0`。首次在交互式终端启动时会引导输入管理员邮箱和密码；非交互式部署须设置
+`KAIROCLI_WEB_ADMIN_EMAIL`，系统会输出一次性临时密码。用户与 JWT 密钥保存在
 `~/.kairocli/web/`。
 
-Web 保持公开注册；新用户默认获得 ¥1.00 平台余额，但必须由管理员授权工作区后才能创建
+Web 使用邮箱注册和登录，每个用户自动获得不可修改的账号 ID。公开注册必须先通过腾讯云
+SES 邮箱验证码；邮件服务未配置完整时公开注册关闭，管理员仍可在后台创建账号。忘记密码
+也使用同一验证码邮件模板，重置成功后该账号的旧会话全部失效。新用户默认获得 ¥1.00 平台余额，但必须由管理员授权工作区后才能创建
 对话或连接 IM。管理员可统一调整每个用户的人民币余额和月额度；“每月自动重置”默认
 关闭，开启后余额会在新月份替换为月额度，不结转。使用平台 API Key 时按
 `pricing.json` 的人民币单价扣费，单次请求允许产生小额负余额；用户配置自己的 API Key
@@ -319,7 +322,7 @@ Web 回答通过可重连的 SSE 长连接实时传输。模型输出会按短�
 
 ```bash
 kairocli wechat daemon stop
-kairocli wechat migrate-web --user alice
+kairocli wechat migrate-web --account-id user_0123456789abcdef
 ```
 
 迁移后旧凭证会保存为 `~/.kairocli/wechat/account.migrated.json`，Web 绑定默认关闭，需在
@@ -366,6 +369,12 @@ kairocli wechat daemon stop
 | `KAIROCLI_LOG_ENABLED` | `true` | 启用脱敏后的应用日志 |
 | `KAIROCLI_TRACE_ENABLED` | `false` | 启用私有模型诊断 trace，记录每次模型请求的消息、工具 schema 与响应 |
 | `KAIROCLI_TRACE_REASONING` | `false` | 在 trace 中额外记录 reasoning，需显式开启 |
+| `KAIROCLI_MAIL_ENABLED` | `false` | 启用腾讯云 SES 邮件服务（Web 注册验证码与测试邮件） |
+| `KAIROCLI_MAIL_PROVIDER` | `tencent-ses` | 邮件服务提供商；当前支持 `tencent-ses` |
+| `KAIROCLI_WEB_ADMIN_EMAIL` | 空 | 非交互式 Web 首次启动时创建管理员所用的邮箱 |
+| `KAIROCLI_MAIL_FROM_ADDRESS` | 空 | SES 发信地址，需在 SES 控制台完成发信域名配置 |
+| `KAIROCLI_MAIL_TEMPLATE_TEST` | 空 | 已审核通过的测试邮件模板 ID |
+| `KAIROCLI_MAIL_TEMPLATE_VERIFICATION` | 空 | 已审核通过的验证码邮件模板 ID |
 
 在交互式 CLI 中可查看或修改 Provider 配置：
 
@@ -380,6 +389,25 @@ kairocli wechat daemon stop
 Provider 的 `base-url`、`model`、`lora-id`、`context-window`、`temperature` 和 `max-tokens` 也可通过 `/config` 修改。详细模板见 [.env.example](.env.example)。
 
 模型费用估算由用户级 `~/.kairocli/pricing.json` 管理。Kairo CLI 首次启动时会生成该文件，之后每次启动重新读取；可直接修改 Provider 默认单价、价格生效时间、时区、高峰时段及模型匹配规则。单价单位为人民币元/百万 token，`input`、`cached` 和 `output` 分别表示未缓存输入、缓存输入和输出。配置无效时 CLI 会继续使用内置默认价格，并在 `/context` 中显示回退提示。
+
+### 邮件服务
+
+Web 控制台的注册验证码通过腾讯云 SES 发送。在 `.env` 中启用邮件服务并填写：
+
+- 邮件服务提供商：`KAIROCLI_MAIL_PROVIDER=tencent-ses`；
+- 腾讯云 API 密钥：`KAIROCLI_TENCENT_SECRET_ID`、`KAIROCLI_TENCENT_SECRET_KEY`；
+- 发信地址：`KAIROCLI_MAIL_FROM_ADDRESS`（需先在 SES 控制台完成发信域名配置）；
+- 已审核通过的模板 ID：`KAIROCLI_MAIL_TEMPLATE_TEST`（测试邮件）、
+  `KAIROCLI_MAIL_TEMPLATE_VERIFICATION`（验证码邮件），模板示例见
+  [docs/mail-templates](docs/mail-templates)。
+
+启用后 Web 注册与密码重置使用邮箱验证码，验证码默认 5 分钟有效、60 秒内不可重发；
+未启用时关闭公开注册和自助密码重置。应用日志只记录脱敏后的投递元数据，不记录验证码内容。配置完成
+后可发送测试邮件自检：
+
+```bash
+kairocli mail test --to you@example.com
+```
 
 ### MCP
 
