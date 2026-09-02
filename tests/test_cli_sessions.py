@@ -307,6 +307,16 @@ def test_resume_flags_are_mutually_exclusive() -> None:
         parser.parse_args(["--continue", "--resume", "session_123456789abc"])
 
 
+def test_mail_test_command_parses_recipient() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["mail", "test", "--to", "user@example.com"])
+    assert args.subcommand == "mail"
+    assert args.action == "test"
+    assert args.to == "user@example.com"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["mail", "test"])
+
+
 @pytest.mark.parametrize(
     "value",
     [

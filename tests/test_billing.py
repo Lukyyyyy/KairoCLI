@@ -60,8 +60,14 @@ def test_monthly_reset_is_opt_in_and_replaces_balance(tmp_path: Path) -> None:
     billing = BillingStore(database)
     billing.set_quota(user.id, cny_to_units("0.25"), cny_to_units("2.00"))
 
-    assert billing.apply_monthly_reset(datetime(2026, 9, 1)) is False
+    # 开启重置会以当前月为基线，因此用下个月验证触发，避免测试随真实日期失效。
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    next_month = datetime(
+        now.year + (now.month == 12), now.month % 12 + 1, 1, tzinfo=now.tzinfo
+    )
+
+    assert billing.apply_monthly_reset(next_month) is False
     billing.set_monthly_reset_enabled(True)
-    assert billing.apply_monthly_reset(datetime(2026, 9, 1)) is True
+    assert billing.apply_monthly_reset(next_month) is True
     assert billing.quota(user.id).balance_cny == "2.00"
-    assert billing.apply_monthly_reset(datetime(2026, 9, 2)) is False
+    assert billing.apply_monthly_reset(next_month) is False

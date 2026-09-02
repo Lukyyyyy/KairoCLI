@@ -174,6 +174,9 @@ def test_web_registration_uses_mail_verification_when_enabled(tmp_path: Path) ->
                 "code": "123456",
             },
         )
+        duplicate_sent = client.post(
+            "/auth/email/code", json={"email": "Alice@Example.com"}
+        )
         logged_in = client.post(
             "/auth/login",
             json={"email": "alice@example.com", "password": "password-123"},
@@ -197,6 +200,8 @@ def test_web_registration_uses_mail_verification_when_enabled(tmp_path: Path) ->
         )
 
     assert registered.status_code == 201
+    assert duplicate_sent.status_code == 409
+    assert duplicate_sent.json() == {"detail": "该邮箱已被注册"}
     assert reset_sent.status_code == 200
     assert reset.status_code == 200
     assert stale_session.status_code == 401

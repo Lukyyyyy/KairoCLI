@@ -678,6 +678,8 @@ def create_web_app(
             normalized = validate_email(email)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        if purpose == "register" and user_store.get_by_email(normalized) is not None:
+            raise HTTPException(status_code=409, detail="该邮箱已被注册")
         ip = request.client.host if request.client else "unknown"
         email_code_limiter.check_and_record(ip)
         try:
