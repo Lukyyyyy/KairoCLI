@@ -664,10 +664,15 @@ class Agent:
         self.compaction_count += child.compaction_count
 
     def context_status(self) -> str:
-        current = self.estimate_current_context_tokens()
+        system_tokens = estimate_message_tokens([Message("system", self.system_prompt)])
+        schema_tokens = estimate_schema_tokens(self.tools.schemas())
+        conversation_tokens = estimate_message_tokens(self.history)
+        current = system_tokens + schema_tokens + conversation_tokens
         profile = self.context_profile
         ratio = current / profile.max_context_window
         remaining = max(0, profile.compression_trigger_tokens - current)
+        filled = min(24, max(1, round(ratio * 24)))
+        bar = "█" * filled + "░" * (24 - filled)
         cost = estimated_cost_cny(
             self.llm.provider,
             self.total_input_tokens,
@@ -676,28 +681,54 @@ class Agent:
             model=self.llm.model,
             pricing=self.pricing,
         )
-        hard_budget = self.budget.token_budget or "unlimited"
+        hard_budget = (
+            f"{self.budget.token_budget:,}" if self.budget.token_budget is not None else "不限"
+        )
         memory_status = (
             self.memory_store.status_summary()
             if self.memory_store is not None
-            else "Long-term memory: unavailable"
+            else "长期记忆：不可用"
         )
-        pricing_status = f"\n{self.pricing.warning}" if self.pricing.warning else ""
+        cache_mode = {
+            "glm-prompt-cache": "GLM 提示缓存",
+            "automatic-prefix-cache": "自动前缀缓存",
+            "step-prefix-cache": "Step 前缀缓存",
+            "moonshot-context-cache": "Moonshot 上下文缓存",
+            "none": "未启用",
+        }.get(profile.prompt_cache_mode, profile.prompt_cache_mode)
+        pricing_status = f"\n  {self.pricing.warning}" if self.pricing.warning else ""
         return (
-            f"Model: {self.llm.model} ({self.llm.provider})\n"
-            f"Context: {current} / {profile.max_context_window} tokens ({ratio:.1%})\n"
-            f"Auto-compact: {profile.compression_trigger_tokens} tokens; "
-            f"remaining {remaining}; runs {self.compaction_count}\n"
-            f"Conversation budget: {profile.short_term_memory_budget}; "
-            f"memory injection: {profile.memory_context_tokens}\n"
-            f"MCP resource index: {'on' if profile.mcp_resource_index_enabled else 'off'}; "
-            f"prompt cache: {profile.prompt_cache_mode}\n"
-            f"Usage: calls {self.llm_call_count}; input {self.total_input_tokens}; "
-            f"output {self.total_output_tokens}; cached {self.total_cached_tokens}; "
-            f"estimated cost ¥{cost:.4f}\n"
-            f"Safety limits: hard iterations {self.budget.max_iterations}; "
-            f"token budget {hard_budget}; model retries {self.max_llm_retries}\n"
-            f"{memory_status}{pricing_status}"
+            "上下文状态\n"
+            f"  模型：{self.llm.model}（{self.llm.provider}）\n"
+            "\n"
+            f"当前占用  {current:,} / {profile.max_context_window:,} token"
+            f"（{ratio:.1%}，估算）\n"
+            f"  [{bar}]\n"
+            f"  系统提示词：{system_tokens:,} token "
+            f"（{system_tokens / profile.max_context_window:.1%}）\n"
+            f"  工具定义：{schema_tokens:,} token "
+            f"（{schema_tokens / profile.max_context_window:.1%}）\n"
+            f"  会话消息：{conversation_tokens:,} token "
+            f"（{conversation_tokens / profile.max_context_window:.1%}，{len(self.history)} 条）\n"
+            "\n"
+            "压缩与记忆\n"
+            f"  自动压缩阈值：{profile.compression_trigger_tokens:,} token\n"
+            f"  距阈值还有：{remaining:,} token；已压缩 {self.compaction_count} 次\n"
+            f"  会话预算：{profile.short_term_memory_budget:,} token\n"
+            f"  记忆注入上限：{profile.memory_context_tokens:,} token\n"
+            f"  {memory_status}\n"
+            "\n"
+            "累计用量\n"
+            f"  模型调用：{self.llm_call_count} 次\n"
+            f"  输入：{self.total_input_tokens:,} token；输出：{self.total_output_tokens:,} token\n"
+            f"  缓存输入：{self.total_cached_tokens:,} token\n"
+            f"  预估费用：¥{cost:.4f}\n"
+            "\n"
+            "运行设置\n"
+            f"  MCP 资源索引：{'开启' if profile.mcp_resource_index_enabled else '关闭'}\n"
+            f"  提示缓存：{cache_mode}\n"
+            f"  最大迭代：{self.budget.max_iterations} 次；模型重试：{self.max_llm_retries} 次\n"
+            f"  Token 总预算：{hard_budget}{pricing_status}"
         )
 
     def status_line(self) -> str:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import stat
@@ -15,8 +16,10 @@ from urllib.parse import urlparse
 
 import jieba  # type: ignore[import-untyped]
 
-from .context import estimate_text_tokens
+from .agent.context import estimate_text_tokens
 from .paths import KairoPaths, reject_symlink_components
+
+jieba.setLogLevel(logging.WARNING)
 
 _MEMORY_LOCK = threading.RLock()
 _WORD = re.compile(r"[a-z0-9][a-z0-9_.+-]*", re.I)
@@ -189,8 +192,8 @@ class MemoryStore:
         global_count = sum(entry.scope == "global" for entry in entries)
         tokens = sum(entry.token_count for entry in entries)
         return (
-            f"Long-term memory: {len(entries)} entries / {tokens} tokens "
-            f"(project {project_count}, global {global_count})"
+            f"长期记忆：{len(entries)} 条 / {tokens:,} token "
+            f"（项目 {project_count} 条，全局 {global_count} 条）"
         )
 
     @staticmethod

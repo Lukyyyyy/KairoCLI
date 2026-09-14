@@ -269,7 +269,27 @@ async def test_agent_auto_compacts_before_model_request(tmp_path: Path) -> None:
     assert agent.total_cached_tokens == 30
     # Compaction is a real billed model call and must be included in usage accounting.
     assert agent.llm_call_count == 2
-    assert "cached 30" in agent.context_status()
+    assert "缓存输入：30 token" in agent.context_status()
+
+
+def test_context_status_breaks_down_current_usage(tmp_path: Path) -> None:
+    agent = Agent(CapabilityClient(), ToolRegistry(tmp_path), "system")
+    agent.history = [Message("user", "hello"), Message("assistant", "world")]
+
+    system = estimate_message_tokens([Message("system", agent.system_prompt)])
+    conversation = estimate_message_tokens(agent.history)
+    schema = agent.estimate_current_context_tokens() - system - conversation
+    status = agent.context_status()
+
+    assert "[█" in status
+    assert f"当前占用  {system + schema + conversation:,} / 1,000,000 token" in status
+    assert f"系统提示词：{system:,} token" in status
+    assert f"工具定义：{schema:,} token" in status
+    assert f"会话消息：{conversation:,} token" in status
+    assert "2 条" in status
+    assert "\n\n压缩与记忆\n" in status
+    assert "\n\n累计用量\n" in status
+    assert "\n\n运行设置\n" in status
 
 
 def test_agent_budget_environment_overrides(monkeypatch: Any) -> None:

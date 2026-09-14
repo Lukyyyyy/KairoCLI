@@ -82,7 +82,7 @@ class PricingConfig:
         except (OSError, ValueError) as exc:
             return cls(
                 default.providers,
-                f"Pricing config ignored ({type(exc).__name__}); using built-in defaults.",
+                f"价格配置无效（{type(exc).__name__}），已使用内置默认单价。",
             )
 
     @classmethod

@@ -388,6 +388,8 @@ kairocli wechat daemon stop
 
 Provider 的 `base-url`、`model`、`lora-id`、`context-window`、`temperature` 和 `max-tokens` 也可通过 `/config` 修改。详细模板见 [.env.example](.env.example)。
 
+`/context`（也可输入 `/ctx`）以中文分区显示当前会话的上下文占用进度条，并按系统提示词、工具定义和会话消息拆分估算 token；其余分区列出自动压缩阈值与剩余额度、记忆状态、模型调用用量和费用估算。上下文占用是当前估算值，调用用量是会话累计值。
+
 模型费用估算由用户级 `~/.kairocli/pricing.json` 管理。Kairo CLI 首次启动时会生成该文件，之后每次启动重新读取；可直接修改 Provider 默认单价、价格生效时间、时区、高峰时段及模型匹配规则。单价单位为人民币元/百万 token，`input`、`cached` 和 `output` 分别表示未缓存输入、缓存输入和输出。配置无效时 CLI 会继续使用内置默认价格，并在 `/context` 中显示回退提示。
 
 ### 邮件服务
