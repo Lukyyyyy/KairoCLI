@@ -4,7 +4,7 @@ import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
-from .sessions import SessionMeta
+from ..sessions import SessionMeta
 
 DEFAULT_SESSION_LIST_LIMIT = 20
 

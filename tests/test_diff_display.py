@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from kairocli.diff_display import render_file_diff
 from kairocli.models import FileDiff
+from kairocli.rendering.diff_display import render_file_diff
 from kairocli.tools import ToolRegistry
 
 

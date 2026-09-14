@@ -20,9 +20,9 @@ from ..mcp import (
 )
 from ..paths import KairoPaths
 from ..policy import ApprovalPolicy, ApprovalResult
+from ..rendering.terminal import sanitize_terminal_text
 from ..sessions import SessionStore, apply_session
 from ..snapshot import SnapshotError, SnapshotService, turn_snapshot_messages
-from ..terminal import sanitize_terminal_text
 from ..text_safety import safe_text
 from ..todos import SessionTodoController
 from ..trace import redact_sensitive_text

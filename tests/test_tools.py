@@ -17,8 +17,8 @@ from kairocli.agent import AgentCanceled
 from kairocli.models import ToolOutput
 from kairocli.paths import KairoPaths
 from kairocli.policy import ApprovalPolicy, ApprovalResult, AuditLog
-from kairocli.tool_result import is_failed_tool_text
 from kairocli.tools import ToolDefinition, ToolRegistry
+from kairocli.tools.tool_result import is_failed_tool_text
 
 
 async def test_registry_close_attempts_all_owned_services(tmp_path: Path) -> None:

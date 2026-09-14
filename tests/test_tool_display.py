@@ -1,5 +1,5 @@
 from kairocli.models import ToolCall, ToolOutput
-from kairocli.tool_display import format_tool_calls, format_tool_results
+from kairocli.rendering.tool_display import format_tool_calls, format_tool_results
 
 
 def _call(name: str, arguments: dict[str, object]) -> ToolCall:

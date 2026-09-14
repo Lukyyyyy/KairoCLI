@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from kairocli.cli import _print_status, _print_untrusted, _write_stream
-from kairocli.terminal import TerminalStreamSanitizer, sanitize_terminal_text
+from kairocli.rendering.terminal import TerminalStreamSanitizer, sanitize_terminal_text
 
 
 def test_terminal_sanitizer_removes_escape_protocols_and_spoofing_controls() -> None:

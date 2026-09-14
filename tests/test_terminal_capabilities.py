@@ -1,4 +1,4 @@
-from kairocli.terminal_capabilities import (
+from kairocli.rendering.terminal_capabilities import (
     detect_renderer_mode,
     resolve_renderer_mode,
     supports_truecolor,

@@ -22,10 +22,10 @@ from ..mcp import (
 )
 from ..paths import KairoPaths
 from ..policy import ApprovalPolicy
+from ..rendering.terminal_capabilities import detect_renderer_mode
 from ..sessions import SessionStore, apply_session
 from ..skills import SkillRegistry
 from ..tasks import DurableTaskManager, DurableTaskStore
-from ..terminal_capabilities import detect_renderer_mode
 from ..todos import SessionTodoController
 from .bootstrap import _inject_mcp_resource_index, _register_browser_agent_tools, make_agent
 from .interactive import (
@@ -211,9 +211,7 @@ async def handle_wechat(
 ) -> int:
     from datetime import UTC, datetime
 
-    from ..channels.wechat.accounts import _normalize_wechat_base_url
-    from ..channels.wechat.daemon import _read_live_pid
-    from ..wechat import (
+    from ..channels.wechat import (
         IlinkClient,
         WechatAccount,
         WechatAccountStore,
@@ -222,6 +220,8 @@ async def handle_wechat(
         daemon_command,
         daemon_paths,
     )
+    from ..channels.wechat.accounts import _normalize_wechat_base_url
+    from ..channels.wechat.daemon import _read_live_pid
 
     store = WechatAccountStore(paths)
     if action == "daemon":

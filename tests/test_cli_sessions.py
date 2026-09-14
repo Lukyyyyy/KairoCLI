@@ -41,8 +41,8 @@ from kairocli.llm import LlmClient
 from kairocli.models import LlmResponse, Message
 from kairocli.paths import KairoPaths
 from kairocli.plan import ExecutionPlan, PlanTask
+from kairocli.rendering.thought_display import ThoughtDisplay
 from kairocli.sessions import SessionStore
-from kairocli.thought_display import ThoughtDisplay
 from kairocli.tools import ToolRegistry
 
 cli_module = importlib.import_module("kairocli.cli.interactive")

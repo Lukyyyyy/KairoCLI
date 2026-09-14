@@ -16,7 +16,7 @@ from ...channels.wechat.formatting import (
     split_message as split_message,
 )
 from ...json_boundary import decode_strict_json
-from ...web import NetworkPolicy
+from ...tools.web import NetworkPolicy
 from .accounts import (
     LoginResult,
     QrLogin,

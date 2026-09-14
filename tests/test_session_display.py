@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from kairocli.session_display import format_session_list
+from kairocli.rendering.session_display import format_session_list
 from kairocli.sessions import SessionMeta
 
 

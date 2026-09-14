@@ -31,7 +31,7 @@ from ..policy import (
 )
 from ..rag import CodeIndex
 from ..text_safety import safe_text
-from ..tool_result import is_failed_tool_text
+from ..tools.tool_result import is_failed_tool_text
 from ..trace import redact_sensitive_text
 from .filesystem import (
     _atomic_write_text,

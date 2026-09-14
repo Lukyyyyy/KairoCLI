@@ -1,6 +1,6 @@
 import difflib
 
-from .models import FileDiff
+from ..models import FileDiff
 from .terminal import sanitize_terminal_text
 
 MAX_RENDERED_DIFF_LINES = 400

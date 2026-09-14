@@ -1,4 +1,4 @@
-from kairocli.thought_display import MAX_THOUGHT_DETAIL_CHARS, ThoughtDisplay
+from kairocli.rendering.thought_display import MAX_THOUGHT_DETAIL_CHARS, ThoughtDisplay
 
 
 def test_thought_display_collapses_and_expands_the_latest_turn() -> None:

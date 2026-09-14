@@ -12,7 +12,6 @@ from .brand import PRODUCT_NAME
 from .browser import handle_browser_command
 from .commands import SLASH_HELP
 from .config import AppConfig, handle_config_command, handle_model_command
-from .diff_display import render_file_diff
 from .image import prepare_image_input
 from .json_boundary import decode_strict_json
 from .mcp import (
@@ -24,7 +23,10 @@ from .memory import handle_memory_command, handle_save_command
 from .plan import ExecutionPlan
 from .policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from .prompts import initialize_project_memory
-from .session_display import format_session_list
+from .rendering.diff_display import render_file_diff
+from .rendering.session_display import format_session_list
+from .rendering.terminal import sanitize_terminal_text
+from .rendering.tool_display import format_tool_calls, format_tool_results
 from .sessions import SessionStore, apply_session, write_session_export
 from .skills import SkillRegistry, handle_skill_command
 from .snapshot import SnapshotError, turn_snapshot_messages
@@ -34,10 +36,8 @@ from .tasks import (
     DurableTaskStore,
     handle_task_command,
 )
-from .terminal import sanitize_terminal_text
 from .text_safety import safe_text
 from .todos import SessionTodoController
-from .tool_display import format_tool_calls, format_tool_results
 from .trace import redact_sensitive_text, safe_redacted_text
 from .user_input import UserInputError, normalize_interactive_submission
 

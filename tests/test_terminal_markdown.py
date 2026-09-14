@@ -1,5 +1,5 @@
 from kairocli.cli import _render_interactive_answer
-from kairocli.terminal_markdown import TerminalMarkdownRenderer
+from kairocli.rendering.terminal_markdown import TerminalMarkdownRenderer
 
 
 def test_terminal_markdown_renders_common_blocks() -> None:

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..shell import MAX_SHELL_COMMAND_BYTES
 from .limits import (
     MAX_GREP_MAX_CHARS,
     MAX_PATCH_BYTES,
     MAX_READ_FILE_CHARS,
     MAX_READ_FILE_LINES,
 )
+from .shell import MAX_SHELL_COMMAND_BYTES
 
 
 def _required(properties: dict[str, Any], *required: str) -> dict[str, Any]:

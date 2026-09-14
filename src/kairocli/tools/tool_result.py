@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .json_boundary import decode_strict_json
+from ..json_boundary import decode_strict_json
 
 MAX_TOOL_RESULT_JSON_BYTES = 800_000
 

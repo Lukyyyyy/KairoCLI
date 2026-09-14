@@ -33,7 +33,6 @@ from ..config import (
     handle_model_command,
     normalize_provider_name,
 )
-from ..diff_display import render_file_diff
 from ..image import prepare_image_input
 from ..json_boundary import decode_strict_json
 from ..llm import LlmError
@@ -46,17 +45,18 @@ from ..paths import KairoPaths
 from ..plan import PlanReviewDecisionType, parse_plan_review_input
 from ..policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from ..prompts import initialize_project_memory
-from ..session_display import format_session_list
+from ..rendering.diff_display import render_file_diff
+from ..rendering.session_display import format_session_list
+from ..rendering.terminal import TerminalStreamSanitizer, sanitize_terminal_text
+from ..rendering.terminal_markdown import TerminalMarkdownRenderer
+from ..rendering.thought_display import ThoughtDisplay
+from ..rendering.tool_display import format_tool_calls, format_tool_results
 from ..sessions import SessionStore, apply_session, write_session_export
 from ..skills import SkillRegistry, handle_skill_command
 from ..snapshot import SnapshotError, SnapshotService, turn_snapshot_messages
 from ..tasks import DurableTaskManager, DurableTaskStore, handle_task_command
-from ..terminal import TerminalStreamSanitizer, sanitize_terminal_text
-from ..terminal_markdown import TerminalMarkdownRenderer
 from ..text_safety import safe_text
-from ..thought_display import ThoughtDisplay
 from ..todos import SessionTodoController
-from ..tool_display import format_tool_calls, format_tool_results
 from ..tools import ToolRegistry
 from ..trace import safe_redacted_text
 from ..user_input import (
@@ -576,7 +576,7 @@ class _InteractiveWechatRuntime:
     async def _setup(self) -> None:
         from datetime import UTC, datetime
 
-        from ..wechat import IlinkClient, WechatAccount
+        from ..channels.wechat import IlinkClient, WechatAccount
 
         entered = await _read_wechat_workspace_input(self.input_session, self.paths.workspace)
         workspace = await asyncio.to_thread(
@@ -619,7 +619,7 @@ class _InteractiveWechatRuntime:
         )
 
     async def _start(self) -> str:
-        from ..wechat import IlinkClient, WechatChannel, WechatPolicy
+        from ..channels.wechat import IlinkClient, WechatChannel, WechatPolicy
 
         if self.channel_task is not None and not self.channel_task.done():
             return "WeChat channel is already running."
@@ -695,7 +695,7 @@ class _InteractiveWechatRuntime:
             await _close_components(("WeChat tool", agent.tools))
 
     def _account_store(self) -> Any:
-        from ..wechat import WechatAccountStore
+        from ..channels.wechat import WechatAccountStore
 
         return WechatAccountStore(self.paths)
 

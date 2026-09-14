@@ -5,9 +5,9 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ..text_safety import safe_text
+from ..trace import redact_sensitive_text
 from .terminal import sanitize_terminal_text
-from .text_safety import safe_text
-from .trace import redact_sensitive_text
 
 MAX_THOUGHT_DETAIL_CHARS = 100_000
 MAX_THOUGHT_TURNS = 50

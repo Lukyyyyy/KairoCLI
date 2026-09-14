@@ -7,7 +7,10 @@ policy checks happen before optional approval and tool dispatch.
 The package is organized around shallow domain packages. `agent/` separates the core runtime,
 planning, orchestration, context accounting and compaction. `cli/` separates argument parsing,
 bootstrap, interactive, noninteractive, completion and private history responsibilities. `tools/`
-owns the registry, schemas, validation, filesystem, process, shell and web implementations. `mcp/` separates configuration,
+owns the registry, schemas, validation, filesystem, process, shell, web and tool-result failure
+classification implementations. `rendering/` owns the terminal trust boundary: stream sanitization,
+terminal capability resolution, the stateful Markdown renderer and the bounded tool/thought/diff/session
+display formatters. `mcp/` separates configuration,
 protocol framing, client transport, lifecycle management, resources and commands. WeChat account,
 client, channel, daemon and formatting implementations live under `channels/wechat/`. Package
 `__init__.py` files preserve established imports such as `from kairocli.agent import Agent` and the
