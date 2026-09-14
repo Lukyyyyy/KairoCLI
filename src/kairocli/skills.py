@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import textwrap
 import threading
 from collections.abc import Iterable
 from contextlib import contextmanager
@@ -468,11 +469,25 @@ def handle_skill_command(payload: str | None, registry: SkillRegistry, agent: An
     if operation == "list":
         if not registry.skills:
             return "No skills discovered."
-        return "\n".join(
-            f"{skill.name}: {'on' if skill.enabled else 'off'} [{skill.source}]"
-            f"{' v' + skill.version if skill.version else ''} — {skill.description}"
-            for skill in registry.skills.values()
-        )
+        count = len(registry.skills)
+        enabled = sum(skill.enabled for skill in registry.skills.values())
+        lines = [f"Skills ({count} total, {enabled} on)", ""]
+        for skill in registry.skills.values():
+            details = f"{'on' if skill.enabled else 'off'} · {skill.source}"
+            if skill.version:
+                details += f" · v{skill.version}"
+            lines.append(f"  {skill.name}  [{details}]")
+            description = " ".join((skill.description or "No description.").split())
+            if len(description) > 160:
+                description = description[:159].rstrip() + "…"
+            lines.append(
+                textwrap.fill(
+                    description, width=88, initial_indent="    ", subsequent_indent="    "
+                )
+            )
+            lines.append("")
+        lines.append("/skill show NAME for details · /skill on|off NAME to toggle")
+        return "\n".join(lines)
     if operation == "reload":
         registry.reload()
         refresh_agent_skill_index(agent, registry)

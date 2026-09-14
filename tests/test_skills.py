@@ -15,6 +15,7 @@ from kairocli.skills import (
     MAX_SKILL_BODY_CHARS,
     SkillRegistry,
     SkillSource,
+    handle_skill_command,
     parse_skill_document,
 )
 
@@ -49,6 +50,30 @@ def _write_skill(
         encoding="utf-8",
     )
     return target
+
+
+def test_skill_list_has_scannable_rows_and_bounded_descriptions(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    _write_skill(paths.user_dir / "skills", "short", description="A short description")
+    _write_skill(
+        paths.project_dir / "skills",
+        "long",
+        description="A detailed description " * 30,
+    )
+    _write_skill(paths.project_dir / "skills", "chinese", description="中文说明" * 50)
+    registry = SkillRegistry(paths)
+    registry.reload()
+    registry.set_enabled("short", False)
+
+    output = handle_skill_command("list", registry)
+
+    assert output.startswith(f"Skills ({len(registry.skills)} total, 4 on)\n\n")
+    assert "  chinese  [on · project · v1.0]\n    中文说明" in output
+    assert "  long  [on · project · v1.0]\n    A detailed description" in output
+    assert "  short  [off · user · v1.0]\n    A short description" in output
+    assert "…" in output
+    assert all(len(line) <= 88 for line in output.splitlines())
+    assert output.endswith("/skill show NAME for details · /skill on|off NAME to toggle")
 
 
 def test_skill_frontmatter_parses_supported_subset_and_warns() -> None:

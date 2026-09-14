@@ -163,7 +163,7 @@ Kairo CLI 默认使用 inline 渲染器。输入 `/help` 查看完整命令索�
 /session                   管理可恢复会话
 /todo                      管理当前任务清单
 /mcp                       管理 MCP 服务和资源
-/skill                     安装和管理 Skill
+/skill list                查看精简的 Skill 列表；用 /skill show NAME 查看完整详情
 /policy                    查看当前安全策略
 /snapshot                  查看工作区快照
 /cancel                    取消当前任务
