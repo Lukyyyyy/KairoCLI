@@ -61,7 +61,6 @@ _INPUT_HIGHLIGHTS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         "fg:#ff5f5f bold underline",
     ),
-    (re.compile(r"^/\S*"), "fg:#111111"),
 )
 
 

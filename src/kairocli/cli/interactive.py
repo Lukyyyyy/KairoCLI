@@ -260,6 +260,7 @@ class _WorkingIndicator:
         if self.refresh_task is not None:
             self.refresh_task.cancel()
         if self.live is not None:
+            self.live.update("")
             self.live.stop()
 
     def _text(self) -> str:
@@ -274,7 +275,6 @@ class _WorkingIndicator:
             ("● ", "#111111"),
             ("Working", "bold"),
             (f" ({elapsed}s · esc to interrupt)", "dim"),
-            "\n",
         )
 
     async def _refresh(self) -> None:
@@ -2233,8 +2233,8 @@ def _prompt_session(
             style=Style.from_dict(
                 {
                     "": "fg:#111111 bg:default",
-                    "composer.input": "fg:#111111 bg:#f1f1f1",
-                    "composer.prompt": "fg:#888888 bg:#f1f1f1 bold",
+                    "composer.input": "fg:#cecdc3 bg:#303030",
+                    "composer.prompt": "fg:#cecdc3 bg:#303030 bold",
                     "plan-review.input": "fg:#111111 bg:#eaf5f8",
                     "plan-review.marker": "fg:#007a9f bg:#eaf5f8 bold",
                     "plan-review.title": "fg:#005f7a bg:#eaf5f8 bold",
@@ -2254,7 +2254,7 @@ def _prompt_session(
                     "bottom-toolbar": "fg:#888888 bg:default noreverse",
                     "thought": "fg:#888888 bg:default",
                     "answer.prefix": "fg:#888888 bg:default",
-                    "slash-menu.command": "fg:#111111 bg:default",
+                    "slash-menu.command": "fg:#cecdc3 bg:default",
                     "slash-menu.description": "fg:#888888 bg:default",
                     "slash-menu.current": "fg:#007a9f bg:default bold",
                     "completion-menu": "bg:default",

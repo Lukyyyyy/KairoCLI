@@ -412,10 +412,11 @@ def test_prompt_uses_gray_block_composer(tmp_path: Path) -> None:
     assert menu_space.content.style == "bg:default"
     assert status.filter() is False
     rules = str(session.style.style_rules)
-    assert "composer.input" in rules and "bg:#f1f1f1" in rules
+    assert "composer.input" in rules and "fg:#cecdc3 bg:#303030" in rules
+    assert "slash-menu.command" in rules and "fg:#cecdc3 bg:default" in rules
     assert "bottom-toolbar" in rules and "bg:default" in rules
     assert "plan-review.input" in rules and "bg:#eaf5f8" in rules
-    assert "wechat.input" in rules and "bg:#f1f1f1" in rules
+    assert "wechat.input" in rules and "bg:#eef8f4" in rules
 
 
 def test_prompt_bottom_status_updates_when_plan_mode_is_armed(tmp_path: Path) -> None:
@@ -1395,7 +1396,7 @@ def test_resume_session_hint_uses_the_installed_cli_command() -> None:
     )
 
 
-def test_working_indicator_has_black_marker_and_vertical_margins() -> None:
+def test_working_indicator_has_one_blank_line_above() -> None:
     lifecycle = cli_module._TurnLifecycleState()
     lifecycle.start()
     indicator = cli_module._WorkingIndicator(RecordingConsole(), lifecycle)
@@ -1403,9 +1404,26 @@ def test_working_indicator_has_black_marker_and_vertical_margins() -> None:
     rendered = indicator._render()
 
     assert rendered.plain.startswith("\n● Working (")
-    assert rendered.plain.endswith("\n")
+    assert rendered.plain.count("\n") == 1
     marker = rendered.spans[0]
     assert (marker.start, marker.end, marker.style) == (1, 3, "#111111")
+
+
+def test_working_indicator_clears_final_live_frame() -> None:
+    events: list[str] = []
+
+    class FakeLive:
+        def update(self, value: str) -> None:
+            events.append(f"update:{value}")
+
+        def stop(self) -> None:
+            events.append("stop")
+
+    indicator = cli_module._WorkingIndicator(RecordingConsole(), cli_module._TurnLifecycleState())
+    indicator.live = FakeLive()
+    indicator.stop()
+
+    assert events == ["update:", "stop"]
 
 
 def test_working_indicator_uses_continuous_turn_lifecycle_time() -> None:
@@ -1739,4 +1757,4 @@ def test_input_highlighting_warns_without_changing_text() -> None:
     assert "fg:#ffd75f underline" in styles
 
     slash = _highlight_input_line("/mcp restart")
-    assert slash[0] == ("fg:#111111", "/mcp")
+    assert slash == [("", "/mcp restart")]
