@@ -299,11 +299,18 @@ def _parse_embedding_vectors(raw: Any, expected: int) -> list[list[float]]:
 
 
 class CodeChunker:
-    def __init__(self, max_lines: int = 120, overlap: int = 15) -> None:
+    def __init__(
+        self,
+        max_lines: int = 120,
+        overlap: int = 15,
+        tree_sitter_cache: Path | None = None,
+    ) -> None:
         if overlap >= max_lines:
             raise ValueError("overlap must be less than max_lines")
         self.max_lines = max_lines
         self.overlap = overlap
+        self.tree_sitter_cache = tree_sitter_cache
+        self._unavailable_tree_sitter_languages: set[str] = set()
 
     def chunk(self, path: str, content: str) -> list[CodeChunk]:
         structural = self._structural_chunks(path, content)
@@ -372,7 +379,14 @@ class CodeChunker:
                     for node in nodes
                 ],
             )
-        ranges = _declaration_ranges(path, content)
+        ranges = _tree_sitter_declaration_ranges(
+            path,
+            content,
+            self.tree_sitter_cache,
+            self._unavailable_tree_sitter_languages,
+        )
+        if not ranges:
+            ranges = _declaration_ranges(path, content)
         return self._chunks_from_ranges(path, content, ranges)
 
     def _chunks_from_ranges(
@@ -384,6 +398,7 @@ class CodeChunker:
         lines = content.splitlines()
         chunks: list[CodeChunk] = []
         seen: set[tuple[int, int, str, str]] = set()
+        bounded_ranges: list[tuple[int, int, str, str]] = []
         for start, end, kind, name in sorted(ranges):
             bounded_start = max(1, start)
             bounded_end = min(max(bounded_start, end), len(lines))
@@ -391,6 +406,7 @@ class CodeChunker:
             if key in seen:
                 continue
             seen.add(key)
+            bounded_ranges.append(key)
             body = "\n".join(lines[bounded_start - 1 : bounded_end])
             chunks.extend(
                 self._window_chunks(
@@ -401,6 +417,22 @@ class CodeChunker:
                     name=name,
                 )
             )
+        covered: list[tuple[int, int]] = []
+        for start, end, _, _ in sorted(bounded_ranges, key=lambda item: (item[0], -item[1])):
+            if covered and start <= covered[-1][1] + 1:
+                covered[-1] = (covered[-1][0], max(covered[-1][1], end))
+            else:
+                covered.append((start, end))
+        cursor = 1
+        for start, end in [*covered, (len(lines) + 1, len(lines))]:
+            if cursor < start:
+                body = "\n".join(lines[cursor - 1 : start - 1])
+                if body.strip():
+                    chunks.extend(
+                        self._window_chunks(path, body, line_offset=cursor - 1, kind="file")
+                    )
+            cursor = max(cursor, end + 1)
+        chunks.sort(key=lambda chunk: (chunk.start_line, chunk.end_line, chunk.kind, chunk.name))
         return chunks
 
 
@@ -619,13 +651,22 @@ class CodeIndex:
         ".kt",
         ".js",
         ".jsx",
+        ".cjs",
+        ".mjs",
         ".ts",
         ".tsx",
+        ".cts",
+        ".mts",
         ".go",
         ".rs",
         ".c",
         ".h",
+        ".cc",
         ".cpp",
+        ".cxx",
+        ".hh",
+        ".hpp",
+        ".hxx",
         ".cs",
         ".rb",
         ".php",
@@ -650,7 +691,9 @@ class CodeIndex:
         self.workspace = workspace.resolve()
         self.store = VectorStore(database)
         self.embedding = embedding or embedding_client_from_environment()
-        self.chunker = chunker or CodeChunker()
+        self.chunker = chunker or CodeChunker(
+            tree_sitter_cache=self.workspace / ".kairocli" / "tree-sitter-cache"
+        )
 
     async def index(
         self,
@@ -740,7 +783,13 @@ class CodeIndex:
             lexical = (
                 len(query_tokens & content_tokens) / len(query_tokens) if query_tokens else 0.0
             )
-            kind_boost = 0.03 if chunk.kind == "method" else 0.015 if chunk.kind == "class" else 0
+            kind_boost = (
+                0.03
+                if chunk.kind in {"function", "method"}
+                else 0.015
+                if chunk.kind == "class"
+                else 0
+            )
             rescored.append((chunk, vector_score * 0.75 + lexical * 0.25 + kind_boost))
         rescored.sort(key=lambda item: (item[1], item[0].path), reverse=True)
         return [
@@ -1001,6 +1050,193 @@ _C_STYLE_METHOD = re.compile(
 )
 
 
+_TREE_SITTER_NODE_KINDS: dict[str, dict[str, str]] = {
+    "java": {
+        "annotation_type_declaration": "class",
+        "class_declaration": "class",
+        "constructor_declaration": "method",
+        "enum_declaration": "class",
+        "interface_declaration": "class",
+        "method_declaration": "method",
+        "record_declaration": "class",
+    },
+    "go": {
+        "function_declaration": "function",
+        "method_declaration": "method",
+        "type_spec": "class",
+    },
+    "rust": {
+        "enum_item": "class",
+        "function_item": "function",
+        "impl_item": "class",
+        "struct_item": "class",
+        "trait_item": "class",
+        "union_item": "class",
+    },
+    "c": {
+        "enum_specifier": "class",
+        "function_definition": "function",
+        "struct_specifier": "class",
+        "union_specifier": "class",
+    },
+    "cpp": {
+        "class_specifier": "class",
+        "enum_specifier": "class",
+        "function_definition": "function",
+        "union_specifier": "class",
+    },
+    "csharp": {
+        "class_declaration": "class",
+        "constructor_declaration": "method",
+        "conversion_operator_declaration": "method",
+        "delegate_declaration": "class",
+        "destructor_declaration": "method",
+        "enum_declaration": "class",
+        "interface_declaration": "class",
+        "local_function_statement": "function",
+        "method_declaration": "method",
+        "operator_declaration": "method",
+        "record_declaration": "class",
+        "struct_declaration": "class",
+    },
+    "javascript": {
+        "class_declaration": "class",
+        "function_declaration": "function",
+        "generator_function_declaration": "function",
+        "method_definition": "method",
+        "variable_declarator": "function",
+    },
+    "typescript": {
+        "abstract_class_declaration": "class",
+        "class_declaration": "class",
+        "enum_declaration": "class",
+        "function_declaration": "function",
+        "generator_function_declaration": "function",
+        "interface_declaration": "class",
+        "method_definition": "method",
+        "method_signature": "method",
+        "type_alias_declaration": "class",
+        "variable_declarator": "function",
+    },
+    "tsx": {
+        "abstract_class_declaration": "class",
+        "class_declaration": "class",
+        "enum_declaration": "class",
+        "function_declaration": "function",
+        "generator_function_declaration": "function",
+        "interface_declaration": "class",
+        "method_definition": "method",
+        "method_signature": "method",
+        "type_alias_declaration": "class",
+        "variable_declarator": "function",
+    },
+    "kotlin": {
+        "class_declaration": "class",
+        "function_declaration": "function",
+        "object_declaration": "class",
+        "secondary_constructor": "method",
+    },
+}
+
+_TREE_SITTER_METHOD_CONTAINERS = {
+    "class_body",
+    "class_declaration",
+    "class_specifier",
+    "impl_item",
+    "interface_body",
+    "interface_declaration",
+    "trait_item",
+}
+_TREE_SITTER_NAME_NODES = {
+    "destructor_name",
+    "field_identifier",
+    "identifier",
+    "operator_name",
+    "type_identifier",
+}
+
+
+def _tree_sitter_declaration_ranges(
+    path: str,
+    content: str,
+    cache_dir: Path | None,
+    unavailable_languages: set[str],
+) -> list[tuple[int, int, str, str]]:
+    try:
+        from tree_sitter_language_pack import PackConfig, configure, detect_language, get_parser
+
+        language = detect_language(path)
+        kinds = _TREE_SITTER_NODE_KINDS.get(language or "")
+        if not language or kinds is None or language in unavailable_languages:
+            return []
+        if cache_dir is not None:
+            configure(PackConfig(cache_dir=str(cache_dir)))
+        encoded = content.encode()
+        root = get_parser(language).parse(encoded).root_node
+    except Exception:
+        if "language" in locals() and language:
+            unavailable_languages.add(language)
+        return []
+
+    result: list[tuple[int, int, str, str]] = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        kind = kinds.get(node.type)
+        if kind is not None and _tree_sitter_is_definition(node):
+            name = _tree_sitter_definition_name(node, encoded)
+            if name:
+                if kind == "function" and _tree_sitter_has_method_container(node):
+                    kind = "method"
+                result.append(
+                    (node.start_point.row + 1, node.end_point.row + 1, kind, name)
+                )
+        stack.extend(node.named_children)
+    return result
+
+
+def _tree_sitter_is_definition(node: Any) -> bool:
+    if node.type != "variable_declarator":
+        return True
+    value = node.child_by_field_name("value")
+    return value is not None and value.type in {"arrow_function", "function_expression"}
+
+
+def _tree_sitter_definition_name(node: Any, encoded: bytes) -> str:
+    name = node.child_by_field_name("name")
+    if name is None and node.type == "impl_item":
+        name = node.child_by_field_name("type")
+    if name is None:
+        declarator = node.child_by_field_name("declarator")
+        name = _tree_sitter_descendant_name(declarator)
+    if name is None and node.type == "impl_item":
+        name = _tree_sitter_descendant_name(node)
+    if name is None:
+        return ""
+    return encoded[name.start_byte : name.end_byte].decode(errors="replace")
+
+
+def _tree_sitter_descendant_name(node: Any) -> Any:
+    if node is None:
+        return None
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type in _TREE_SITTER_NAME_NODES:
+            return current
+        stack.extend(reversed(current.named_children))
+    return None
+
+
+def _tree_sitter_has_method_container(node: Any) -> bool:
+    parent = node.parent
+    while parent is not None:
+        if parent.type in _TREE_SITTER_METHOD_CONTAINERS:
+            return True
+        parent = parent.parent
+    return False
+
+
 def _declaration_ranges(path: str, content: str) -> list[tuple[int, int, str, str]]:
     suffix = Path(path).suffix.casefold()
     if suffix not in {
@@ -1008,13 +1244,22 @@ def _declaration_ranges(path: str, content: str) -> list[tuple[int, int, str, st
         ".kt",
         ".js",
         ".jsx",
+        ".cjs",
+        ".mjs",
         ".ts",
         ".tsx",
+        ".cts",
+        ".mts",
         ".go",
         ".rs",
         ".c",
         ".h",
+        ".cc",
         ".cpp",
+        ".cxx",
+        ".hh",
+        ".hpp",
+        ".hxx",
         ".cs",
         ".rb",
         ".php",

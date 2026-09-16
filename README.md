@@ -145,6 +145,8 @@ float 向量。也支持 `openai` 或 `zhipu` provider；远程服务会接收�
 失败，原始记忆仍会保存并在后续检索时补建。`/memory search`、自动记忆检索和
 `search_memory` 使用同一套混合检索。代码 `/index` 与 `/search` 复用同一 embedding 配置；
 更换模型或维度后必须执行一次完整 `/index`。未启用记忆语义检索时会自动使用关键词检索。
+代码索引使用 Python AST 和常见语言的 Tree-sitter 语法树按声明分块，并保留声明之间的
+顶层代码；解析器不可用时自动回退到正则或滑动窗口分块。
 
 > [!CAUTION]
 > `.env` 和真实密钥不得提交到版本库。Kairo CLI 会读取全局的

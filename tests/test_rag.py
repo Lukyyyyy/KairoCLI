@@ -252,6 +252,42 @@ def test_chunker_emits_python_and_java_symbol_metadata() -> None:
     assert ("method", "run") in {(chunk.kind, chunk.name) for chunk in java_chunks}
 
 
+def test_chunker_preserves_top_level_code_around_declarations() -> None:
+    chunks = CodeChunker(max_lines=20, overlap=2).chunk(
+        "service.py",
+        "import os\n\nTIMEOUT = 30\n\n"
+        "class Service:\n    def run(self):\n        return TIMEOUT\n\n"
+        "register(Service)\n",
+    )
+
+    file_chunks = [chunk for chunk in chunks if chunk.kind == "file"]
+    assert [(chunk.start_line, chunk.end_line) for chunk in file_chunks] == [(1, 3), (8, 9)]
+    assert "import os" in file_chunks[0].content
+    assert "TIMEOUT = 30" in file_chunks[0].content
+    assert "register(Service)" in file_chunks[1].content
+
+
+@pytest.mark.parametrize(
+    ("language", "node_type", "kind"),
+    [
+        ("java", "method_declaration", "method"),
+        ("go", "type_spec", "class"),
+        ("rust", "function_item", "function"),
+        ("c", "function_definition", "function"),
+        ("cpp", "class_specifier", "class"),
+        ("csharp", "constructor_declaration", "method"),
+        ("javascript", "variable_declarator", "function"),
+        ("typescript", "interface_declaration", "class"),
+        ("tsx", "method_definition", "method"),
+        ("kotlin", "object_declaration", "class"),
+    ],
+)
+def test_tree_sitter_adapters_cover_common_languages(
+    language: str, node_type: str, kind: str
+) -> None:
+    assert rag_module._TREE_SITTER_NODE_KINDS[language][node_type] == kind
+
+
 async def test_index_skips_unchanged_files_and_removes_deleted_paths(tmp_path: Path) -> None:
     source = tmp_path / "service.py"
     source.write_text("def charge():\n    return 'paid'\n", encoding="utf-8")
