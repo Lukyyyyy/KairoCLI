@@ -733,6 +733,7 @@ def test_plain_streaming_answer_writes_deltas_and_sanitizes_across_chunks(
 ) -> None:
     streamed: list[str] = []
     monkeypatch.setattr(cli_module, "_write_stream", streamed.append)
+    monkeypatch.setattr(cli_module, "_write_rendered_stream", streamed.append)
     display = _StreamingAnswerDisplay(RecordingConsole(), "plain", 80)
 
     display.append("hel")
@@ -744,11 +745,17 @@ def test_plain_streaming_answer_writes_deltas_and_sanitizes_across_chunks(
     assert display.has_streamed_content is True
 
 
+def test_rendered_stream_rejects_untrusted_raw_strings() -> None:
+    with pytest.raises(TypeError, match="trusted renderer boundary"):
+        cli_module._write_rendered_stream("\x1b]52;c;clipboard\x07")
+
+
 def test_plain_streaming_answer_places_thought_before_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     streamed: list[str] = []
     monkeypatch.setattr(cli_module, "_write_stream", streamed.append)
+    monkeypatch.setattr(cli_module, "_write_rendered_stream", streamed.append)
     display = _StreamingAnswerDisplay(RecordingConsole(), "plain", 80, lambda: "Thought for 2s")
 
     display.start_turn()
@@ -779,6 +786,7 @@ def test_rich_streaming_appends_completed_lines_without_live_redraws(
     monkeypatch.setattr(rich.live, "Live", unexpected_live)
     streamed: list[str] = []
     monkeypatch.setattr(cli_module, "_write_stream", streamed.append)
+    monkeypatch.setattr(cli_module, "_write_rendered_stream", streamed.append)
     console = RichConsole()
     display = _StreamingAnswerDisplay(console, "inline", 80, lambda: "Thought for 1s")
 
@@ -804,8 +812,7 @@ def test_rich_streaming_appends_completed_lines_without_live_redraws(
     assert streamed == [
         "\n",
         "\n",
-        "first line\n",
-        "  second\n",
+        "first line second\n",
         "\n",
     ]
     assert "".join(streamed).count("first line") == 1

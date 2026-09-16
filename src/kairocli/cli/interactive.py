@@ -11,7 +11,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..agent import Agent, AgentCanceled, AgentOrchestrator, PlanExecuteAgent
 from ..brand import PRODUCT_NAME, VERSION
@@ -48,7 +48,11 @@ from ..prompts import initialize_project_memory
 from ..rendering.diff_display import render_file_diff
 from ..rendering.session_display import format_session_list
 from ..rendering.terminal import TerminalStreamSanitizer, sanitize_terminal_text
-from ..rendering.terminal_markdown import TerminalMarkdownRenderer
+from ..rendering.terminal_markdown import (
+    ColorSystemName,
+    RenderedTerminalText,
+    TerminalMarkdownRenderer,
+)
 from ..rendering.thought_display import ThoughtDisplay
 from ..rendering.tool_display import format_tool_calls, format_tool_results
 from ..sessions import SessionStore, apply_session, write_session_export
@@ -338,13 +342,15 @@ class _StreamingAnswerDisplay:
         if self.renderer == "inline":
             if self.markdown_renderer is None:
                 self.markdown_renderer = TerminalMarkdownRenderer(
-                    self.columns, continuation_indent="  "
+                    self.columns,
+                    continuation_indent="  ",
+                    color_system=_console_color_system(self.console),
                 )
             safe = self.markdown_renderer.append(delta)
         else:
-            safe = self._indent_plain(self.sanitizer.feed(delta))
+            safe = RenderedTerminalText(self._indent_plain(self.sanitizer.feed(delta)))
         if safe:
-            _write_stream(safe)
+            _write_rendered_stream(safe)
 
     def finish_block(self) -> None:
         if not self.block_open:
@@ -352,10 +358,9 @@ class _StreamingAnswerDisplay:
         if self.markdown_renderer is not None:
             tail = self.markdown_renderer.finish()
         else:
-            tail = self.sanitizer.finish()
-            tail = self._indent_plain(tail)
+            tail = RenderedTerminalText(self._indent_plain(self.sanitizer.finish()))
         if tail:
-            _write_stream(tail)
+            _write_rendered_stream(tail)
         _end_answer_block()
         self.sanitizer = TerminalStreamSanitizer()
         self.markdown_renderer = None
@@ -366,10 +371,15 @@ class _StreamingAnswerDisplay:
     def print_complete(self, answer: str) -> None:
         if not answer:
             return
-        rendered = _render_interactive_answer(answer, self.renderer, self.columns)
+        rendered = _render_interactive_answer(
+            answer,
+            self.renderer,
+            self.columns,
+            color_system=_console_color_system(self.console),
+        )
         _write_stream("\n")
         _print_answer_prefix(self.console)
-        _print_untrusted(self.console, rendered)
+        _write_rendered_stream(RenderedTerminalText(rendered + "\n"))
         _end_answer_block()
 
     def _indent_plain(self, value: str) -> str:
@@ -1753,8 +1763,28 @@ def _has_rich(console: Any) -> bool:
     )
 
 
+def _console_color_system(console: Any) -> ColorSystemName | None:
+    value = getattr(console, "color_system", None)
+    if _has_rich(console) and not getattr(console, "no_color", False) and value in {
+        "standard",
+        "256",
+        "truecolor",
+        "windows",
+    }:
+        return cast(ColorSystemName, value)
+    return None
+
+
 def _write_stream(value: str) -> None:
     sys.stdout.write(sanitize_terminal_text(value))
+    sys.stdout.flush()
+
+
+def _write_rendered_stream(value: RenderedTerminalText) -> None:
+    """Write text already sanitized by a renderer, preserving its generated ANSI styles."""
+    if not isinstance(value, RenderedTerminalText):
+        raise TypeError("rendered terminal output must cross the trusted renderer boundary")
+    sys.stdout.write(value)
     sys.stdout.flush()
 
 
@@ -1778,14 +1808,23 @@ def _erase_with_default_background(output: Any, command: str) -> None:
     output.write_raw("\x1b[49m" + command + "\x1b[0m")
 
 
-def _render_interactive_answer(value: str, renderer: str, columns: int) -> str:
+def _render_interactive_answer(
+    value: str,
+    renderer: str,
+    columns: int,
+    color_system: ColorSystemName | None = None,
+) -> RenderedTerminalText:
     if renderer == "inline":
-        return TerminalMarkdownRenderer.render(value, columns, continuation_indent="  ").rstrip(
-            "\n"
+        rendered = TerminalMarkdownRenderer.render(
+            value, columns, continuation_indent="  ", color_system=color_system
         )
+        return RenderedTerminalText(rendered.rstrip("\n"))
     safe = sanitize_terminal_text(value)
-    return "\n".join(
-        ("  " + line if index and line else line) for index, line in enumerate(safe.split("\n"))
+    return RenderedTerminalText(
+        "\n".join(
+            ("  " + line if index and line else line)
+            for index, line in enumerate(safe.split("\n"))
+        )
     )
 
 

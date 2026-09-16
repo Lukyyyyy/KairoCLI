@@ -1,44 +1,66 @@
+import os
 import re
 import unicodedata
+from collections.abc import Mapping, Sequence
+from io import StringIO
+from typing import Any, Literal
+from urllib.parse import urlsplit
+
+from rich.console import Console
+from rich.markdown import Heading, Markdown
+from rich.syntax import Syntax
 
 from .terminal import TerminalStreamSanitizer
 
-_HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.*)$")
-_ORDERED = re.compile(r"^(\s*)(\d+)\.\s+(.*)$")
-_UNORDERED = re.compile(r"^(\s*)[-*+]\s+(.*)$")
-_TABLE_SEPARATOR = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
-_LINK = re.compile(r"\[([^]]+)]\([^)]+\)")
+ColorSystemName = Literal["standard", "256", "truecolor", "windows"]
+
+_MAX_HIGHLIGHT_BYTES = 512 * 1024
+_MAX_HIGHLIGHT_LINES = 10_000
+_MAX_HIGHLIGHT_LINE_BYTES = 4 * 1024
+_REFERENCE_LINK = re.compile(r"\[[^]\n]+]\[[^]\n]*]")
+_REFERENCE_DEFINITION = re.compile(r"(?m)^\s{0,3}\[[^]]+]:\s*\S+")
+_REFERENCE_DEFINITION_LINE = re.compile(r"(?m)^\s{0,3}\[[^]]+]:[^\n]*(?:\n|$)")
+_SAFE_LINK_SCHEMES = {"http", "https", "mailto"}
+_TRAILING_SPACES = re.compile(r" +((?:\x1b\[[0-9;]*m)*)$")
+
+
+class RenderedTerminalText(str):
+    """Terminal text sanitized before rendering; ANSI may only be renderer-generated."""
+
+
+class _TerminalHeading(Heading):
+    LEVEL_ALIGN = {tag: "left" for tag in Heading.LEVEL_ALIGN}
+
+
+class _TerminalMarkdown(Markdown):
+    elements = {**Markdown.elements, "heading_open": _TerminalHeading}
 
 
 class TerminalMarkdownRenderer:
-    """Incrementally render common Markdown blocks as bounded terminal text."""
+    """Render stable CommonMark blocks while retaining the final mutable stream block."""
 
-    def __init__(self, columns: int = 120, continuation_indent: str = "") -> None:
+    def __init__(
+        self,
+        columns: int = 120,
+        continuation_indent: str = "",
+        color_system: ColorSystemName | None = None,
+        code_theme: str | None = None,
+    ) -> None:
         self.columns = max(40, min(int(columns), 1_000))
         self.continuation_indent = continuation_indent
-        self._pending = ""
+        self.color_system = color_system
+        self.code_theme = code_theme or terminal_code_theme(os.environ)
+        self._source = ""
         self._sanitizer = TerminalStreamSanitizer()
-        self._table: list[str] = []
-        self._in_code = False
-        self._last_blank = True
         self._content_started = False
 
-    def append(self, chunk: str) -> str:
-        self._pending += self._sanitizer.feed(chunk)
-        output: list[str] = []
-        while "\n" in self._pending:
-            line, self._pending = self._pending.split("\n", 1)
-            self._process_line(line, output)
-        return "".join(output)
+    def append(self, chunk: str) -> RenderedTerminalText:
+        self._source += self._sanitizer.feed(chunk)
+        return self._drain(final=False)
 
-    def finish(self) -> str:
-        output: list[str] = []
-        self._pending += self._sanitizer.finish()
-        if self._pending:
-            self._process_line(self._pending, output)
-            self._pending = ""
-        self._flush_table(output)
-        return "".join(output)
+    def finish(self) -> RenderedTerminalText:
+        self._source += self._sanitizer.finish()
+        return self._drain(final=True)
 
     @classmethod
     def render(
@@ -46,215 +68,191 @@ class TerminalMarkdownRenderer:
         markdown: str,
         columns: int = 120,
         continuation_indent: str = "",
-    ) -> str:
-        renderer = cls(columns, continuation_indent)
-        return renderer.append(markdown) + renderer.finish()
+        color_system: ColorSystemName | None = None,
+        code_theme: str | None = None,
+    ) -> RenderedTerminalText:
+        renderer = cls(columns, continuation_indent, color_system, code_theme)
+        return RenderedTerminalText(renderer.append(markdown) + renderer.finish())
 
-    def _process_line(self, line: str, output: list[str]) -> None:
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            self._flush_table(output)
-            if self._in_code:
-                self._write("└─ end", output)
-                self._blank(output)
-            else:
-                language = stripped[3:].strip()
-                self._blank(output)
-                self._write(f"┌─ {'code: ' + language if language else 'code'}", output)
-            self._in_code = not self._in_code
-            return
-        if self._in_code:
-            self._write("    " + line, output)
-            return
-        if _looks_like_table(line):
-            self._table.append(line)
-            return
-        self._flush_table(output)
-        if not stripped:
-            self._blank(output)
-            return
-        heading = _HEADING.match(line)
-        if heading:
-            content = _inline(heading.group(2).strip())
-            self._blank(output)
-            self._write(content, output)
-            underline = "=" if len(heading.group(1)) == 1 else "-"
-            self._write(underline * max(_display_width(content), 4), output)
-            self._blank(output)
-            return
-        ordered = _ORDERED.match(line)
-        if ordered:
-            indent = "  " * _indent_level(ordered.group(1))
-            self._write(f"{indent}{ordered.group(2)}. {_inline(ordered.group(3))}", output)
-            return
-        unordered = _UNORDERED.match(line)
-        if unordered:
-            indent = "  " * _indent_level(unordered.group(1))
-            self._write(f"{indent}- {_inline(unordered.group(2))}", output)
-            return
-        if stripped.startswith(">"):
-            self._write("│ " + _inline(stripped[1:].strip()), output)
-            return
-        self._write(_inline(line), output)
+    def _drain(self, *, final: bool) -> RenderedTerminalText:
+        if not self._source:
+            return RenderedTerminalText()
+        end = len(self._source) if final else _stable_source_end(self._source)
+        if not end:
+            return RenderedTerminalText()
+        source, self._source = self._source[:end], self._source[end:]
+        rendered = _render_source(source, self.columns, self.color_system, self.code_theme)
+        return self._indent(rendered)
 
-    def _flush_table(self, output: list[str]) -> None:
-        if not self._table:
-            return
-        rows = [_parse_row(line) for line in self._table if not _TABLE_SEPARATOR.fullmatch(line)]
-        self._table.clear()
-        rows = [row for row in rows if row]
-        if not rows:
-            return
-        columns = max(len(row) for row in rows)
-        normalized = [row + [""] * (columns - len(row)) for row in rows]
-        if len(normalized) >= 2 and columns == 2 and _prefer_key_value(normalized):
-            self._render_key_value(normalized, output)
-            return
-        content_columns = max(40, self.columns - _display_width(self.continuation_indent))
-        widths = _allocate_widths(normalized, content_columns)
-        border = "+" + "+".join("-" * (width + 2) for width in widths) + "+"
-        self._blank(output)
-        self._write(border, output)
-        for row_index, row in enumerate(normalized):
-            wrapped = [_wrap_cell(_inline(cell), widths[i]) for i, cell in enumerate(row)]
-            for line_index in range(max(len(cell) for cell in wrapped)):
-                cells = [cell[line_index] if line_index < len(cell) else "" for cell in wrapped]
-                body = "|" + "".join(
-                    f" {_pad_display(cell, widths[i])} |" for i, cell in enumerate(cells)
-                )
-                self._write(body, output)
-            if row_index == 0 and len(normalized) > 1:
-                self._write(border, output)
-        self._write(border, output)
-        self._blank(output)
-
-    def _render_key_value(self, rows: list[list[str]], output: list[str]) -> None:
-        header = f"{_inline(rows[0][0])} / {_inline(rows[0][1])}"
-        self._blank(output)
-        self._write(header, output)
-        self._write("-" * max(_display_width(header), 8), output)
-        for index, row in enumerate(rows[1:]):
-            self._write("- " + _inline(row[0]), output)
-            if row[1].strip():
-                self._write("  " + _inline(row[1]), output)
-            if index < len(rows) - 2:
-                self._blank(output)
-        self._blank(output)
-
-    def _write(self, line: str, output: list[str]) -> None:
-        content_width = max(1, self.columns - _display_width(self.continuation_indent))
-        for segment in _wrap_display_line(line, content_width):
-            prefix = self.continuation_indent if self._content_started else ""
-            output.append(prefix + segment.rstrip() + "\n")
-            self._content_started = True
-        self._last_blank = not line.strip()
-
-    def _blank(self, output: list[str]) -> None:
-        if not self._last_blank:
+    def _indent(self, rendered: str) -> RenderedTerminalText:
+        output: list[str] = []
+        if self._content_started and rendered:
             output.append("\n")
-            self._last_blank = True
+        for line in rendered.splitlines(keepends=True):
+            if self._content_started and line not in {"\n", "\r\n"}:
+                output.append(self.continuation_indent)
+            output.append(line)
+            if line not in {"\n", "\r\n"}:
+                self._content_started = True
+        return RenderedTerminalText("".join(output))
 
 
-def _inline(value: str) -> str:
-    text = value.replace("**", "").replace("__", "").replace("~~", "")
-    text = text.replace("`", "").replace("*", "").replace("_", "")
-    return _LINK.sub(r"\1", text).rstrip()
+def terminal_code_theme(environment: Mapping[str, str]) -> str:
+    """Select an ANSI theme from the terminal's commonly exposed background hint."""
+    background = environment.get("COLORFGBG", "").rsplit(";", 1)[-1]
+    try:
+        return "ansi_light" if int(background) >= 7 else "ansi_dark"
+    except ValueError:
+        return "ansi_dark"
 
 
-def _looks_like_table(line: str) -> bool:
-    stripped = line.strip()
-    return bool(stripped and (_TABLE_SEPARATOR.fullmatch(stripped) or stripped.count("|") >= 2))
+def _stable_source_end(source: str) -> int:
+    if _REFERENCE_LINK.search(source) and not _REFERENCE_DEFINITION.search(source):
+        return 0
+    markdown = _TerminalMarkdown(source)
+    blocks = _top_level_blocks(markdown.parsed)
+    if not blocks:
+        return 0
+    if source.endswith("\n\n"):
+        return len(source)
+    last = blocks[-1]
+    if source.endswith("\n") and _self_contained(last, source):
+        return _line_offset(source, last.map[1]) if last.map else 0
+    if len(blocks) > 1 and last.map:
+        return _line_offset(source, last.map[0])
+    return 0
 
 
-def _parse_row(line: str) -> list[str]:
-    value = line.strip().removeprefix("|").removesuffix("|")
-    return [part.strip() for part in value.split("|")]
+def _top_level_blocks(tokens: Sequence[Any]) -> list[Any]:
+    return [token for token in tokens if token.level == 0 and token.map and token.nesting >= 0]
 
 
-def _indent_level(value: str) -> int:
-    return sum(4 if character == "\t" else 1 for character in value) // 2
+def _self_contained(token: Any, source: str) -> bool:
+    if token.type in {"heading_open", "hr"}:
+        return True
+    if token.type != "fence" or not token.map:
+        return False
+    lines = source.splitlines()
+    start, end = token.map
+    if end - start < 2 or end > len(lines):
+        return False
+    closing = lines[end - 1].lstrip()
+    return closing.startswith(token.markup) and len(closing) >= len(token.markup)
 
 
-def _display_width(value: str) -> int:
-    width = 0
-    for character in value:
-        if unicodedata.category(character) in {"Mn", "Me", "Mc", "Cc", "Cf"}:
+def _line_offset(source: str, line_number: int) -> int:
+    return sum(len(line) for line in source.splitlines(keepends=True)[:line_number])
+
+
+def _render_source(
+    source: str,
+    columns: int,
+    color_system: ColorSystemName | None,
+    code_theme: str,
+) -> str:
+    markdown = _TerminalMarkdown(source)
+    lines = source.splitlines(keepends=True)
+    definitions = "".join(_REFERENCE_DEFINITION_LINE.findall(source))
+    rendered: list[str] = []
+    for token in _top_level_blocks(markdown.parsed):
+        if token.type in {"fence", "code_block"}:
+            block = _render_code(token, columns, color_system, code_theme)
+        elif token.map:
+            block_source = "".join(lines[token.map[0] : token.map[1]])
+            if definitions and _REFERENCE_LINK.search(block_source):
+                block_source += "\n" + definitions
+            block = _render_markdown(block_source, columns, color_system, code_theme)
+        else:
             continue
-        width += 2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
-    return width
+        if block:
+            rendered.append(block.strip("\n"))
+    return "\n\n".join(rendered) + ("\n" if rendered else "")
 
 
-def _wrap_display_line(value: str, width: int) -> list[str]:
-    """Wrap before the terminal does, preserving a list item's hanging indent."""
-    if _display_width(value) <= width:
-        return [value.rstrip()]
-    marker = re.match(r"^(\s*(?:-\s+|\d+\.\s+))", value)
-    hanging = " " * _display_width(marker.group(1)) if marker else ""
-    lines: list[str] = []
-    current = ""
-    current_width = 0
-    for character in value:
-        character_width = _display_width(character)
-        if current and current_width + character_width > width:
-            lines.append(current.rstrip())
-            current = hanging
-            current_width = _display_width(hanging)
-            if character.isspace():
-                continue
-        current += character
-        current_width += character_width
-    if current or not lines:
-        lines.append(current.rstrip())
-    return lines
+def _render_markdown(
+    source: str,
+    columns: int,
+    color_system: ColorSystemName | None,
+    code_theme: str,
+) -> str:
+    markdown = _TerminalMarkdown(
+        source,
+        code_theme=code_theme,
+        hyperlinks=color_system is not None,
+    )
+    _sanitize_links(markdown.parsed)
+    stream = StringIO()
+    console = Console(
+        file=stream,
+        force_terminal=color_system is not None,
+        color_system=color_system,
+        no_color=color_system is None,
+        width=columns,
+    )
+    console.print(markdown)
+    return "".join(_TRAILING_SPACES.sub(r"\1", line) for line in stream.getvalue().splitlines(True))
 
 
-def _prefer_key_value(rows: list[list[str]]) -> bool:
-    return any(
-        max(_display_width(_inline(row[0])), _display_width(_inline(row[1]))) > 24
-        or _display_width(_inline(row[0])) + _display_width(_inline(row[1])) > 80
-        for row in rows
+def _render_code(
+    token: Any,
+    columns: int,
+    color_system: ColorSystemName | None,
+    code_theme: str,
+) -> str:
+    language = re.split(r"[,\s]", token.info.strip(), maxsplit=1)[0]
+    code = token.content.rstrip("\n")
+    label = f"┌─ code: {language}" if language else "┌─ code"
+    if not language or color_system is None or _highlight_too_large(code):
+        body = "\n".join("    " + line for line in code.split("\n"))
+    else:
+        stream = StringIO()
+        console = Console(
+            file=stream,
+            force_terminal=True,
+            color_system=color_system,
+            no_color=False,
+            width=columns,
+        )
+        indented = "\n".join("    " + line for line in code.split("\n"))
+        console.print(
+            Syntax(
+                indented,
+                language,
+                theme=code_theme,
+                background_color="default",
+                word_wrap=False,
+                padding=0,
+            ),
+            soft_wrap=True,
+        )
+        body = stream.getvalue().rstrip("\n")
+    return f"{label}\n{body}\n└─ end"
+
+
+def _highlight_too_large(code: str) -> bool:
+    lines = code.splitlines() or [""]
+    return (
+        len(code.encode()) > _MAX_HIGHLIGHT_BYTES
+        or len(lines) > _MAX_HIGHLIGHT_LINES
+        or any(len(line.encode()) > _MAX_HIGHLIGHT_LINE_BYTES for line in lines)
     )
 
 
-def _allocate_widths(rows: list[list[str]], terminal_columns: int) -> list[int]:
-    column_count = len(rows[0])
-    available = max(column_count * 4, terminal_columns - (column_count * 3 + 1))
-    natural = [
-        max(4, max(_display_width(_inline(row[i])) for row in rows)) for i in range(column_count)
-    ]
-    widths = [4] * column_count
-    while sum(widths) < available:
-        candidates = [natural[index] - width for index, width in enumerate(widths)]
-        gap = max(candidates)
-        if gap <= 0:
-            break
-        widths[candidates.index(gap)] += 1
-    return widths
+def _sanitize_links(tokens: Sequence[Any]) -> None:
+    for token in tokens:
+        if token.type == "link_open":
+            href = str(token.attrs.get("href", ""))
+            if not _safe_link(href):
+                token.attrs["href"] = ""
+        if token.children:
+            _sanitize_links(token.children)
 
 
-def _wrap_cell(value: str, width: int) -> list[str]:
-    if not value.strip():
-        return [""]
-    lines: list[str] = []
-    current = ""
-    current_width = 0
-    for character in value.strip():
-        char_width = _display_width(character)
-        if character.isspace():
-            if current and current_width < width:
-                current += " "
-                current_width += 1
-            continue
-        if current and current_width + char_width > width:
-            lines.append(current.rstrip())
-            current = ""
-            current_width = 0
-        current += character
-        current_width += char_width
-    if current or not lines:
-        lines.append(current.rstrip())
-    return lines
-
-
-def _pad_display(value: str, width: int) -> str:
-    return value + " " * max(0, width - _display_width(value))
+def _safe_link(href: str) -> bool:
+    if not href or any(unicodedata.category(character) == "Cc" for character in href):
+        return False
+    try:
+        scheme = urlsplit(href).scheme.casefold()
+    except ValueError:
+        return False
+    return not scheme or scheme in _SAFE_LINK_SCHEMES

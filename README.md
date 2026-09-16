@@ -46,7 +46,7 @@ Kairo CLI 是用 Python 开发的 Agent CLI，将规划、协作、工具与上�
 | 自动化入口 | 提供非交互式 `text` / `json` / `jsonl` 输出和本地 Runtime API |
 | 多模型接入 | 内置 GLM、DeepSeek、Step、Kimi、FreeLLMAPI、讯飞星火 MaaS 和 Agnes AI 配置 |
 | 安全与审计 | 工作区路径围栏、危险操作审批、默认拒绝的无人值守策略、凭据脱敏和审计记录 |
-| 多终端体验 | 支持 inline、plain 和 Textual 全屏 TUI，并可通过微信通道远程交互 |
+| 多终端体验 | 支持 inline（含代码语法高亮）、plain 和 Textual 全屏 TUI，并可通过微信通道远程交互 |
 
 更细的实现状态见[功能验收矩阵](docs/feature-matrix.md)，系统边界见[架构说明](docs/architecture.md)。
 
