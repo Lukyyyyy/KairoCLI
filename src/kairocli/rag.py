@@ -659,8 +659,13 @@ class CodeIndex:
     ) -> dict[str, int]:
         root = (path or self.workspace).resolve()
         root.relative_to(self.workspace)
-        signature = _embedding_signature(self.embedding)
-        if self.store.embedding_signature() != signature:
+        signature = embedding_signature(self.embedding)
+        stored_signature = self.store.embedding_signature()
+        if stored_signature != signature and root != self.workspace and self.store.paths():
+            raise ValueError(
+                "Embedding configuration changed; run /index without a path to rebuild all code"
+            )
+        if stored_signature != signature:
             self.store.reset_for_embedding(signature)
         files = sorted(file for file in root.rglob("*") if self._indexable(file))
         current: set[str] = set()
@@ -719,6 +724,12 @@ class CodeIndex:
         query = query.strip()
         if not query:
             raise ValueError("Search query cannot be empty")
+        signature = embedding_signature(self.embedding)
+        stored_signature = self.store.embedding_signature()
+        if stored_signature != signature:
+            if not self.store.paths():
+                return []
+            raise ValueError("Embedding configuration changed; run /index to rebuild code vectors")
         limit = max(1, min(limit, 30))
         vector = (await self._embed_all([query]))[0]
         candidates = self.store.search(vector, min(limit * 4, 100))
@@ -866,7 +877,7 @@ def _read_index_source(file: Path, max_bytes: int) -> tuple[bytes | None, bool]:
     return raw, False
 
 
-def _cosine(left: list[float], right: list[float]) -> float:
+def cosine_similarity(left: list[float], right: list[float]) -> float:
     if len(left) != len(right) or not left:
         return 0.0
     numerator = sum(a * b for a, b in zip(left, right, strict=True))
@@ -948,7 +959,7 @@ def _validate_embedding_json_tree(root: Any) -> None:
             stack.extend((item, depth + 1) for item in value)
 
 
-def _embedding_signature(embedding: EmbeddingClient) -> str:
+def embedding_signature(embedding: EmbeddingClient) -> str:
     explicit = getattr(embedding, "signature", "")
     if explicit:
         return str(explicit)
@@ -956,6 +967,11 @@ def _embedding_signature(embedding: EmbeddingClient) -> str:
     model = getattr(embedding, "model", "")
     cls = type(embedding)
     return f"{cls.__module__}.{cls.__qualname__}:{model}:{dimensions}"
+
+
+# Backward-compatible private aliases for callers and tests predating the shared helpers.
+_cosine = cosine_similarity
+_embedding_signature = embedding_signature
 
 
 def _query_tokens(value: str) -> set[str]:

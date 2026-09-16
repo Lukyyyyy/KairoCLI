@@ -361,6 +361,26 @@ async def test_embedding_signature_change_invalidates_all_vectors(tmp_path: Path
     assert index.store.embedding_signature() == "model-v2"
 
 
+async def test_search_rejects_stale_embedding_model_until_full_reindex(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "service.py"
+    source.write_text("def work():\n    return 1\n", encoding="utf-8")
+    database = tmp_path / ".kairocli" / "index.db"
+    await CodeIndex(tmp_path, database, CountingEmbedding("model-v1")).index()
+    changed = CodeIndex(tmp_path, database, CountingEmbedding("model-v2"))
+
+    with pytest.raises(ValueError, match="run /index"):
+        await changed.search("work")
+    subdirectory = tmp_path / "src"
+    subdirectory.mkdir()
+    with pytest.raises(ValueError, match="without a path"):
+        await changed.index(subdirectory)
+
+    await changed.index()
+    assert (await changed.search("work"))[0]["path"] == "service.py"
+
+
 async def test_partial_reindex_removes_deleted_files_only_inside_scope(tmp_path: Path) -> None:
     first_dir = tmp_path / "first"
     second_dir = tmp_path / "second"
