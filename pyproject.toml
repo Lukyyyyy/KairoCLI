@@ -28,7 +28,7 @@ dependencies = [
   "tree-sitter>=0.23",
   "tree-sitter-language-pack>=1.12",
   "uvicorn>=0.30",
-  "python-jose[cryptography]>=3.3",
+  "PyJWT>=2.13",
   "bcrypt>=4.0",
   "python-multipart>=0.0.9",
 ]

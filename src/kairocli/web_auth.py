@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -429,7 +429,7 @@ def create_access_token(
     secret: bytes,
     expiry_minutes: int = JWT_EXPIRY_MINUTES,
 ) -> str:
-    from jose import jwt  # type: ignore[import-untyped]
+    import jwt
 
     payload = {
         "sub": user_id,
@@ -437,18 +437,15 @@ def create_access_token(
         "ver": auth_version,
         "exp": datetime.now(UTC) + timedelta(minutes=expiry_minutes),
     }
-    return cast(str, jwt.encode(payload, secret.hex(), algorithm=JWT_ALGORITHM))
+    return jwt.encode(payload, secret.hex(), algorithm=JWT_ALGORITHM)
 
 
 def decode_access_token(token: str, secret: bytes) -> dict[str, Any]:
-    from jose import JWTError, jwt
+    import jwt
 
     try:
-        return cast(
-            dict[str, Any],
-            jwt.decode(token, secret.hex(), algorithms=[JWT_ALGORITHM]),
-        )
-    except JWTError:
+        return jwt.decode(token, secret.hex(), algorithms=[JWT_ALGORITHM])
+    except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="登录凭证无效，请重新登录",

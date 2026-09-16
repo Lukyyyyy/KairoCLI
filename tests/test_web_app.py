@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import kairocli.agent as agent_module
@@ -18,7 +19,12 @@ from kairocli.plan import ExecutionPlan, PlanTask, TaskStatus
 from kairocli.runtime_api import RuntimeThreadStore
 from kairocli.tools import ToolRegistry
 from kairocli.web_app import WebPlanReviewer, create_web_app
-from kairocli.web_auth import JwtSecretStore, WebUserStore, create_access_token
+from kairocli.web_auth import (
+    JwtSecretStore,
+    WebUserStore,
+    create_access_token,
+    decode_access_token,
+)
 
 
 class WebClient(LlmClient):
@@ -72,6 +78,18 @@ def _sse_events(body: str) -> list[tuple[str, dict[str, Any]]]:
         if event_type:
             events.append((event_type, data))
     return events
+
+
+def test_access_token_round_trip_and_rejects_tampering() -> None:
+    secret = bytes(range(32))
+    token = create_access_token("user-1", False, 3, secret)
+    expired = create_access_token("user-1", False, 3, secret, expiry_minutes=-1)
+
+    assert decode_access_token(token, secret)["sub"] == "user-1"
+    for invalid in (token + "tampered", expired):
+        with pytest.raises(HTTPException) as error:
+            decode_access_token(invalid, secret)
+        assert error.value.status_code == 401
 
 
 def test_legacy_username_schema_is_reset(tmp_path: Path) -> None:
