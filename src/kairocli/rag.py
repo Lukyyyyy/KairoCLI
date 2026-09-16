@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 MAX_EMBEDDING_INPUT_CHARS = 2_000
 MAX_EMBEDDING_BATCH = 128
+MAX_CONCURRENT_EMBEDDING_BATCHES = 2
 MAX_EMBEDDING_RESPONSE_BYTES = 10 * 1024 * 1024
 MAX_EMBEDDING_DIMENSIONS = 65_536
 MAX_EMBEDDING_JSON_DEPTH = 16
@@ -148,13 +149,22 @@ class HttpEmbeddingClient:
             if self.provider == "alicloud":
                 payload["encoding_format"] = "float"
         async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                response.raise_for_status()
-                body = bytearray()
-                async for chunk in response.aiter_bytes():
-                    body.extend(chunk)
-                    if len(body) > MAX_EMBEDDING_RESPONSE_BYTES:
-                        raise ValueError("Embedding response exceeds the 10 MiB limit")
+            for attempt in range(3):
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code == 429 and attempt < 2:
+                        try:
+                            delay = float(response.headers.get("retry-after", 2**attempt))
+                        except ValueError:
+                            delay = float(2**attempt)
+                    else:
+                        response.raise_for_status()
+                        body = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            body.extend(chunk)
+                            if len(body) > MAX_EMBEDDING_RESPONSE_BYTES:
+                                raise ValueError("Embedding response exceeds the 10 MiB limit")
+                        break
+                await asyncio.sleep(delay if math.isfinite(delay) and 0 <= delay <= 60 else 1)
         try:
             raw = json.loads(
                 body,
@@ -713,7 +723,29 @@ class CodeIndex:
         files = sorted(file for file in root.rglob("*") if self._indexable(file))
         current: set[str] = set()
         chunk_count = 0
+        pending: list[tuple[str, list[CodeChunk], str]] = []
+        pending_chunks = 0
         total_files = len(files)
+
+        async def flush_pending() -> None:
+            nonlocal chunk_count, pending_chunks
+            texts = [
+                f"[{chunk.kind}:{chunk.name}] {chunk.content}"
+                for _, chunks, _ in pending
+                for chunk in chunks
+            ]
+            vectors = await self._embed_all(texts)
+            cursor = 0
+            for relative, chunks, content_hash in pending:
+                next_cursor = cursor + len(chunks)
+                self.store.replace_path(
+                    relative, chunks, vectors[cursor:next_cursor], content_hash, signature
+                )
+                chunk_count += len(chunks)
+                cursor = next_cursor
+            pending.clear()
+            pending_chunks = 0
+
         for position, file in enumerate(files, 1):
             relative = file.relative_to(self.workspace).as_posix()
             if progress is not None and (
@@ -748,10 +780,15 @@ class CodeIndex:
                 continue
             content = raw.decode("utf-8", errors="replace")
             chunks = self.chunker.chunk(relative, content)
-            embedding_texts = [f"[{chunk.kind}:{chunk.name}] {chunk.content}" for chunk in chunks]
-            vectors = await self._embed_all(embedding_texts) if chunks else []
-            self.store.replace_path(relative, chunks, vectors, content_hash, signature)
-            chunk_count += len(chunks)
+            if not chunks:
+                self.store.replace_path(relative, [], [], content_hash, signature)
+                continue
+            pending.append((relative, chunks, content_hash))
+            pending_chunks += len(chunks)
+            if pending_chunks >= self._embedding_batch_size() * MAX_CONCURRENT_EMBEDDING_BATCHES:
+                await flush_pending()
+        if pending:
+            await flush_pending()
         relative_root = root.relative_to(self.workspace).as_posix()
         existing_in_scope = {
             stored
@@ -806,17 +843,28 @@ class CodeIndex:
         ]
 
     async def _embed_all(self, texts: list[str]) -> list[list[float]]:
-        raw_size = getattr(self.embedding, "max_batch_size", len(texts) or 1)
+        raw_size = self._embedding_batch_size(len(texts) or 1)
+        vectors: list[list[float]] = []
+        batches = [texts[offset : offset + raw_size] for offset in range(0, len(texts), raw_size)]
+        # ponytail: keep concurrency low; raise only if measured throughput needs it.
+        for offset in range(0, len(batches), MAX_CONCURRENT_EMBEDDING_BATCHES):
+            group = batches[offset : offset + MAX_CONCURRENT_EMBEDDING_BATCHES]
+            results = await asyncio.gather(
+                *(self.embedding.embed(batch) for batch in group), return_exceptions=True
+            )
+            for batch, result in zip(group, results, strict=True):
+                if isinstance(result, BaseException):
+                    raise result
+                if len(result) != len(batch):
+                    raise ValueError("Embedding client returned an unexpected vector count")
+                vectors.extend(result)
+        return vectors
+
+    def _embedding_batch_size(self, default: int = MAX_EMBEDDING_BATCH) -> int:
+        raw_size = getattr(self.embedding, "max_batch_size", default)
         if isinstance(raw_size, bool) or not isinstance(raw_size, int) or raw_size <= 0:
             raise ValueError("Embedding max_batch_size must be a positive integer")
-        vectors: list[list[float]] = []
-        for offset in range(0, len(texts), raw_size):
-            expected = min(raw_size, len(texts) - offset)
-            batch = await self.embedding.embed(texts[offset : offset + raw_size])
-            if len(batch) != expected:
-                raise ValueError("Embedding client returned an unexpected vector count")
-            vectors.extend(batch)
-        return vectors
+        return raw_size
 
     def graph(self, symbol: str) -> list[dict[str, object]]:
         escaped = re.escape(symbol)

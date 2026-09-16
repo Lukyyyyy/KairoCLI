@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import sqlite3
@@ -178,6 +179,35 @@ async def test_alicloud_embedding_uses_openai_compatible_payload() -> None:
         await client.embed(["x"] * 21)
 
 
+async def test_http_embedding_client_retries_rate_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(429, headers={"retry-after": "0"})
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [1.0]}]})
+
+    sleeps: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(rag_module.asyncio, "sleep", sleep)
+    client = HttpEmbeddingClient(
+        "https://embedding.example.test/v1",
+        "embedding-test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert await client.embed(["input"]) == [[1.0]]
+    assert attempts == 3
+    assert sleeps == [0, 0]
+
+
 async def test_http_embedding_client_rejects_dimension_drift() -> None:
     responses = iter(
         [
@@ -232,6 +262,40 @@ async def test_code_index_respects_embedding_batch_contract(tmp_path: Path) -> N
 
     assert [len(call) for call in embedding.calls] == [2, 2, 1]
     assert len(vectors) == 5
+
+
+async def test_code_index_runs_two_embedding_batches_concurrently(tmp_path: Path) -> None:
+    class ConcurrentEmbedding(CountingEmbedding):
+        max_batch_size = 1
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.active = 0
+            self.peak = 0
+
+        async def embed(self, texts: list[str]) -> list[list[float]]:
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(0)
+            self.active -= 1
+            return await super().embed(texts)
+
+    embedding = ConcurrentEmbedding()
+    index = CodeIndex(tmp_path, tmp_path / "index.db", embedding)
+
+    assert len(await index._embed_all(["one", "two", "three"])) == 3
+    assert embedding.peak == 2
+
+
+async def test_code_index_batches_chunks_across_files(tmp_path: Path) -> None:
+    for number in range(3):
+        (tmp_path / f"file-{number}.md").write_text(f"# File {number}\n", encoding="utf-8")
+    embedding = CountingEmbedding()
+    embedding.max_batch_size = 2  # type: ignore[attr-defined]
+
+    await CodeIndex(tmp_path, tmp_path / "index.db", embedding).index()
+
+    assert [len(call) for call in embedding.calls] == [2, 1]
 
 
 def test_chunker_emits_python_and_java_symbol_metadata() -> None:
