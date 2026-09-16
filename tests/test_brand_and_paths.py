@@ -16,6 +16,7 @@ def test_paths_are_isolated(tmp_path: Path) -> None:
     assert paths.user_dir == (tmp_path / "home" / ".kairocli").resolve()
     assert paths.project_dir == (tmp_path / "work" / ".kairocli").resolve()
     assert paths.memory_file.parts[-3:] == (".kairocli", "memory", "long_term_memory.json")
+    assert paths.memory_embeddings_file.parts[-3:] == (".kairocli", "memory", "embeddings.db")
 
 
 def test_no_legacy_brand_tokens() -> None:

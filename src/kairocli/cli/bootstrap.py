@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 from ..agent import Agent
@@ -25,6 +26,7 @@ from ..paths import KairoPaths
 from ..policy import ApprovalPolicy, AuditLog
 from ..pricing import PricingConfig
 from ..prompts import PromptAssembler
+from ..rag import HashEmbeddingClient, embedding_client_from_environment
 from ..skill_installer import SkillInstallRequest, install_skill
 from ..skills import SkillRegistry, refresh_agent_skill_index
 from ..snapshot import SnapshotService
@@ -47,7 +49,23 @@ def make_agent(
     todo_controller: SessionTodoController | None = None,
 ) -> Agent:
     llm = create_llm_client(config, provider)
-    memory = MemoryStore(paths)
+    embedding = None
+    if os.getenv("KAIROCLI_MEMORY_SEMANTIC_SEARCH", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        candidate = embedding_client_from_environment()
+        if isinstance(candidate, HashEmbeddingClient):
+            log.warning("memory_semantic_search_disabled reason=real_embedding_required")
+        else:
+            embedding = candidate
+    try:
+        semantic_min_score = float(os.getenv("KAIROCLI_MEMORY_SEMANTIC_MIN_SCORE", "0.45"))
+    except ValueError as exc:
+        raise ValueError("KAIROCLI_MEMORY_SEMANTIC_MIN_SCORE must be a number") from exc
+    memory = MemoryStore(paths, embedding, semantic_min_score)
     skills = skill_registry or SkillRegistry(paths)
     if not skills.skills:
         skills.reload()
@@ -200,24 +218,93 @@ def make_agent(
     async def save_memory(arguments: dict[str, Any]) -> str:
         fact = str(arguments.get("fact", "")).strip()
         scope = str(arguments.get("scope", "project")).lower()
-        entry = memory.save(fact, scope)
-        return f"Saved long-term memory ({entry.scope}): {entry.fact}"
+        key = str(arguments["key"]).strip() if arguments.get("key") is not None else None
+        replaces = [str(value) for value in arguments.get("replaces", [])]
+        entry, indexed = await memory.save_with_embedding(fact, scope, key=key, replaces=replaces)
+        suffix = "" if memory.embedding is None or indexed else " (semantic indexing deferred)"
+        return f"Saved long-term memory ({entry.scope}): {entry.fact}{suffix}"
 
     tools.register(
         ToolDefinition(
             "save_memory",
             "Only when the user explicitly asks to remember a durable fact or preference, save a "
             "concise reusable fact. Default to project scope; use global only across projects. "
-            "Never save temporary task steps, one-off filenames, or model speculation.",
+            "Never save temporary task steps, one-off filenames, or model speculation. Before "
+            "saving a correction, search memory, reuse a stable semantic-slot key, and replace "
+            "legacy IDs. Store only the canonical current fact, without the superseded value as "
+            "a negation, comparison, parenthetical, note, or history.",
             {
                 "type": "object",
                 "properties": {
-                    "fact": {"type": "string"},
+                    "fact": {
+                        "type": "string",
+                        "description": (
+                            "Canonical current fact only; omit superseded values "
+                            "and change history."
+                        ),
+                    },
                     "scope": {"type": "string", "enum": ["project", "global"]},
+                    "key": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$",
+                        "description": "Stable semantic slot, never a current or previous value.",
+                    },
+                    "replaces": {
+                        "type": "array",
+                        "items": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
+                        "maxItems": 20,
+                        "uniqueItems": True,
+                    },
                 },
                 "required": ["fact"],
+                "additionalProperties": False,
             },
             save_memory,
+        )
+    )
+
+    async def search_memory(arguments: dict[str, Any]) -> dict[str, Any]:
+        query = str(arguments["query"]).strip()
+        limit = int(arguments.get("limit", 10))
+        entries = await memory.search_hybrid(query, limit)
+        return {
+            "query": query,
+            "results": [
+                {
+                    "id": entry.id,
+                    "key": entry.key,
+                    "fact": entry.fact,
+                    "scope": entry.scope,
+                    "created_at": entry.created_at,
+                }
+                for entry in entries
+            ],
+        }
+
+    tools.register(
+        ToolDefinition(
+            "search_memory",
+            "Search durable facts and preferences that the user explicitly asked Kairo to "
+            "remember. Use when the user asks what Kairo remembers, asks how Kairo knows a "
+            "preference or fact, "
+            "or when a follow-up may depend on saved memory. Results are stored user-approved "
+            "memories, not model guesses. Current user statements override stored memory. Do not "
+            "present results as verbatim quotes or claim a specific prior conversation.",
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "minLength": 1, "maxLength": 2_000},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "default": 10,
+                    },
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+            search_memory,
         )
     )
     agent_ref = Agent(

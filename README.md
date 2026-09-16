@@ -117,6 +117,35 @@ KAIROCLI_PROVIDER=glm
 | 讯飞星火 MaaS | `XFYUN_MAAS_API_KEY` | `Qwen3.6-35B-A3B` |
 | Agnes AI | `AGNES_API_KEY` | `agnes-2.0-flash` |
 
+长期记忆默认使用本地关键词检索。若明确允许 embedding 服务处理已保存的记忆，
+可启用关键词与语义混合检索：
+
+```dotenv
+KAIROCLI_MEMORY_SEMANTIC_SEARCH=true
+KAIROCLI_EMBEDDING_PROVIDER=ollama
+KAIROCLI_EMBEDDING_MODEL=nomic-embed-text:latest
+KAIROCLI_EMBEDDING_BASE_URL=http://localhost:11434
+```
+
+也可使用百炼的 OpenAI 兼容 API：
+
+```dotenv
+KAIROCLI_MEMORY_SEMANTIC_SEARCH=true
+KAIROCLI_EMBEDDING_PROVIDER=alicloud
+KAIROCLI_EMBEDDING_BASE_URL=https://YOUR_WORKSPACE_ID.cn-beijing.maas.aliyuncs.com/compatible-mode/v1
+KAIROCLI_EMBEDDING_MODEL=qwen3.7-text-embedding-flash
+KAIROCLI_EMBEDDING_DIMENSIONS=1024
+KAIROCLI_EMBEDDING_MAX_BATCH_SIZE=20
+DASHSCOPE_API_KEY=your-api-key
+```
+
+`alicloud` 只接受 HTTPS 的 `aliyuncs.com/compatible-mode/v1` 业务空间地址，并强制请求
+float 向量。也支持 `openai` 或 `zhipu` provider；远程服务会接收用于建立索引的长期记忆
+文本和代码片段。`/save` 与 Agent 的 `save_memory` 会立即建立记忆向量；若 embedding 暂时
+失败，原始记忆仍会保存并在后续检索时补建。`/memory search`、自动记忆检索和
+`search_memory` 使用同一套混合检索。代码 `/index` 与 `/search` 复用同一 embedding 配置；
+更换模型或维度后必须执行一次完整 `/index`。未启用记忆语义检索时会自动使用关键词检索。
+
 > [!CAUTION]
 > `.env` 和真实密钥不得提交到版本库。Kairo CLI 会读取全局的
 > `~/.kairocli/.env` 和当前项目的 `.env`，项目配置覆盖全局配置，进程环境变量优先于两者。
@@ -160,6 +189,7 @@ Kairo CLI 默认使用 inline 渲染器。输入 `/help` 查看完整命令索�
 /team TASK                 使用多 Agent 团队执行
 /index [PATH]              建立工作区代码索引
 /search QUERY              搜索已索引代码
+/memory list               按列显示长期记忆及其创建时间
 /session                   管理可恢复会话
 /todo                      管理当前任务清单
 /mcp                       管理 MCP 服务和资源
@@ -169,6 +199,10 @@ Kairo CLI 默认使用 inline 渲染器。输入 `/help` 查看完整命令索�
 /cancel                    取消当前任务
 /exit                      退出 Kairo CLI
 ```
+
+Agent 会自动检索相关长期记忆，也可在追问记忆来源或已有偏好时调用只读的
+`search_memory` 工具。带稳定 `key` 的新记忆会替换同作用域的旧版本；旧版本保留为
+`superseded`，不会进入普通检索。当前项目的同 key 记忆优先于全局记忆。
 
 使用 `@relative/path` 或 `@<path with spaces>` 将工作区文件或目录加入上下文：
 

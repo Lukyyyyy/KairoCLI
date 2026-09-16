@@ -183,6 +183,13 @@ CodeIndex selects its embedding implementation from Kairo CLI-prefixed environme
 offline deterministic hash is the no-network default, while explicit Ollama/OpenAI/Zhipu settings
 construct a bounded HTTP client. Remote responses stream into a 10 MiB cap and must return exactly one
 finite, numeric, consistently-sized vector per input; dimensions cannot drift during a client session.
+The `alicloud` provider uses Bailian's OpenAI-compatible workspace endpoint, requires an HTTPS
+`aliyuncs.com/compatible-mode/v1` base URL, falls back to `DASHSCOPE_API_KEY`, requests float vectors,
+and includes the configured dimensions in the cache signature. Its default model is
+`qwen3.7-text-embedding-flash`, with model-aware bounded batch sizes.
+Search refuses to compare query and index vectors from different embedding signatures and requires
+a full `/index` after provider, model or dimension changes. A scoped rebuild cannot discard an
+existing index created with another signature.
 
 Memory/save and Skill command handlers are shared between inline and Textual modes. Skill state
 changes rebuild the Agent's available-skill index immediately. Policy, bounded audit-tail and export
@@ -417,11 +424,19 @@ are swallowed so observability cannot change execution semantics. Trace director
 and pruning candidates reject every symlink component.
 
 Long-term memory is queried per user turn instead of being injected wholesale at startup. Search
-uses CJK phrase fragments plus complete Latin words, relevance coverage and time decay. Only global
-and current-project facts can enter the prompt. Exact normalized facts are deduplicated, writes are
-atomic, and malformed legacy storage degrades to an empty store rather than breaking startup. The
-10 MiB store uses a limit-plus-one read after metadata checks, while reads degrade safely and writes
-reject every symlink component in the memory and lock paths.
+uses CJK phrase fragments plus complete Latin words and can opt into real embeddings. Keyword and
+semantic candidate ranks are combined with reciprocal rank fusion after a semantic relevance floor;
+embedding failure degrades to keyword search. The JSON file remains the source of truth, while a
+private SQLite sidecar caches vectors by fact hash and embedding signature. `search_memory` exposes
+the same retrieval path to the Agent without approval. Slash-command and Agent-tool saves eagerly
+cache the new fact vector; failures keep the JSON write and defer vector creation until retrieval.
+Delete, clear and supersession prune obsolete cached vectors. Only global and current-project facts can
+enter the prompt. Stable keys version corrections by marking prior same-scope facts superseded, and
+current-project keys override matching global keys. Legacy rows remain active until explicitly
+replaced. Exact normalized facts are deduplicated, writes are atomic, and malformed legacy storage
+degrades to an empty store rather than breaking startup. The 10 MiB store uses a limit-plus-one read
+after metadata checks, while reads degrade safely and writes reject every symlink component in the
+memory and lock paths.
 
 The three execution paths are:
 

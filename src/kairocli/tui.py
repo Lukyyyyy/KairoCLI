@@ -899,14 +899,14 @@ def run_tui(
                 if agent.memory_store is None:
                     log.write("Long-term memory is unavailable.")
                 else:
-                    log.write(handle_memory_command(payload.strip(), agent.memory_store))
+                    log.write(await handle_memory_command(payload.strip(), agent.memory_store))
                 return
             if command == "/save":
                 if agent.memory_store is None:
                     log.write("Long-term memory is unavailable.")
                 else:
                     try:
-                        log.write(handle_save_command(payload.strip(), agent.memory_store))
+                        log.write(await handle_save_command(payload.strip(), agent.memory_store))
                     except ValueError as exc:
                         self.write_untrusted(log, "Memory error: " + _safe_tui_error(exc))
                 return

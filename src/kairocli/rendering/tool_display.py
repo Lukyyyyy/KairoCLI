@@ -19,6 +19,7 @@ _LABELS = {
     "web_search": "🌐 Web search",
     "web_fetch": "📰 Web fetch",
     "save_memory": "💾 Save memory",
+    "search_memory": "🔍 Search memory",
     "lsp_inspect": "🩺 Inspect diagnostics",
     "lsp_workspace_diagnostics": "🩺 Workspace diagnostics",
 }
@@ -34,6 +35,7 @@ _KEYS = {
     "web_search": "query",
     "web_fetch": "url",
     "save_memory": "fact",
+    "search_memory": "query",
     "lsp_inspect": "path",
     "lsp_workspace_diagnostics": "path",
 }

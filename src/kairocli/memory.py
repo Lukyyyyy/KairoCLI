@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
+import sqlite3
 import stat
 import threading
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -18,18 +20,31 @@ import jieba  # type: ignore[import-untyped]
 
 from .agent.context import estimate_text_tokens
 from .paths import KairoPaths, reject_symlink_components
+from .rag import (
+    MAX_STORED_VECTOR_BYTES,
+    EmbeddingClient,
+    _validated_vector,
+    cosine_similarity,
+    embedding_signature,
+)
 
 jieba.setLogLevel(logging.WARNING)
+log = logging.getLogger(__name__)
 
 _MEMORY_LOCK = threading.RLock()
 _WORD = re.compile(r"[a-z0-9][a-z0-9_.+-]*", re.I)
 _URL = re.compile(r"https?://[^\s，。！？、)）]+", re.I)
 _MEMORY_ID = re.compile(r"[0-9a-f]{12}\Z")
+_MEMORY_KEY = re.compile(r"[a-z0-9][a-z0-9._:-]{0,127}\Z")
 MAX_MEMORY_FILE_BYTES = 10 * 1024 * 1024
 MAX_MEMORY_ENTRIES = 1_000
 MAX_MEMORY_FACT_CHARS = 10_000
 MAX_MEMORY_JSON_DEPTH = 16
 MAX_MEMORY_JSON_NODES = 10_000
+MAX_MEMORY_SEARCH_LIMIT = 20
+MEMORY_RRF_K = 60
+MEMORY_SEMANTIC_CANDIDATES = 50
+MEMORY_SEMANTIC_MIN_SCORE = 0.45
 
 
 @dataclass(slots=True)
@@ -39,6 +54,9 @@ class MemoryEntry:
     scope: str
     project: str | None
     created_at: str
+    key: str | None = None
+    status: str = "active"
+    superseded_by: str | None = None
 
     @property
     def token_count(self) -> int:
@@ -91,19 +109,49 @@ def browser_login_fact(user_input: str, recent_texts: list[str]) -> str | None:
 
 
 class MemoryStore:
-    def __init__(self, paths: KairoPaths) -> None:
+    def __init__(
+        self,
+        paths: KairoPaths,
+        embedding: EmbeddingClient | None = None,
+        semantic_min_score: float = MEMORY_SEMANTIC_MIN_SCORE,
+    ) -> None:
+        if not -1 <= semantic_min_score <= 1:
+            raise ValueError("Memory semantic minimum score must be between -1 and 1")
         self.paths = paths
         self.file = paths.memory_file
+        self.embedding = embedding
+        self.semantic_min_score = semantic_min_score
+        self.embedding_file = paths.memory_embeddings_file
 
-    def list_entries(self, include_global: bool = True) -> list[MemoryEntry]:
+    def list_entries(
+        self, include_global: bool = True, *, include_superseded: bool = False
+    ) -> list[MemoryEntry]:
         project = str(self.paths.workspace)
-        return [
+        visible = [
             entry
             for entry in self._load()
-            if entry.project == project or (include_global and entry.scope == "global")
+            if (include_superseded or entry.status == "active")
+            and (entry.project == project or (include_global and entry.scope == "global"))
+        ]
+        if include_superseded:
+            return visible
+        project_keys = {
+            entry.key for entry in visible if entry.scope == "project" and entry.key is not None
+        }
+        return [
+            entry
+            for entry in visible
+            if not (entry.scope == "global" and entry.key in project_keys)
         ]
 
-    def save(self, fact: str, scope: str = "project") -> MemoryEntry:
+    def save(
+        self,
+        fact: str,
+        scope: str = "project",
+        *,
+        key: str | None = None,
+        replaces: Iterable[str] = (),
+    ) -> MemoryEntry:
         fact = " ".join(fact.split())
         if not fact:
             raise ValueError("Memory fact cannot be empty")
@@ -111,6 +159,12 @@ class MemoryStore:
             raise ValueError(f"Memory fact cannot exceed {MAX_MEMORY_FACT_CHARS} characters")
         if scope not in {"project", "global"}:
             raise ValueError("Memory scope must be project or global")
+        normalized_key = key.casefold().strip() if key is not None else None
+        if normalized_key is not None and not _MEMORY_KEY.fullmatch(normalized_key):
+            raise ValueError("Memory key must contain 1-128 lowercase letters, numbers, . _ : or -")
+        replace_ids = set(replaces)
+        if any(not _MEMORY_ID.fullmatch(identifier) for identifier in replace_ids):
+            raise ValueError("Replacement memory IDs must be 12 lowercase hexadecimal characters")
         with _MEMORY_LOCK:
             with _memory_file_lock(self.file):
                 entries = self._load_unlocked()
@@ -119,6 +173,7 @@ class MemoryStore:
                     (
                         entry
                         for entry in entries
+                        if entry.status == "active"
                         if " ".join(entry.fact.split()).casefold() == normalized
                     ),
                     None,
@@ -131,11 +186,61 @@ class MemoryStore:
                     scope=scope,
                     project=None if scope == "global" else str(self.paths.workspace),
                     created_at=datetime.now(UTC).isoformat(),
+                    key=normalized_key,
                 )
+                replace_ids.update(
+                    candidate.id
+                    for candidate in entries
+                    if normalized_key is not None
+                    and candidate.status == "active"
+                    and candidate.key == normalized_key
+                    and candidate.scope == scope
+                    and candidate.project == entry.project
+                )
+                replaceable_ids = {
+                    candidate.id
+                    for candidate in entries
+                    if candidate.scope == scope and candidate.project == entry.project
+                }
+                if not replace_ids <= replaceable_ids:
+                    raise ValueError("Cannot replace a memory from another scope or project")
+                entries = [
+                    replace(candidate, status="superseded", superseded_by=entry.id)
+                    if candidate.id in replace_ids and candidate.status == "active"
+                    else candidate
+                    for candidate in entries
+                ]
                 entries.append(entry)
                 entries = entries[-MAX_MEMORY_ENTRIES:]
                 self._write_unlocked(entries)
                 return entry
+
+    async def save_with_embedding(
+        self,
+        fact: str,
+        scope: str = "project",
+        *,
+        key: str | None = None,
+        replaces: Iterable[str] = (),
+    ) -> tuple[MemoryEntry, bool]:
+        entry = self.save(fact, scope, key=key, replaces=replaces)
+        if self.embedding is None:
+            return entry, False
+        signature = embedding_signature(self.embedding)
+        try:
+            cached = self._load_embedding_cache(signature).get(entry.id)
+            if cached is not None and cached[0] == _fact_hash(entry.fact):
+                return entry, True
+            vectors = await _embed_all(self.embedding, [entry.fact])
+            self._store_embeddings(signature, [entry], vectors)
+        except Exception as exc:
+            log.warning("memory_embedding_deferred error=%s", type(exc).__name__)
+            return entry, False
+        try:
+            self._prune_embedding_cache()
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            log.warning("memory_embedding_cleanup_deferred error=%s", type(exc).__name__)
+        return entry, True
 
     def search(self, query: str, limit: int = 20) -> list[MemoryEntry]:
         scored = [(self._score(entry, query), entry) for entry in self.list_entries()]
@@ -147,6 +252,45 @@ class MemoryStore:
                 reverse=True,
             )[: max(0, limit)]
         ]
+
+    async def search_hybrid(self, query: str, limit: int = 10) -> list[MemoryEntry]:
+        query = query.strip()
+        if not query:
+            return []
+        bounded_limit = min(max(limit, 1), MAX_MEMORY_SEARCH_LIMIT)
+        lexical = self.search(query, MEMORY_SEMANTIC_CANDIDATES)
+        if self.embedding is None:
+            return lexical[:bounded_limit]
+        try:
+            semantic = await self._semantic_search(query, MEMORY_SEMANTIC_CANDIDATES)
+        except Exception:
+            return lexical[:bounded_limit]
+        entries = {entry.id: entry for entry in [*lexical, *semantic]}
+        scores: dict[str, float] = {}
+        for ranking in (lexical, semantic):
+            for rank, entry in enumerate(ranking, 1):
+                scores[entry.id] = scores.get(entry.id, 0.0) + 1 / (MEMORY_RRF_K + rank)
+        normalized = query.casefold()
+        return sorted(
+            entries.values(),
+            key=lambda entry: (
+                normalized in entry.fact.casefold(),
+                scores[entry.id],
+                entry.created_at,
+            ),
+            reverse=True,
+        )[:bounded_limit]
+
+    async def context_for_hybrid_query(self, query: str, max_tokens: int, limit: int = 10) -> str:
+        lines: list[str] = []
+        used = 0
+        for entry in await self.search_hybrid(query, limit):
+            if used + entry.token_count > max_tokens:
+                break
+            key = f" key={entry.key}" if entry.key else ""
+            lines.append(f"- [{entry.scope}{key}] {entry.fact}")
+            used += entry.token_count
+        return "\n".join(lines)
 
     def context_for_query(self, query: str, max_tokens: int, limit: int = 10) -> str:
         lines: list[str] = []
@@ -166,6 +310,7 @@ class MemoryStore:
                 if len(retained) == len(entries):
                     return False
                 self._write_unlocked(retained)
+                self._delete_cached_embeddings({entry_id})
                 return True
 
     def clear_visible(self) -> int:
@@ -180,6 +325,7 @@ class MemoryStore:
                 }
                 retained = [entry for entry in entries if entry.id not in visible_ids]
                 self._write_unlocked(retained)
+                self._delete_cached_embeddings(visible_ids)
                 return len(entries) - len(retained)
 
     def context(self, max_chars: int = 8_000) -> str:
@@ -210,15 +356,144 @@ class MemoryStore:
         matched = sum(1 for token in tokens if token in content)
         if matched == 0:
             return 0
+        return matched / len(tokens)
+
+    async def _semantic_search(self, query: str, limit: int) -> list[MemoryEntry]:
+        entries = self.list_entries()
+        if not entries or self.embedding is None:
+            return []
+        signature = embedding_signature(self.embedding)
+        cached = self._load_embedding_cache(signature)
+        missing = [
+            entry
+            for entry in entries
+            if entry.id not in cached or cached[entry.id][0] != _fact_hash(entry.fact)
+        ]
+        texts = [query, *(entry.fact for entry in missing)]
+        vectors = await _embed_all(self.embedding, texts)
+        query_vector = vectors[0]
+        if missing:
+            self._store_embeddings(signature, missing, vectors[1:])
+            cached.update(
+                (entry.id, (_fact_hash(entry.fact), vector))
+                for entry, vector in zip(missing, vectors[1:], strict=True)
+            )
+        incompatible = [
+            entry
+            for entry in entries
+            if entry.id in cached and len(cached[entry.id][1]) != len(query_vector)
+        ]
+        if incompatible:
+            repaired = await _embed_all(self.embedding, [entry.fact for entry in incompatible])
+            self._store_embeddings(signature, incompatible, repaired)
+            cached.update(
+                (entry.id, (_fact_hash(entry.fact), vector))
+                for entry, vector in zip(incompatible, repaired, strict=True)
+            )
+        scored = [
+            (cosine_similarity(query_vector, cached[entry.id][1]), entry)
+            for entry in entries
+            if entry.id in cached
+        ]
+        return [
+            entry
+            for score, entry in sorted(
+                (item for item in scored if item[0] >= self.semantic_min_score),
+                key=lambda item: (item[0], item[1].created_at),
+                reverse=True,
+            )[:limit]
+        ]
+
+    def _load_embedding_cache(self, signature: str) -> dict[str, tuple[str, list[float]]]:
+        with self._embedding_connection() as connection:
+            rows = connection.execute(
+                "SELECT memory_id,fact_hash,CASE WHEN typeof(vector)='text' AND length(vector)<=? "
+                "THEN vector ELSE NULL END FROM memory_embeddings "
+                "WHERE embedding_signature=?",
+                (MAX_STORED_VECTOR_BYTES, signature),
+            ).fetchall()
+        cached: dict[str, tuple[str, list[float]]] = {}
+        for memory_id, fact_hash, encoded in rows:
+            try:
+                if not isinstance(encoded, str):
+                    continue
+                vector = _validated_vector(json.loads(encoded))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            cached[str(memory_id)] = (str(fact_hash), vector)
+        return cached
+
+    def _store_embeddings(
+        self, signature: str, entries: list[MemoryEntry], vectors: list[list[float]]
+    ) -> None:
+        encoded_vectors = [
+            json.dumps(_validated_vector(vector), allow_nan=False, separators=(",", ":"))
+            for vector in vectors
+        ]
+        if any(len(encoded.encode()) > MAX_STORED_VECTOR_BYTES for encoded in encoded_vectors):
+            raise ValueError("Memory embedding vector exceeds the storage limit")
+        with self._embedding_connection() as connection:
+            connection.executemany(
+                "INSERT OR REPLACE INTO memory_embeddings "
+                "(memory_id,fact_hash,embedding_signature,vector) VALUES (?,?,?,?)",
+                [
+                    (
+                        entry.id,
+                        _fact_hash(entry.fact),
+                        signature,
+                        encoded,
+                    )
+                    for entry, encoded in zip(entries, encoded_vectors, strict=True)
+                ],
+            )
+
+    def _delete_cached_embeddings(self, entry_ids: set[str]) -> None:
+        if not entry_ids or not self.embedding_file.exists():
+            return
         try:
-            created = datetime.fromisoformat(entry.created_at)
-            if created.tzinfo is None:
-                created = created.replace(tzinfo=UTC)
-            age_hours = max(0.0, (datetime.now(UTC) - created).total_seconds() / 3600)
-        except ValueError:
-            age_hours = 24
-        decay = max(0.5, 1.0 - age_hours / 24)
-        return matched / len(tokens) * decay * 1.2
+            with self._embedding_connection() as connection:
+                connection.executemany(
+                    "DELETE FROM memory_embeddings WHERE memory_id=?",
+                    [(entry_id,) for entry_id in entry_ids],
+                )
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            log.warning("memory_embedding_cleanup_deferred error=%s", type(exc).__name__)
+
+    def _prune_embedding_cache(self) -> None:
+        active_ids = {entry.id for entry in self._load() if entry.status == "active"}
+        with self._embedding_connection() as connection:
+            cached_ids = {
+                str(row[0]) for row in connection.execute("SELECT memory_id FROM memory_embeddings")
+            }
+            connection.executemany(
+                "DELETE FROM memory_embeddings WHERE memory_id=?",
+                [(entry_id,) for entry_id in cached_ids - active_ids],
+            )
+
+    @contextmanager
+    def _embedding_connection(self) -> Iterator[sqlite3.Connection]:
+        reject_symlink_components(self.embedding_file, "Memory embedding cache")
+        self.embedding_file.parent.mkdir(parents=True, exist_ok=True)
+        reject_symlink_components(self.embedding_file, "Memory embedding cache")
+        if os.name == "posix":
+            self.embedding_file.parent.chmod(0o700)
+        connection = sqlite3.connect(self.embedding_file, timeout=10)
+        try:
+            connection.execute("PRAGMA busy_timeout=10000")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS memory_embeddings ("
+                "memory_id TEXT PRIMARY KEY, fact_hash TEXT NOT NULL, "
+                "embedding_signature TEXT NOT NULL, vector TEXT NOT NULL)"
+            )
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+            if os.name == "posix" and self.embedding_file.is_file():
+                self.embedding_file.chmod(0o600)
 
     def _load(self) -> list[MemoryEntry]:
         with _MEMORY_LOCK:
@@ -268,6 +543,9 @@ class MemoryStore:
             scope = item.get("scope", "global")
             project = item.get("project")
             created_at = item.get("created_at", _legacy_timestamp(item))
+            key = item.get("key")
+            status = item.get("status", "active")
+            superseded_by = item.get("superseded_by")
             if (
                 not _MEMORY_ID.fullmatch(identifier)
                 or not isinstance(fact, str)
@@ -277,9 +555,31 @@ class MemoryStore:
                 or (project is not None and not isinstance(project, str))
                 or not isinstance(created_at, str)
                 or len(created_at) > 128
+                or (
+                    key is not None and (not isinstance(key, str) or not _MEMORY_KEY.fullmatch(key))
+                )
+                or status not in {"active", "superseded"}
+                or (
+                    superseded_by is not None
+                    and (
+                        not isinstance(superseded_by, str)
+                        or not _MEMORY_ID.fullmatch(superseded_by)
+                    )
+                )
             ):
                 continue
-            entries.append(MemoryEntry(identifier, fact, scope, project, created_at))
+            entries.append(
+                MemoryEntry(
+                    identifier,
+                    fact,
+                    scope,
+                    project,
+                    created_at,
+                    key,
+                    status,
+                    superseded_by,
+                )
+            )
         entries.reverse()
         return entries
 
@@ -322,7 +622,7 @@ class MemoryStore:
             raise
 
 
-def handle_memory_command(payload: str | None, memory: MemoryStore) -> str:
+async def handle_memory_command(payload: str | None, memory: MemoryStore) -> str:
     normalized = (payload or "list").strip()
     operation, _, argument = normalized.partition(" ")
     operation = operation.casefold() or "list"
@@ -330,7 +630,7 @@ def handle_memory_command(payload: str | None, memory: MemoryStore) -> str:
     if operation == "list":
         entries = memory.list_entries()
     elif operation == "search" and argument:
-        entries = memory.search(argument)
+        entries = await memory.search_hybrid(argument)
     elif operation == "delete" and argument:
         return "Deleted." if memory.delete(argument) else "Memory not found."
     elif operation == "clear":
@@ -339,10 +639,14 @@ def handle_memory_command(payload: str | None, memory: MemoryStore) -> str:
         return "Usage: /memory [list|search QUERY|delete ID|clear]"
     if not entries:
         return "No visible memories."
-    return "\n".join(f"{entry.id} [{entry.scope}] {entry.fact}" for entry in entries)
+    return "\n".join(
+        f"{entry.id}  {f'[{entry.scope}]':<9}  "
+        f"{entry.created_at.replace('T', ' ')[:19]:<19}  {entry.fact}"
+        for entry in entries
+    )
 
 
-def handle_save_command(payload: str | None, memory: MemoryStore) -> str:
+async def handle_save_command(payload: str | None, memory: MemoryStore) -> str:
     normalized = (payload or "").strip()
     global_scope = normalized.casefold().startswith("--global ")
     project_scope = normalized.casefold().startswith("--project ")
@@ -355,12 +659,35 @@ def handle_save_command(payload: str | None, memory: MemoryStore) -> str:
     )
     if not fact:
         return "Usage: /save [--global|--project] <durable fact>"
-    entry = memory.save(fact, "global" if global_scope else "project")
-    return f"Saved memory {entry.id} ({entry.scope})."
+    entry, indexed = await memory.save_with_embedding(fact, "global" if global_scope else "project")
+    suffix = "" if memory.embedding is None or indexed else " Semantic indexing deferred."
+    return f"Saved memory {entry.id} ({entry.scope}).{suffix}"
 
 
 def _legacy_timestamp(item: dict[str, object]) -> object:
     return item.get("timestamp", datetime.now(UTC).isoformat())
+
+
+def _fact_hash(fact: str) -> str:
+    return hashlib.sha256(fact.encode()).hexdigest()
+
+
+async def _embed_all(embedding: EmbeddingClient, texts: list[str]) -> list[list[float]]:
+    raw_batch_size = getattr(embedding, "max_batch_size", len(texts) or 1)
+    if (
+        isinstance(raw_batch_size, bool)
+        or not isinstance(raw_batch_size, int)
+        or raw_batch_size <= 0
+    ):
+        raise ValueError("Embedding max_batch_size must be a positive integer")
+    vectors: list[list[float]] = []
+    for offset in range(0, len(texts), raw_batch_size):
+        batch_texts = texts[offset : offset + raw_batch_size]
+        batch = await embedding.embed(batch_texts)
+        if len(batch) != len(batch_texts):
+            raise ValueError("Embedding client returned an unexpected vector count")
+        vectors.extend(_validated_vector(vector) for vector in batch)
+    return vectors
 
 
 def _memory_object_without_duplicates(

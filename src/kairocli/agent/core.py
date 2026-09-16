@@ -186,7 +186,7 @@ class Agent:
             prompt = prepared.text
             image_urls = list(prepared.image_urls)
         prompt = normalize_user_input(prompt)
-        self._refresh_memory_context(prompt)
+        await self._refresh_memory_context(prompt)
         user_content: Any = prompt
         if image_urls:
             user_content = [
@@ -564,7 +564,7 @@ class Agent:
         self.base_system_prompt += "\n\n" + value.strip()
         self.system_prompt = self.base_system_prompt
 
-    def _refresh_memory_context(self, query: str) -> None:
+    async def _refresh_memory_context(self, query: str) -> None:
         self.system_prompt = self.base_system_prompt
         if self.memory_store is None:
             return
@@ -575,10 +575,21 @@ class Agent:
         ][-10:]
         fact = browser_login_fact(query, recent_texts)
         if fact:
-            self.memory_store.save(fact, "global")
-        context = self.memory_store.context_for_query(
+            await self.memory_store.save_with_embedding(fact, "global")
+        context = await self.memory_store.context_for_hybrid_query(
             query, self.context_profile.memory_context_tokens
         )
+        if not context:
+            previous_users = [
+                message.content
+                for message in self.history
+                if message.role == "user" and isinstance(message.content, str)
+            ]
+            if previous_users and _is_memory_followup(query):
+                context = await self.memory_store.context_for_hybrid_query(
+                    previous_users[-1] + "\n" + query,
+                    self.context_profile.memory_context_tokens,
+                )
         if context:
             self.system_prompt += (
                 "\n\n<relevant_long_term_memory>\n" + context + "\n</relevant_long_term_memory>"
@@ -811,6 +822,20 @@ def markdown_fence_for(content: str) -> str:
 
 def _normalize_markdown_text(content: str) -> str:
     return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _is_memory_followup(query: str) -> bool:
+    normalized = query.casefold()
+    return any(
+        marker in normalized
+        for marker in (
+            "怎么知道",
+            "为何知道",
+            "为什么这么说",
+            "how do you know",
+            "why do you think that",
+        )
+    )
 
 
 def _tool_call_snapshot(calls: list[ToolCall]) -> list[ToolCall]:

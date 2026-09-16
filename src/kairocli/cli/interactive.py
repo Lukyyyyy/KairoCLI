@@ -842,7 +842,7 @@ async def interactive(
     snapshots_enabled = snapshots.config.enabled
     plan_agent = PlanExecuteAgent(agent)
     team_agent = AgentOrchestrator(agent)
-    memory = MemoryStore(paths)
+    memory = agent.memory_store or MemoryStore(paths)
     tasks = DurableTaskStore(paths.task_database)
     task_manager = DurableTaskManager(
         tasks,
@@ -1383,9 +1383,9 @@ async def _handle_command(
             approvals.clear_session_approvals()
         console.print(f"HITL approvals: {'on' if approvals.enabled else 'off'}")
     elif command.type == CommandType.MEMORY:
-        console.print(handle_memory_command(payload, memory))
+        console.print(await handle_memory_command(payload, memory))
     elif command.type == CommandType.SAVE:
-        console.print(handle_save_command(payload, memory))
+        console.print(await handle_save_command(payload, memory))
     elif command.type == CommandType.INDEX:
         target = paths.workspace if not payload else agent.tools.path_guard.resolve(payload)
         result = await agent.tools.code_index.index(target)
@@ -1543,8 +1543,8 @@ def _handle_trace(payload: str, agent: Agent, console: Any) -> None:
     )
 
 
-def _handle_memory(payload: str, memory: MemoryStore, console: Any) -> None:
-    console.print(handle_memory_command(payload, memory))
+async def _handle_memory(payload: str, memory: MemoryStore, console: Any) -> None:
+    console.print(await handle_memory_command(payload, memory))
 
 
 def _handle_task(

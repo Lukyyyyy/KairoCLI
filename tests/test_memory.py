@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+import kairocli.cli.bootstrap as bootstrap_module
 import kairocli.memory as memory_module
 from kairocli.agent import Agent
 from kairocli.cli import make_agent
@@ -23,6 +24,7 @@ from kairocli.memory import (
 )
 from kairocli.models import LlmResponse, Message
 from kairocli.paths import KairoPaths
+from kairocli.policy import ApprovalPolicy
 from kairocli.tools import ToolRegistry
 
 
@@ -31,6 +33,23 @@ def _concurrent_memory_writer(home: str, workspace: str, prefix: str, start: Any
     start.wait(10)
     for number in range(20):
         memory.save(f"{prefix} fact {number}")
+
+
+class SemanticEmbedding:
+    signature = "semantic-test-v1"
+
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+        self.fail = False
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.calls.append(list(texts))
+        if self.fail:
+            raise RuntimeError("embedding unavailable")
+        return [
+            [1.0, 0.0] if any(word in text for word in ("咖啡", "冰美式", "拿铁")) else [0.0, 1.0]
+            for text in texts
+        ]
 
 
 def test_memory_scopes_and_crud(tmp_path: Path) -> None:
@@ -61,14 +80,126 @@ def test_memory_deduplicates_normalized_content(tmp_path: Path) -> None:
     assert len(memory.list_entries()) == 1
 
 
-def test_memory_commands_share_save_search_and_delete(tmp_path: Path) -> None:
+def test_memory_versions_replace_same_key_and_project_overrides_global(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    memory = MemoryStore(KairoPaths.discover(project, home))
+    old = memory.save("用户喜欢冰美式", "global", key="user.preference.drink")
+    current = memory.save("用户现在喜欢拿铁", "global", key="user.preference.drink")
+    local = memory.save("本项目使用茶", key="user.preference.drink")
+
+    assert memory.list_entries() == [local]
+    history = memory.list_entries(include_superseded=True)
+    assert next(entry for entry in history if entry.id == old.id).superseded_by == current.id
+    assert next(entry for entry in history if entry.id == current.id).status == "active"
+    other = MemoryStore(KairoPaths.discover(tmp_path / "other", home))
+    assert other.list_entries() == [current]
+
+
+def test_memory_can_replace_unkeyed_legacy_fact(tmp_path: Path) -> None:
     memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"))
-    saved = handle_save_command("--global prefer deterministic tests", memory)
+    old = memory.save("用户喜欢冰美式", "global")
+    new = memory.save(
+        "用户现在喜欢拿铁",
+        "global",
+        key="user.preference.drink",
+        replaces=[old.id],
+    )
+    assert memory.list_entries() == [new]
+    assert memory.list_entries(include_superseded=True)[0].superseded_by == new.id
+
+
+def test_project_memory_cannot_supersede_global_memory(tmp_path: Path) -> None:
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"))
+    global_entry = memory.save("用户喜欢冰美式", "global")
+    with pytest.raises(ValueError, match="another scope or project"):
+        memory.save(
+            "本项目改喝茶",
+            key="user.preference.drink",
+            replaces=[global_entry.id],
+        )
+    assert memory.list_entries() == [global_entry]
+
+
+async def test_hybrid_memory_search_uses_semantics_rrf_and_cache(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+    coffee = memory.save("用户喜欢冰美式", "global", key="user.preference.drink")
+    memory.save("项目使用 PostgreSQL", key="project.database")
+
+    assert await memory.search_hybrid("平时点哪种咖啡") == [coffee]
+    assert len(embedding.calls) == 1
+    assert await memory.search_hybrid("平时点哪种咖啡") == [coffee]
+    assert len(embedding.calls) == 2
+    assert embedding.calls[1] == ["平时点哪种咖啡"]
+    if os.name == "posix":
+        assert memory.embedding_file.stat().st_mode & 0o777 == 0o600
+
+
+async def test_save_immediately_indexes_memory_and_reuses_cached_vector(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+
+    entry, indexed = await memory.save_with_embedding("用户喜欢冰美式", "global")
+    duplicate, duplicate_indexed = await memory.save_with_embedding("用户喜欢冰美式", "global")
+
+    assert indexed and duplicate_indexed
+    assert duplicate.id == entry.id
+    assert embedding.calls == [["用户喜欢冰美式"]]
+
+
+async def test_save_keeps_memory_when_embedding_is_deferred(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    embedding.fail = True
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+
+    entry, indexed = await memory.save_with_embedding("用户喜欢冰美式", "global")
+
+    assert not indexed
+    assert memory.list_entries() == [entry]
+
+
+async def test_hybrid_memory_search_falls_back_when_embedding_fails(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    embedding.fail = True
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+    expected = memory.save("用户喜欢冰美式", "global")
+    assert await memory.search_hybrid("喜欢冰美式") == [expected]
+
+
+async def test_hybrid_memory_search_refuses_symlinked_cache(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+    expected = memory.save("用户喜欢冰美式", "global")
+    outside = tmp_path / "outside.db"
+    outside.write_text("untouched", encoding="utf-8")
+    try:
+        memory.embedding_file.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is not permitted")
+
+    assert await memory.search_hybrid("喜欢冰美式") == [expected]
+    assert outside.read_text(encoding="utf-8") == "untouched"
+
+
+async def test_memory_commands_share_save_search_and_delete(tmp_path: Path) -> None:
+    embedding = SemanticEmbedding()
+    memory = MemoryStore(KairoPaths.discover(tmp_path / "project", tmp_path / "home"), embedding)
+    saved = await handle_save_command("--global prefer deterministic tests", memory)
+    project_entry = memory.save("project uses pytest")
     entry = memory.list_entries()[0]
     assert entry.id in saved and entry.scope == "global"
-    assert "prefer deterministic tests" in handle_memory_command("search deterministic", memory)
-    assert handle_memory_command(f"delete {entry.id}", memory) == "Deleted."
-    assert handle_memory_command("list", memory) == "No visible memories."
+    listed = (await handle_memory_command("list", memory)).splitlines()
+    assert entry.created_at[:19].replace("T", " ") in listed[0]
+    assert listed[0].index(entry.fact) == listed[1].index(project_entry.fact)
+    assert "prefer deterministic tests" in await handle_memory_command(
+        "search deterministic", memory
+    )
+    assert await handle_memory_command(f"delete {entry.id}", memory) == "Deleted."
+    assert await handle_memory_command(f"delete {project_entry.id}", memory) == "Deleted."
+    assert await handle_memory_command("list", memory) == "No visible memories."
+    with memory._embedding_connection() as connection:
+        assert connection.execute("SELECT count(*) FROM memory_embeddings").fetchone()[0] == 0
 
 
 def test_memory_context_respects_project_scope_and_token_budget(tmp_path: Path) -> None:
@@ -301,6 +432,20 @@ async def test_agent_injects_only_query_relevant_long_term_memory(tmp_path: Path
     assert "asyncio 处理并发" not in client.system_prompts[1]
 
 
+async def test_agent_retrieves_memory_for_provenance_followup(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
+    memory = MemoryStore(paths)
+    memory.save("用户喜欢冰美式", "global", key="user.preference.drink")
+    client = MemoryClient()
+    agent = Agent(client, ToolRegistry(paths.workspace), "base", memory_store=memory)
+
+    await agent.run("你知道我喜欢喝什么吗？")
+    await agent.run("你怎么知道的？")
+
+    assert "用户喜欢冰美式" in client.system_prompts[0]
+    assert "用户喜欢冰美式" in client.system_prompts[1]
+
+
 async def test_agent_stores_explicit_browser_login_hint(tmp_path: Path) -> None:
     paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
     memory = MemoryStore(paths)
@@ -316,6 +461,64 @@ async def test_make_agent_registers_save_memory_tool(tmp_path: Path) -> None:
     paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
     config = AppConfig.load(paths)
     agent = make_agent(paths, config)
+    schema = next(
+        item for item in agent.tools.schemas() if item["function"]["name"] == "save_memory"
+    )
+    properties = schema["function"]["parameters"]["properties"]
+    assert "Canonical current fact" in properties["fact"]["description"]
+    assert "Stable semantic slot" in properties["key"]["description"]
+    assert "stable key that names the semantic slot" in agent.base_system_prompt
     result = await agent.tools.execute("save_memory", {"fact": "项目使用 Ruff", "scope": "project"})
     assert "Saved long-term memory" in result
     assert MemoryStore(paths).search("Ruff")
+
+
+async def test_save_memory_tool_immediately_indexes_with_configured_embedding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
+    embedding = SemanticEmbedding()
+    monkeypatch.setenv("KAIROCLI_MEMORY_SEMANTIC_SEARCH", "true")
+    monkeypatch.setattr(bootstrap_module, "embedding_client_from_environment", lambda: embedding)
+    agent = make_agent(paths, AppConfig.load(paths))
+
+    await agent.tools.execute("save_memory", {"fact": "用户喜欢冰美式", "scope": "global"})
+
+    assert embedding.calls == [["用户喜欢冰美式"]]
+
+
+async def test_agent_memory_tools_search_and_supersede_without_approval(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
+    config = AppConfig.load(paths)
+    agent = make_agent(paths, config, approval_policy=ApprovalPolicy(enabled=True))
+    first = await agent.tools.execute(
+        "save_memory",
+        {
+            "fact": "用户喜欢冰美式",
+            "scope": "global",
+            "key": "user.preference.drink",
+        },
+    )
+    assert "Saved long-term memory" in first
+    found = json.loads(await agent.tools.execute("search_memory", {"query": "喜欢喝什么"}))
+    old_id = found["results"][0]["id"]
+
+    await agent.tools.execute(
+        "save_memory",
+        {
+            "fact": "用户现在喜欢拿铁",
+            "scope": "global",
+            "key": "user.preference.drink",
+            "replaces": [old_id],
+        },
+    )
+    updated = json.loads(await agent.tools.execute("search_memory", {"query": "喜欢"}))
+    assert [item["fact"] for item in updated["results"]] == ["用户现在喜欢拿铁"]
+
+    direct = MemoryStore(paths)
+    for number in range(12):
+        direct.save(f"shared preference {number}", "global")
+    default_results = json.loads(
+        await agent.tools.execute("search_memory", {"query": "shared preference"})
+    )
+    assert len(default_results["results"]) == 10

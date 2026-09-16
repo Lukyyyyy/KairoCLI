@@ -49,6 +49,10 @@ class KairoPaths:
         return self.user_dir / "memory" / "long_term_memory.json"
 
     @property
+    def memory_embeddings_file(self) -> Path:
+        return self.user_dir / "memory" / "embeddings.db"
+
+    @property
     def task_database(self) -> Path:
         return self.user_dir / "tasks" / "tasks.db"
 
