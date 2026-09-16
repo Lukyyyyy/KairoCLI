@@ -59,10 +59,24 @@ class ConversationCompactor:
         old_messages = snapshot[:split_index]
         transcript = self._transcript(old_messages)
         prompt = (
-            "Summarize the conversation below in 1-3 concise paragraphs. Preserve the user's "
-            "durable goals and constraints, important verified tool results and completed work, "
-            "decisions, unresolved problems, and next steps. Do not enumerate every tool call or "
-            "include meta-commentary.\n\n=== conversation ===\n" + transcript + "\n=== end ==="
+            "Compress the previous agent trajectory.\n\n"
+            "You MUST preserve:\n\n"
+            "1. User's original objective\n"
+            "2. Current implementation status\n"
+            "3. Important architectural decisions\n"
+            "4. Files that were modified\n"
+            "5. Important functions/classes\n"
+            "6. Errors encountered\n"
+            "7. Solutions already attempted\n"
+            "8. Unresolved issues\n"
+            "9. Current TODO list\n"
+            "10. Constraints that must not be violated\n\n"
+            "Remove:\n\n"
+            "- redundant tool outputs\n"
+            "- repeated explanations\n"
+            "- obsolete intermediate reasoning\n"
+            "- verbose logs\n\n"
+            "=== conversation ===\n" + transcript + "\n=== end ==="
         )
         try:
             messages = [
