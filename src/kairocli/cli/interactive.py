@@ -291,6 +291,145 @@ class _WorkingIndicator:
             return
 
 
+class _IndexProgress:
+    """Render index progress in one transient terminal row."""
+
+    def __init__(self, console: Any) -> None:
+        self.output = console
+        self.console = getattr(console, "console", console)
+        self.progress: Any = None
+        self.task_id: Any = None
+
+    def start(self) -> None:
+        if not _has_rich(self.console):
+            self.output.print("Indexing workspace...")
+            return
+        from rich.padding import Padding
+        from rich.progress import BarColumn, Progress, TextColumn
+        from rich.table import Column
+
+        class SpacedProgress(Progress):
+            def get_renderable(self) -> Any:
+                return Padding(super().get_renderable(), (1, 0, 0, 0))
+
+        self.progress = SpacedProgress(
+            TextColumn("● Indexing", style="bold"),
+            BarColumn(
+                bar_width=24,
+                complete_style="green",
+                finished_style="green",
+                pulse_style="green",
+            ),
+            TextColumn(
+                "{task.fields[state]}",
+                markup=False,
+                table_column=Column(ratio=1, no_wrap=True, overflow="ellipsis"),
+            ),
+            console=self.console,
+            transient=True,
+            expand=True,
+        )
+        self.progress.start()
+        self.task_id = self.progress.add_task("", total=None, state="Scanning workspace...")
+
+    def update(self, position: int, total: int, path: str) -> None:
+        if self.progress is None:
+            return
+        display_path = sanitize_terminal_text(path).replace("\n", " ")
+        self.progress.update(
+            self.task_id,
+            completed=position,
+            total=total,
+            state=f"{position}/{total} · {display_path}",
+        )
+
+    def stop(self) -> None:
+        if self.progress is not None:
+            self.progress.stop()
+
+
+class _IndexDisplay:
+    """Expandable summary for the latest code index."""
+
+    def __init__(self) -> None:
+        self.expanded = False
+        self.finished = False
+        self.files = 0
+        self.chunks = 0
+        self.tree = ""
+        self.offset = 0
+
+    def finish(self, files: int, chunks: int, paths: list[str]) -> None:
+        self.files = files
+        self.chunks = chunks
+        self.tree = _format_file_tree(paths)
+        self.offset = 0
+        self.expanded = False
+        self.finished = True
+
+    def toggle(self) -> bool:
+        if not self.finished:
+            return False
+        self.expanded = not self.expanded
+        return True
+
+    def dismiss(self) -> None:
+        self.expanded = False
+        self.finished = False
+        self.offset = 0
+
+    def scroll(self, amount: int, page_size: int) -> bool:
+        lines = self.tree.splitlines()
+        maximum = max(0, len(lines) - page_size)
+        target = min(maximum, max(0, self.offset + amount))
+        changed = target != self.offset
+        self.offset = target
+        return changed
+
+    def visible_tree(self, page_size: int) -> str:
+        lines = self.tree.splitlines()
+        offset = min(self.offset, max(0, len(lines) - page_size))
+        visible = lines[offset : offset + page_size]
+        if len(lines) > page_size:
+            end = min(offset + page_size, len(lines))
+            visible.append(
+                f"… lines {offset + 1}-{end} of {len(lines)} "
+                "· ↑/↓, PageUp/PageDown (Fn+↑/↓) to browse"
+            )
+        return "\n".join(visible)
+
+    def summary(self) -> str:
+        action = "collapse" if self.expanded else "expand"
+        return (
+            f"Indexed {self.files} files into {self.chunks} chunks "
+            f"(ctrl+o to {action})"
+        )
+
+
+def _format_file_tree(paths: list[str]) -> str:
+    tree: dict[str, Any] = {}
+    for path in sorted(set(paths)):
+        node = tree
+        for part in sanitize_terminal_text(path).replace("\n", " ").split("/"):
+            if part:
+                node = node.setdefault(part, {})
+
+    lines: list[str] = []
+
+    def render(node: dict[str, Any], prefix: str = "") -> None:
+        entries = sorted(
+            node.items(), key=lambda item: (not bool(item[1]), item[0].casefold())
+        )
+        for position, (name, children) in enumerate(entries):
+            last = position == len(entries) - 1
+            lines.append(f"{prefix}{'└── ' if last else '├── '}{name}{'/' if children else ''}")
+            if children:
+                render(children, prefix + ("    " if last else "│   "))
+
+    render(tree)
+    return "\n".join(lines)
+
+
 class _StreamingAnswerDisplay:
     """Render one or more model answer blocks as streaming terminal output."""
 
@@ -868,6 +1007,7 @@ async def interactive(
     working_indicator: _WorkingIndicator | None = None
     turn_lifecycle = _TurnLifecycleState()
     thought_display = ThoughtDisplay()
+    index_display = _IndexDisplay()
     turn_display = _StreamingAnswerDisplay(
         console,
         active_renderer,
@@ -1017,6 +1157,7 @@ async def interactive(
             config,
             skills,
             thought_display,
+            index_display,
             renderer=active_renderer,
         )
     except BaseException:
@@ -1032,6 +1173,7 @@ async def interactive(
             escape_interrupt.stop()
             raw = normalize_interactive_submission(await _read_input(session))
             thought_display.dismiss()
+            index_display.dismiss()
         except (EOFError, KeyboardInterrupt):
             command_console.print("Goodbye.")
             return await finish_normal_exit()
@@ -1058,6 +1200,7 @@ async def interactive(
                     config,
                     skills,
                     thought_display,
+                    index_display,
                     renderer=active_renderer,
                 )
                 wechat_runtime.input_session = session
@@ -1101,6 +1244,7 @@ async def interactive(
                     browser,
                     wechat_runtime,
                     command_console,
+                    index_display=index_display,
                 )
             except SnapshotError as exc:
                 _print_snapshot_warning(command_console, exc)
@@ -1348,6 +1492,7 @@ async def _handle_command(
     browser: BrowserSession,
     wechat_runtime: _InteractiveWechatRuntime,
     console: Any,
+    index_display: _IndexDisplay | None = None,
 ) -> str | None:
     payload = command.payload or ""
     if command.type == CommandType.EXIT:
@@ -1398,8 +1543,19 @@ async def _handle_command(
         console.print(await handle_save_command(payload, memory))
     elif command.type == CommandType.INDEX:
         target = paths.workspace if not payload else agent.tools.path_guard.resolve(payload)
-        result = await agent.tools.code_index.index(target)
-        console.print(f"Indexed {result['files']} files into {result['chunks']} chunks.")
+        progress = _IndexProgress(console)
+        indexed_paths: list[str] = []
+        progress.start()
+        try:
+            result = await agent.tools.code_index.index(
+                target, progress.update, indexed_paths.append
+            )
+        finally:
+            progress.stop()
+        if index_display is None:
+            console.print(f"Indexed {result['files']} files into {result['chunks']} chunks.")
+        else:
+            index_display.finish(result["files"], result["chunks"], indexed_paths)
     elif command.type == CommandType.SEARCH:
         if not payload:
             console.print("Usage: /search <query>")
@@ -1993,6 +2149,7 @@ def _prompt_session(
     config: AppConfig | None = None,
     skill_registry: SkillRegistry | None = None,
     thought_display: ThoughtDisplay | None = None,
+    index_display: _IndexDisplay | None = None,
     *,
     renderer: str = "inline",
 ) -> Any:
@@ -2163,24 +2320,73 @@ def _prompt_session(
             event.current_buffer.insert_text("\n")
 
         @bindings.add("c-o")
-        def toggle_thought(event: Any) -> None:
-            if thought_display is not None and thought_display.toggle():
+        def toggle_details(event: Any) -> None:
+            toggled = bool(index_display is not None and index_display.toggle())
+            if not toggled and thought_display is not None:
+                toggled = thought_display.toggle()
+            if toggled:
                 event.app.invalidate()
 
-        def thought_is_expanded() -> bool:
-            return bool(thought_display is not None and thought_display.expanded)
+        def details_are_expanded() -> bool:
+            return bool(
+                (index_display is not None and index_display.expanded)
+                or (thought_display is not None and thought_display.expanded)
+            )
 
-        def thought_is_available() -> bool:
-            return bool(thought_display is not None and thought_display.finished)
+        def details_are_available() -> bool:
+            return bool(
+                (index_display is not None and index_display.finished)
+                or (thought_display is not None and thought_display.finished)
+            )
 
-        @bindings.add("escape", filter=Condition(thought_is_expanded))
-        def collapse_thought(event: Any) -> None:
+        def index_tree_is_expanded() -> bool:
+            return bool(index_display is not None and index_display.expanded)
+
+        def index_tree_page_size() -> int:
+            rows = prompt_output.get_size().rows
+            composer_rows = min(
+                max(len(session.default_buffer.document.lines) + 1, 2), 8
+            )
+            return max(1, rows - composer_rows - 6)
+
+        @bindings.add("pageup", filter=Condition(index_tree_is_expanded), eager=True)
+        def page_index_tree_up(event: Any) -> None:
+            page_size = index_tree_page_size()
+            if index_display is not None and index_display.scroll(-page_size, page_size):
+                event.app.invalidate()
+
+        @bindings.add("pagedown", filter=Condition(index_tree_is_expanded), eager=True)
+        def page_index_tree_down(event: Any) -> None:
+            page_size = index_tree_page_size()
+            if index_display is not None and index_display.scroll(page_size, page_size):
+                event.app.invalidate()
+
+        @bindings.add("up", filter=Condition(index_tree_is_expanded), eager=True)
+        def scroll_index_tree_up(event: Any) -> None:
+            if index_display is not None and index_display.scroll(
+                -1, index_tree_page_size()
+            ):
+                event.app.invalidate()
+
+        @bindings.add("down", filter=Condition(index_tree_is_expanded), eager=True)
+        def scroll_index_tree_down(event: Any) -> None:
+            if index_display is not None and index_display.scroll(
+                1, index_tree_page_size()
+            ):
+                event.app.invalidate()
+
+        @bindings.add("escape", filter=Condition(details_are_expanded))
+        def collapse_details(event: Any) -> None:
+            if index_display is not None:
+                index_display.expanded = False
             if thought_display is not None:
                 thought_display.expanded = False
-                event.app.invalidate()
+            event.app.invalidate()
 
-        @bindings.add("enter", filter=Condition(thought_is_expanded))
-        def submit_with_thought_collapsed(event: Any) -> None:
+        @bindings.add("enter", filter=Condition(details_are_expanded))
+        def submit_with_details_collapsed(event: Any) -> None:
+            if index_display is not None:
+                index_display.expanded = False
             if thought_display is not None:
                 thought_display.expanded = False
             event.current_buffer.validate_and_handle()
@@ -2231,6 +2437,8 @@ def _prompt_session(
                 return
             if thought_display is not None:
                 thought_display.expanded = False
+            if index_display is not None:
+                index_display.expanded = False
             kind, _, _, _ = completion_menu_state()
             if kind == "slash":
                 event.current_buffer.document = Document(candidate, cursor_position=len(candidate))
@@ -2309,6 +2517,21 @@ def _prompt_session(
         prompt_container.alternative_content.style = "class:composer.input"
 
         def render_completed_turn() -> FormattedText:
+            if index_display is not None and index_display.finished:
+                index_fragments = [
+                    ("", "\n"),
+                    ("class:answer.prefix", "● "),
+                    ("", index_display.summary() + "\n"),
+                ]
+                if index_display.expanded and index_display.tree:
+                    tree = "\n".join(
+                        "  " + line
+                        for line in index_display.visible_tree(
+                            index_tree_page_size()
+                        ).splitlines()
+                    )
+                    index_fragments.append(("class:thought", "\n" + tree + "\n"))
+                return FormattedText(index_fragments)
             if thought_display is None or not thought_display.finished:
                 return FormattedText([])
             latest = thought_display.turns[-1] if thought_display.turns else None
@@ -2395,7 +2618,7 @@ def _prompt_session(
                         else FormattedText([])
                     ),
                 ),
-                filter=Condition(thought_is_available),
+                filter=Condition(details_are_available),
             ),
         )
         prompt_container.alternative_content.content.children.append(

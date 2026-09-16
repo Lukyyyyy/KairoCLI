@@ -66,6 +66,107 @@ class RecordingConsole:
         self.messages.append(message)
 
 
+async def test_index_command_reports_progress_before_completion(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    (workspace / "service.py").write_text("def run():\n    return True\n", encoding="utf-8")
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
+    console = RecordingConsole()
+
+    await cli_module._handle_command(
+        cli_module.parse_command("/index"),
+        paths,
+        AppConfig.load(paths),
+        agent,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        console,
+    )
+
+    assert console.messages == ["Indexing workspace...", "Indexed 1 files into 1 chunks."]
+
+
+def test_index_progress_reuses_one_transient_row(monkeypatch: pytest.MonkeyPatch) -> None:
+    import rich.progress
+
+    events: list[object] = []
+
+    class FakeProgress:
+        def __init__(self, *columns: object, **options: object) -> None:
+            events.append((columns, options))
+
+        def start(self) -> None:
+            events.append("start")
+
+        def add_task(self, *_args: object, **fields: object) -> int:
+            events.append(fields)
+            return 7
+
+        def update(self, task_id: int, **fields: object) -> None:
+            events.append((task_id, fields))
+
+        def stop(self) -> None:
+            events.append("stop")
+
+    class RichConsole:
+        _kairo_rich = True
+
+    monkeypatch.setattr(rich.progress, "Progress", FakeProgress)
+    progress = cli_module._IndexProgress(RichConsole())
+
+    progress.start()
+    progress.update(25, 100, "src/service.py")
+    progress.stop()
+
+    columns, options = events[0]  # type: ignore[misc]
+    bar = columns[1]
+    assert options == {"console": progress.console, "transient": True, "expand": True}
+    assert (bar.complete_style, bar.finished_style, bar.pulse_style) == (
+        "green",
+        "green",
+        "green",
+    )
+    assert events[-2:] == [
+        (7, {"completed": 25, "total": 100, "state": "25/100 · src/service.py"}),
+        "stop",
+    ]
+
+
+def test_index_result_formats_a_sorted_file_tree() -> None:
+    display = cli_module._IndexDisplay()
+    display.finish(3, 4, ["src/z.py", "README.md", "src/a.py"])
+
+    assert display.summary() == "Indexed 3 files into 4 chunks (ctrl+o to expand)"
+    assert display.tree == "├── src/\n│   ├── a.py\n│   └── z.py\n└── README.md"
+    assert display.toggle() is True
+    assert display.summary() == "Indexed 3 files into 4 chunks (ctrl+o to collapse)"
+
+
+def test_index_tree_uses_the_requested_viewport_height() -> None:
+    display = cli_module._IndexDisplay()
+    display.finish(20, 20, [f"{number:02}.py" for number in range(20)])
+
+    first = display.visible_tree(15).splitlines()
+    assert len(first) == 16
+    assert first[0] == "├── 00.py"
+    assert first[-1] == "… lines 1-15 of 20 · ↑/↓, PageUp/PageDown (Fn+↑/↓) to browse"
+
+    assert display.scroll(15, 15) is True
+    second = display.visible_tree(15).splitlines()
+    assert second[0] == "├── 05.py"
+    assert second[-1] == "… lines 6-20 of 20 · ↑/↓, PageUp/PageDown (Fn+↑/↓) to browse"
+    assert display.scroll(15, 15) is False
+    assert display.scroll(-15, 15) is True
+    assert display.offset == 0
+
+
 async def test_shutdown_defers_cancellation_until_cleanup_finishes() -> None:
     started = asyncio.Event()
     release = asyncio.Event()
@@ -509,6 +610,84 @@ def test_prompt_ctrl_o_toggles_the_latest_thought(tmp_path: Path) -> None:
     collapsed_text = "".join(fragment[1] for fragment in thought_panel.content.content.text())
     assert "tool detail" not in collapsed_text
     assert Event.app.invalidations == 2
+
+
+def test_prompt_ctrl_o_toggles_latest_index_tree(tmp_path: Path) -> None:
+    workspace = tmp_path / "KairoCLI"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    index_display = cli_module._IndexDisplay()
+    index_display.finish(2, 3, ["src/main.py", "README.md"])
+    session = _prompt_session(paths, lambda: "idle", index_display=index_display)
+
+    class App:
+        invalidations = 0
+
+        def invalidate(self) -> None:
+            self.invalidations += 1
+
+    class Event:
+        app = App()
+
+    binding = session.key_bindings.get_bindings_for_keys(("c-o",))[0]
+    result_panel = session.app.layout.container.children[0].alternative_content.content.children[0]
+    collapsed = "".join(fragment[1] for fragment in result_panel.content.content.text())
+    assert collapsed == "\n● Indexed 2 files into 3 chunks (ctrl+o to expand)\n"
+
+    binding.handler(Event())
+
+    expanded = "".join(fragment[1] for fragment in result_panel.content.content.text())
+    assert "ctrl+o to collapse" in expanded
+    assert "  ├── src/" in expanded
+    assert "  │   └── main.py" in expanded
+    assert "  └── README.md" in expanded
+
+    binding.handler(Event())
+    assert index_display.expanded is False
+    assert Event.app.invalidations == 2
+
+
+def test_prompt_pages_expanded_index_tree(tmp_path: Path) -> None:
+    from prompt_toolkit.data_structures import Size
+    workspace = tmp_path / "KairoCLI"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    index_display = cli_module._IndexDisplay()
+    index_display.finish(100, 100, [f"{number:03}.py" for number in range(100)])
+    index_display.expanded = True
+    session = _prompt_session(paths, lambda: "idle", index_display=index_display)
+    session.app.output.get_size = lambda: Size(rows=30, columns=80)
+
+    class App:
+        def invalidate(self) -> None:
+            return None
+
+    class Event:
+        app = App()
+
+    page_down = next(
+        binding
+        for binding in session.key_bindings.get_bindings_for_keys(("pagedown",))
+        if binding.filter()
+    )
+    page_up = next(
+        binding
+        for binding in session.key_bindings.get_bindings_for_keys(("pageup",))
+        if binding.filter()
+    )
+    line_down = next(
+        binding
+        for binding in session.key_bindings.get_bindings_for_keys(("down",))
+        if binding.filter()
+    )
+    page_down.handler(Event())
+    assert index_display.offset == 22
+    page_up.handler(Event())
+    assert index_display.offset == 0
+    line_down.handler(Event())
+    assert index_display.offset == 1
+
+    assert session.mouse_support() is False
 
 
 def test_prompt_does_not_repeat_an_answer_already_streamed(tmp_path: Path) -> None:

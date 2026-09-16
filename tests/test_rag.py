@@ -399,6 +399,18 @@ async def test_index_reports_throttled_progress(tmp_path: Path) -> None:
     assert await index.index(progress=broken_progress) == result
 
 
+async def test_index_reports_each_indexed_file(tmp_path: Path) -> None:
+    (tmp_path / "first.py").write_text("def first(): pass\n", encoding="utf-8")
+    (tmp_path / "second.py").write_text("def second(): pass\n", encoding="utf-8")
+    seen: list[str] = []
+
+    await CodeIndex(
+        tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding()
+    ).index(file_seen=seen.append)
+
+    assert seen == ["first.py", "second.py"]
+
+
 async def test_index_preserves_previous_path_when_embedding_fails(tmp_path: Path) -> None:
     source = tmp_path / "service.py"
     source.write_text("def stable():\n    return True\n", encoding="utf-8")

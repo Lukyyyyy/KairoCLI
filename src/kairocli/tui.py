@@ -850,6 +850,9 @@ def run_tui(
                         log.write("Index target must be a workspace directory.")
                         return
 
+                    log.write("Indexing workspace...")
+                    status.update("Index · scanning")
+
                     def progress(position: int, total: int, path: str) -> None:
                         status.update(f"Index · {position}/{total} · {path[:60]}")
 

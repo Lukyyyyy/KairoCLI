@@ -537,6 +537,7 @@ async def test_tui_index_and_search_are_management_commands(
                 break
             await asyncio.sleep(0.01)
         transcript = "\n".join(line.text for line in captured[0].query_one(RichLog).lines)
+        assert "Indexing workspace" in transcript
         assert "service.py" in transcript
         assert "unique_payment_handler" in transcript
         assert client.calls == 0

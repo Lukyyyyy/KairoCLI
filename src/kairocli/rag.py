@@ -709,6 +709,7 @@ class CodeIndex:
         self,
         path: Path | None = None,
         progress: Callable[[int, int, str], Awaitable[None] | None] | None = None,
+        file_seen: Callable[[str], None] | None = None,
     ) -> dict[str, int]:
         root = (path or self.workspace).resolve()
         root.relative_to(self.workspace)
@@ -759,6 +760,12 @@ class CodeIndex:
                     # Progress rendering must not corrupt a valid index transaction.
                     pass
             current.add(relative)
+            if file_seen is not None:
+                try:
+                    file_seen(relative)
+                except Exception:
+                    # Result rendering must not corrupt a valid index transaction.
+                    pass
             raw, excluded = await asyncio.to_thread(_read_index_source, file, self.MAX_FILE_BYTES)
             if raw is None and not excluded:
                 state = self.store.file_state(relative)
