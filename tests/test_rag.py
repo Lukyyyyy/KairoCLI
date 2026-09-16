@@ -34,7 +34,7 @@ class CountingEmbedding:
         return [[1.0, float("payment" in text.casefold()), float(len(text) % 17)] for text in texts]
 
 
-def test_embedding_factory_supports_offline_ollama_and_zhipu() -> None:
+def test_embedding_factory_supports_offline_ollama_zhipu_and_alicloud() -> None:
     offline = embedding_client_from_environment({})
     assert isinstance(offline, HashEmbeddingClient)
     assert offline.dimensions == 384
@@ -55,6 +55,22 @@ def test_embedding_factory_supports_offline_ollama_and_zhipu() -> None:
     assert zhipu.provider == "zhipu"
     assert zhipu.model == "embedding-3"
 
+    alicloud = embedding_client_from_environment(
+        {
+            "KAIROCLI_EMBEDDING_PROVIDER": "alicloud",
+            "KAIROCLI_EMBEDDING_BASE_URL": (
+                "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+            ),
+            "DASHSCOPE_API_KEY": "dashscope-key",
+        }
+    )
+    assert isinstance(alicloud, HttpEmbeddingClient)
+    assert alicloud.provider == "alicloud"
+    assert alicloud.model == "qwen3.7-text-embedding-flash"
+    assert alicloud.api_key == "dashscope-key"
+    assert alicloud.dimensions == 1024
+    assert alicloud.max_batch_size == 20
+
 
 def test_embedding_configuration_and_response_validation() -> None:
     with pytest.raises(ValueError, match="Unsupported"):
@@ -63,6 +79,16 @@ def test_embedding_configuration_and_response_validation() -> None:
         embedding_client_from_environment({"KAIROCLI_EMBEDDING_DIMENSIONS": "999999"})
     with pytest.raises(ValueError, match="credentials"):
         HttpEmbeddingClient("https://user:pass@example.test", "model")
+    with pytest.raises(ValueError, match="AliCloud"):
+        HttpEmbeddingClient("https://example.test/v1", "model", provider="alicloud")
+    with pytest.raises(ValueError, match="API_KEY"):
+        HttpEmbeddingClient(
+            "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+            "model",
+            provider="alicloud",
+        )
+    with pytest.raises(ValueError, match="required"):
+        embedding_client_from_environment({"KAIROCLI_EMBEDDING_PROVIDER": "alicloud"})
 
     assert _parse_embedding_vectors(
         {
@@ -121,6 +147,35 @@ async def test_http_embedding_client_batches_truncates_and_authenticates() -> No
     vectors = await client.embed(["x" * 2_500, "short"])
 
     assert vectors == [[1.0, 2.0], [3.0, 4.0]]
+
+
+async def test_alicloud_embedding_uses_openai_compatible_payload() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/compatible-mode/v1/embeddings"
+        assert request.headers["Authorization"] == "Bearer dashscope-key"
+        assert json.loads(request.content) == {
+            "model": "qwen3.7-text-embedding-flash",
+            "input": ["冰美式"],
+            "dimensions": 1024,
+            "encoding_format": "float",
+        }
+        return httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [1.0, 2.0]}]},
+        )
+
+    client = HttpEmbeddingClient(
+        "https://workspace.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        "qwen3.7-text-embedding-flash",
+        "dashscope-key",
+        provider="alicloud",
+        dimensions=1024,
+        max_batch_size=20,
+        transport=httpx.MockTransport(handler),
+    )
+    assert await client.embed(["冰美式"]) == [[1.0, 2.0]]
+    with pytest.raises(ValueError, match="exceeds 20"):
+        await client.embed(["x"] * 21)
 
 
 async def test_http_embedding_client_rejects_dimension_drift() -> None:

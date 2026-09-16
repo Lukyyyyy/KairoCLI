@@ -70,8 +70,6 @@ class HashEmbeddingClient:
 
 
 class HttpEmbeddingClient:
-    max_batch_size = MAX_EMBEDDING_BATCH
-
     def __init__(
         self,
         base_url: str,
@@ -79,12 +77,16 @@ class HttpEmbeddingClient:
         api_key: str = "",
         *,
         provider: str = "openai",
+        dimensions: int | None = None,
+        max_batch_size: int = MAX_EMBEDDING_BATCH,
         transport: Any = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.provider = provider.casefold()
+        self.dimensions = dimensions
+        self.max_batch_size = max_batch_size
         self.transport = transport
         self._dimensions: int | None = None
         parsed = urlsplit(self.base_url)
@@ -92,30 +94,59 @@ class HttpEmbeddingClient:
             raise ValueError("Embedding base URL must be HTTP(S)")
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("Embedding base URL cannot contain credentials, query or fragment")
+        if self.provider == "alicloud" and (
+            parsed.scheme != "https"
+            or not (parsed.hostname or "").casefold().endswith(".aliyuncs.com")
+            or parsed.path.rstrip("/") != "/compatible-mode/v1"
+        ):
+            raise ValueError(
+                "AliCloud embedding base URL must be an HTTPS aliyuncs.com "
+                "/compatible-mode/v1 endpoint"
+            )
         if not self.model.strip() or len(self.model) > 200:
             raise ValueError("Embedding model must contain 1-200 characters")
         if len(self.api_key) > 16_384:
             raise ValueError("Embedding API key exceeds 16384 characters")
+        if self.provider == "alicloud" and not self.api_key:
+            raise ValueError(
+                "AliCloud embedding requires KAIROCLI_EMBEDDING_API_KEY or DASHSCOPE_API_KEY"
+            )
+        if dimensions is not None and (
+            isinstance(dimensions, bool)
+            or not isinstance(dimensions, int)
+            or not 1 <= dimensions <= MAX_EMBEDDING_DIMENSIONS
+        ):
+            raise ValueError("Embedding dimensions must be a positive bounded integer")
+        if (
+            isinstance(max_batch_size, bool)
+            or not isinstance(max_batch_size, int)
+            or not 1 <= max_batch_size <= MAX_EMBEDDING_BATCH
+        ):
+            raise ValueError(f"Embedding batch size must be between 1 and {MAX_EMBEDDING_BATCH}")
 
     @property
     def signature(self) -> str:
-        return f"http:{self.provider}:{self.base_url}:{self.model}"
+        return f"http:{self.provider}:{self.base_url}:{self.model}:{self.dimensions or 'default'}"
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         import httpx
 
         if not texts:
             return []
-        if len(texts) > MAX_EMBEDDING_BATCH:
-            raise ValueError(f"Embedding batch exceeds {MAX_EMBEDDING_BATCH} texts")
+        if len(texts) > self.max_batch_size:
+            raise ValueError(f"Embedding batch exceeds {self.max_batch_size} texts")
         inputs = [text[:MAX_EMBEDDING_INPUT_CHARS] for text in texts]
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         if self.provider == "ollama":
             url = self.base_url + "/api/embed"
-            payload = {"model": self.model, "input": inputs}
+            payload: dict[str, Any] = {"model": self.model, "input": inputs}
         else:
             url = self.base_url + "/embeddings"
             payload = {"model": self.model, "input": inputs}
+            if self.dimensions is not None:
+                payload["dimensions"] = self.dimensions
+            if self.provider == "alicloud":
+                payload["encoding_format"] = "float"
         async with httpx.AsyncClient(timeout=120, transport=self.transport) as client:
             async with client.stream("POST", url, headers=headers, json=payload) as response:
                 response.raise_for_status()
@@ -149,7 +180,7 @@ def embedding_client_from_environment(
     env = os.environ if environment is None else environment
     provider = env.get("KAIROCLI_EMBEDDING_PROVIDER", "hash").strip().casefold()
     if provider in {"", "hash", "offline"}:
-        raw_dimensions = env.get("KAIROCLI_EMBEDDING_DIMENSIONS", "384")
+        raw_dimensions = env.get("KAIROCLI_EMBEDDING_DIMENSIONS") or "384"
         try:
             dimensions = int(raw_dimensions)
         except ValueError as exc:
@@ -164,16 +195,68 @@ def embedding_client_from_environment(
         "openai": ("text-embedding-3-small", "https://api.openai.com/v1"),
         "zhipu": ("embedding-3", "https://open.bigmodel.cn/api/paas/v4"),
         "glm": ("embedding-3", "https://open.bigmodel.cn/api/paas/v4"),
+        "alicloud": ("qwen3.7-text-embedding-flash", ""),
     }
     if provider not in defaults:
         raise ValueError(f"Unsupported KAIROCLI_EMBEDDING_PROVIDER: {provider}")
     default_model, default_url = defaults[provider]
-    return HttpEmbeddingClient(
-        env.get("KAIROCLI_EMBEDDING_BASE_URL", default_url),
-        env.get("KAIROCLI_EMBEDDING_MODEL", default_model),
-        env.get("KAIROCLI_EMBEDDING_API_KEY", ""),
-        provider="zhipu" if provider == "glm" else provider,
+    model = env.get("KAIROCLI_EMBEDDING_MODEL") or default_model
+    base_url = env.get("KAIROCLI_EMBEDDING_BASE_URL") or default_url
+    if provider == "alicloud" and not base_url:
+        raise ValueError(
+            "KAIROCLI_EMBEDDING_BASE_URL is required for the AliCloud workspace endpoint"
+        )
+    remote_dimensions = _optional_positive_int(
+        env.get("KAIROCLI_EMBEDDING_DIMENSIONS"),
+        1024 if provider == "alicloud" else None,
+        "KAIROCLI_EMBEDDING_DIMENSIONS",
+        MAX_EMBEDDING_DIMENSIONS,
     )
+    default_batch_size = (
+        _alicloud_batch_size(model) if provider == "alicloud" else MAX_EMBEDDING_BATCH
+    )
+    max_batch_size = _optional_positive_int(
+        env.get("KAIROCLI_EMBEDDING_MAX_BATCH_SIZE"),
+        default_batch_size,
+        "KAIROCLI_EMBEDDING_MAX_BATCH_SIZE",
+        MAX_EMBEDDING_BATCH,
+    )
+    assert max_batch_size is not None
+    return HttpEmbeddingClient(
+        base_url,
+        model,
+        env.get("KAIROCLI_EMBEDDING_API_KEY")
+        or (env.get("DASHSCOPE_API_KEY", "") if provider == "alicloud" else ""),
+        provider="zhipu" if provider == "glm" else provider,
+        dimensions=remote_dimensions,
+        max_batch_size=max_batch_size,
+    )
+
+
+def _optional_positive_int(
+    value: str | None,
+    default: int | None,
+    name: str,
+    maximum: int,
+) -> int | None:
+    if value is None or not value.strip():
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not 1 <= parsed <= maximum:
+        raise ValueError(f"{name} must be between 1 and {maximum}")
+    return parsed
+
+
+def _alicloud_batch_size(model: str) -> int:
+    normalized = model.casefold()
+    if normalized.startswith("qwen3.7-text-embedding"):
+        return 20
+    if normalized in {"text-embedding-v1", "text-embedding-v2"}:
+        return 25
+    return 10
 
 
 def _parse_embedding_vectors(raw: Any, expected: int) -> list[list[float]]:
