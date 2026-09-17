@@ -1284,6 +1284,21 @@ async def test_interrupt_reads_escape_and_ctrl_c_from_prompt_toolkit_input(key: 
         interrupt.stop()
 
 
+async def test_interrupt_ignores_non_interrupt_terminal_sequences() -> None:
+    from prompt_toolkit.input.defaults import create_pipe_input
+
+    canceled = asyncio.Event()
+    with create_pipe_input() as backend:
+        interrupt = cli_module._EscapeInterrupt(canceled.set)
+        interrupt.bind_input(backend)
+        interrupt.start()
+        backend.send_text("a\x1b[A\x1ba")
+        await asyncio.sleep(0.1)
+        interrupt.stop()
+
+    assert not canceled.is_set()
+
+
 async def test_plan_review_uses_an_isolated_prompt_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

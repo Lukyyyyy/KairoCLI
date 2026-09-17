@@ -545,6 +545,7 @@ class _EscapeInterrupt:
         self.loop: asyncio.AbstractEventLoop | None = None
         self.fd: int | None = None
         self.attributes: Any = None
+        self.flush_handle: asyncio.TimerHandle | None = None
 
     def bind_input(self, input_backend: Any) -> None:
         if self.active:
@@ -599,6 +600,9 @@ class _EscapeInterrupt:
         if not self.active:
             return
         self.active = False
+        if self.flush_handle is not None:
+            self.flush_handle.cancel()
+            self.flush_handle = None
         if self.fd is None:
             self._close_bound_input()
             return
@@ -635,12 +639,34 @@ class _EscapeInterrupt:
     def _read(self) -> None:
         if self.fd is None:
             return
+        if self.input_backend is not None:
+            try:
+                key_presses = self.input_backend.read_keys()
+            except (OSError, RuntimeError):
+                self.stop()
+                return
+            if self.loop is not None:
+                if self.flush_handle is not None:
+                    self.flush_handle.cancel()
+                self.flush_handle = self.loop.call_later(0.05, self._flush_keys)
+            self._trigger_from_keys(key_presses)
+            return
         try:
             value = os.read(self.fd, 32)
         except OSError:
             self.stop()
             return
-        if b"\x1b" in value or b"\x03" in value:
+        if value == b"\x1b" or b"\x03" in value:
+            self._trigger()
+
+    def _flush_keys(self) -> None:
+        self.flush_handle = None
+        if self.active and self.input_backend is not None:
+            self._trigger_from_keys(self.input_backend.flush_keys())
+
+    def _trigger_from_keys(self, key_presses: list[Any]) -> None:
+        keys = [key_press.key for key_press in key_presses]
+        if "c-c" in keys or keys == ["escape"]:
             self._trigger()
 
 
