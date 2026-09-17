@@ -26,6 +26,7 @@ from .prompts import initialize_project_memory
 from .rendering.diff_display import render_file_diff
 from .rendering.session_display import format_session_list
 from .rendering.terminal import sanitize_terminal_text
+from .rendering.terminal_markdown import render_code_search_match
 from .rendering.tool_display import format_tool_calls, format_tool_results
 from .sessions import SessionStore, apply_session, write_session_export
 from .skills import SkillRegistry, handle_skill_command
@@ -877,8 +878,13 @@ def run_tui(
                     log.write("No indexed code matches.")
                 for match in matches:
                     log.write(
-                        f"{match['path']}:{match['start_line']}-{match['end_line']} "
-                        f"score={match['score']}\n{match['content']}"
+                        render_code_search_match(
+                            match["path"],
+                            match["start_line"],
+                            match["end_line"],
+                            match["score"],
+                            match["content"],
+                        )
                     )
                 return
             if command == "/graph":

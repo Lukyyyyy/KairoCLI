@@ -6,11 +6,12 @@ from io import StringIO
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.markdown import Heading, Markdown
 from rich.syntax import Syntax
+from rich.text import Text
 
-from .terminal import TerminalStreamSanitizer
+from .terminal import TerminalStreamSanitizer, sanitize_terminal_text
 
 ColorSystemName = Literal["standard", "256", "truecolor", "windows"]
 
@@ -34,6 +35,31 @@ class _TerminalHeading(Heading):
 
 class _TerminalMarkdown(Markdown):
     elements = {**Markdown.elements, "heading_open": _TerminalHeading}
+
+
+def render_code_search_match(
+    path: object,
+    start_line: object,
+    end_line: object,
+    score: object,
+    content: object,
+) -> Group:
+    """Render an untrusted indexed-code match with syntax highlighting."""
+    safe_path = sanitize_terminal_text(str(path))
+    safe_code = sanitize_terminal_text(str(content))
+    header = Text(
+        sanitize_terminal_text(f"{safe_path}:{start_line}-{end_line} score={score}"),
+        style="bold",
+    )
+    code = Syntax(
+        safe_code,
+        Syntax.guess_lexer(safe_path, code=safe_code),
+        theme=terminal_code_theme(os.environ),
+        background_color="default",
+        word_wrap=False,
+        padding=(0, 0, 0, 2),
+    )
+    return Group(header, code)
 
 
 class TerminalMarkdownRenderer:
@@ -98,12 +124,12 @@ class TerminalMarkdownRenderer:
 
 
 def terminal_code_theme(environment: Mapping[str, str]) -> str:
-    """Select an ANSI theme from the terminal's commonly exposed background hint."""
+    """Select a readable Pygments theme from the terminal background hint."""
     background = environment.get("COLORFGBG", "").rsplit(";", 1)[-1]
     try:
-        return "ansi_light" if int(background) >= 7 else "ansi_dark"
+        return "github-light" if int(background) >= 7 else "one-dark"
     except ValueError:
-        return "ansi_dark"
+        return "one-dark"
 
 
 def _stable_source_end(source: str) -> int:

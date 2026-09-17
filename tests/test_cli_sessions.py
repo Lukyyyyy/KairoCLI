@@ -907,6 +907,33 @@ def test_command_output_matches_answer_spacing_and_indentation(
     ]
 
 
+def test_command_output_console_preserves_rich_renderables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Renderable:
+        def __rich_console__(self, *_args: object) -> list[object]:
+            return []
+
+    class Console:
+        _kairo_rich = True
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[object, dict[str, object]]] = []
+
+        def print(self, value: object, **kwargs: object) -> None:
+            self.calls.append((value, kwargs))
+
+    streamed: list[str] = []
+    monkeypatch.setattr(cli_module, "_write_stream", streamed.append)
+    console = Console()
+    renderable = Renderable()
+
+    cli_module._CommandOutputConsole(console).print(renderable)
+
+    assert streamed == ["\n", "\n"]
+    assert console.calls[-1] == (renderable, {})
+
+
 def test_plain_streaming_answer_writes_deltas_and_sanitizes_across_chunks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

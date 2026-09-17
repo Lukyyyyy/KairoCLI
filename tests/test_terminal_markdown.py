@@ -1,15 +1,45 @@
 import re
+from io import StringIO
 
 import pytest
+from rich.console import Console
 
 from kairocli.cli import _render_interactive_answer
 from kairocli.rendering.terminal_markdown import (
     RenderedTerminalText,
     TerminalMarkdownRenderer,
+    render_code_search_match,
     terminal_code_theme,
 )
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def test_code_search_match_is_highlighted_and_sanitized() -> None:
+    output = StringIO()
+    console = Console(
+        file=output,
+        force_terminal=True,
+        color_system="truecolor",
+        no_color=False,
+        width=100,
+    )
+
+    console.print(
+        render_code_search_match(
+            "src/User.java\x1b[2J",
+            1,
+            2,
+            0.9,
+            "public class User {}\x1b[31m",
+        )
+    )
+
+    rendered = output.getvalue()
+    assert "\x1b[2J" not in rendered
+    assert "src/User.java:1-2 score=0.9" in _ANSI.sub("", rendered)
+    assert len(set(re.findall(r"38;2;\d+;\d+;\d+", rendered))) > 1
+    assert "public class User {}" in _ANSI.sub("", rendered)
 
 
 def test_terminal_markdown_renders_common_blocks() -> None:
@@ -167,9 +197,9 @@ def test_terminal_markdown_holds_reference_links_until_the_definition_arrives() 
 
 
 def test_terminal_markdown_theme_follows_terminal_background_hint() -> None:
-    assert terminal_code_theme({"COLORFGBG": "15;0"}) == "ansi_dark"
-    assert terminal_code_theme({"COLORFGBG": "0;15"}) == "ansi_light"
-    assert terminal_code_theme({}) == "ansi_dark"
+    assert terminal_code_theme({"COLORFGBG": "15;0"}) == "one-dark"
+    assert terminal_code_theme({"COLORFGBG": "0;15"}) == "github-light"
+    assert terminal_code_theme({}) == "one-dark"
 
 
 def test_rendered_terminal_text_marks_the_trusted_ansi_boundary() -> None:

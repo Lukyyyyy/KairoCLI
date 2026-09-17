@@ -52,6 +52,7 @@ from ..rendering.terminal_markdown import (
     ColorSystemName,
     RenderedTerminalText,
     TerminalMarkdownRenderer,
+    render_code_search_match,
 )
 from ..rendering.thought_display import ThoughtDisplay
 from ..rendering.tool_display import format_tool_calls, format_tool_results
@@ -1589,8 +1590,13 @@ async def _handle_command(
             matches = await agent.tools.code_index.search(payload)
             for match in matches:
                 console.print(
-                    f"{match['path']}:{match['start_line']}-{match['end_line']} "
-                    f"score={match['score']}\n{match['content']}"
+                    render_code_search_match(
+                        match["path"],
+                        match["start_line"],
+                        match["end_line"],
+                        match["score"],
+                        match["content"],
+                    )
                 )
     elif command.type == CommandType.GRAPH:
         if not payload:
@@ -2048,6 +2054,12 @@ class _CommandOutputConsole:
         self._kairo_rich = _has_rich(console)
 
     def print(self, value: object = "", **_kwargs: object) -> None:
+        if self._kairo_rich and hasattr(value, "__rich_console__"):
+            _write_stream("\n")
+            _print_answer_prefix(self.console)
+            self.console.print(value)
+            _end_answer_block()
+            return
         _print_command_output(self.console, value)
 
 
