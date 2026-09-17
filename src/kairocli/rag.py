@@ -4,6 +4,7 @@ import ast
 import asyncio
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -15,6 +16,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
+
+import jieba  # type: ignore[import-untyped]
+
+jieba.setLogLevel(logging.WARNING)
 
 MAX_EMBEDDING_INPUT_CHARS = 2_000
 MAX_EMBEDDING_BATCH = 128
@@ -1086,6 +1091,7 @@ def _query_tokens(value: str) -> set[str]:
         if len(token) >= 2
     }
     for sequence in re.findall(r"[\u3400-\u9fff]+", expanded):
+        tokens.update(word for word in jieba.lcut(sequence) if len(word) >= 2)
         tokens.update(sequence[index : index + 2] for index in range(len(sequence) - 1))
     return tokens
 

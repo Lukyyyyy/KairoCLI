@@ -18,6 +18,7 @@ from kairocli.rag import (
     HttpEmbeddingClient,
     VectorStore,
     _parse_embedding_vectors,
+    _query_tokens,
     embedding_client_from_environment,
 )
 
@@ -33,6 +34,12 @@ class CountingEmbedding:
         if self.fail:
             raise RuntimeError("embedding unavailable")
         return [[1.0, float("payment" in text.casefold()), float(len(text) % 17)] for text in texts]
+
+
+def test_query_tokens_add_jieba_words_without_losing_bigram_fallback() -> None:
+    tokens = _query_tokens("用户登录")
+
+    assert {"用户登录", "用户", "登录", "户登"} <= tokens
 
 
 def test_embedding_factory_supports_offline_ollama_zhipu_and_alicloud() -> None:
