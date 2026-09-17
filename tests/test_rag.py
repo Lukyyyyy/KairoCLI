@@ -359,6 +359,14 @@ def test_tree_sitter_adapters_cover_common_languages(
     assert rag_module._TREE_SITTER_NODE_KINDS[language][node_type] == kind
 
 
+def test_tree_sitter_line_numbers_use_stable_byte_offsets() -> None:
+    content = "first\n第二行\nthird".encode()
+
+    assert rag_module._line_from_byte(content, 0) == 1
+    assert rag_module._line_from_byte(content, content.index("第".encode())) == 2
+    assert rag_module._line_from_byte(content, content.index(b"third")) == 3
+
+
 async def test_index_skips_unchanged_files_and_removes_deleted_paths(tmp_path: Path) -> None:
     source = tmp_path / "service.py"
     source.write_text("def charge():\n    return 'paid'\n", encoding="utf-8")
@@ -382,6 +390,41 @@ async def test_index_skips_unchanged_files_and_removes_deleted_paths(tmp_path: P
     source.unlink()
     assert await index.index() == {"files": 0, "chunks": 0}
     assert index.store.paths() == set()
+
+
+async def test_index_backfills_relations_without_reembedding_unchanged_files(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "service.py"
+    source.write_text(
+        "class Service:\n    def run(self):\n        save()\n",
+        encoding="utf-8",
+    )
+    database = tmp_path / ".kairocli" / "index.db"
+    await CodeIndex(tmp_path, database, CountingEmbedding()).index()
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DELETE FROM relations")
+        connection.execute("DELETE FROM metadata WHERE key='relation_index_version'")
+
+    embedding = CountingEmbedding()
+    index = CodeIndex(tmp_path, database, embedding)
+    await index.index()
+
+    assert embedding.calls == []
+    assert any(item["to_name"] == "save" for item in index.graph("Service"))
+
+
+async def test_index_deduplicates_identical_relations_on_one_line(tmp_path: Path) -> None:
+    (tmp_path / "service.py").write_text(
+        "class Service:\n    def run(self):\n        save(); save()\n",
+        encoding="utf-8",
+    )
+    index = CodeIndex(tmp_path, tmp_path / ".kairocli" / "index.db", CountingEmbedding())
+
+    await index.index()
+
+    calls = [item for item in index.graph("save") if item["kind"] == "calls"]
+    assert len(calls) == 1
 
 
 async def test_index_reports_throttled_progress(tmp_path: Path) -> None:
@@ -464,7 +507,7 @@ async def test_index_and_graph_bound_source_growth_after_stat(
     assert result == {"files": 1, "chunks": 0}
     assert index.store.file_state("service.py") == ("excluded:8", 0, embedding.signature)
     assert graph == []
-    assert requested == [9, 9]
+    assert requested == [9]
 
 
 async def test_embedding_signature_change_invalidates_all_vectors(tmp_path: Path) -> None:

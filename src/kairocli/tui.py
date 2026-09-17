@@ -894,9 +894,12 @@ def run_tui(
                     return
                 relations = agent.tools.code_index.graph(symbol)
                 if not relations:
-                    log.write("No indexed symbol relations.")
+                    log.write("No indexed symbol relations. Run /index after code changes.")
                 for item in relations:
-                    log.write(f"{item['kind']} {item['path']}:{item['line']} {item['text']}")
+                    log.write(
+                        f"{item['from_name']} ── {item['kind']} --> [{item['to_name']}] "
+                        f"({item['path']}:{item['line']})"
+                    )
                 return
             if command == "/task":
                 if task_store is None or task_manager is None:

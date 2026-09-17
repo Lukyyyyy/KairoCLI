@@ -29,6 +29,7 @@ MAX_EMBEDDING_DIMENSIONS = 65_536
 MAX_EMBEDDING_JSON_DEPTH = 16
 MAX_EMBEDDING_JSON_NODES = 5_000_000
 MAX_STORED_VECTOR_BYTES = 2 * 1024 * 1024
+RELATION_INDEX_VERSION = "3"
 
 
 @dataclass(slots=True)
@@ -40,6 +41,15 @@ class CodeChunk:
     content: str
     kind: str = "file"
     name: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class CodeRelation:
+    path: str
+    line: int
+    from_name: str
+    to_name: str
+    kind: str
 
 
 class EmbeddingClient(Protocol):
@@ -333,6 +343,18 @@ class CodeChunker:
             return structural
         return self._window_chunks(path, content)
 
+    def chunk_with_relations(
+        self, path: str, content: str
+    ) -> tuple[list[CodeChunk], list[CodeRelation]]:
+        return (
+            self.chunk(path, content),
+            _tree_sitter_relations(
+                path,
+                content,
+                self.tree_sitter_cache or Path(".kairocli/tree-sitter-cache"),
+            ),
+        )
+
     def _window_chunks(
         self,
         path: str,
@@ -484,7 +506,19 @@ class VectorStore:
                 """CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT PRIMARY KEY, value TEXT NOT NULL)"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS relations (
+                path TEXT NOT NULL, line INTEGER NOT NULL, from_name TEXT NOT NULL,
+                to_name TEXT NOT NULL, kind TEXT NOT NULL,
+                PRIMARY KEY (path, line, from_name, to_name, kind))"""
+            )
             connection.execute("CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_name)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_name)"
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -581,6 +615,7 @@ class VectorStore:
         vectors: list[list[float]],
         content_hash: str = "",
         embedding_signature: str = "",
+        relations: list[CodeRelation] | None = None,
     ) -> None:
         _validate_vectors(chunks, vectors)
         with self._connect() as connection:
@@ -608,6 +643,27 @@ class VectorStore:
                 "INSERT OR REPLACE INTO file_state VALUES (?, ?, ?, ?)",
                 (path, content_hash, len(chunks), embedding_signature),
             )
+            if relations is not None:
+                self._replace_relations(connection, path, relations)
+
+    def replace_relations(self, path: str, relations: list[CodeRelation]) -> None:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._replace_relations(connection, path, relations)
+
+    @staticmethod
+    def _replace_relations(
+        connection: sqlite3.Connection, path: str, relations: list[CodeRelation]
+    ) -> None:
+        connection.execute("DELETE FROM relations WHERE path=?", (path,))
+        connection.executemany(
+            "INSERT OR IGNORE INTO relations (path,line,from_name,to_name,kind) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [
+                (item.path, item.line, item.from_name, item.to_name, item.kind)
+                for item in relations
+            ],
+        )
 
     def file_state(self, path: str) -> tuple[str, int, str] | None:
         with self._connect() as connection:
@@ -629,8 +685,25 @@ class VectorStore:
             connection.execute("BEGIN IMMEDIATE")
             connection.executemany("DELETE FROM chunks WHERE path=?", [(path,) for path in paths])
             connection.executemany(
+                "DELETE FROM relations WHERE path=?", [(path,) for path in paths]
+            )
+            connection.executemany(
                 "DELETE FROM file_state WHERE path=?", [(path,) for path in paths]
             )
+
+    def relations(self, symbol: str, limit: int = 200) -> list[CodeRelation]:
+        escaped = symbol.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        suffix = f"%.{escaped}"
+        prefix = f"{escaped}.%"
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT path,line,from_name,to_name,kind FROM relations "
+                "WHERE from_name=? OR from_name LIKE ? ESCAPE '\\' "
+                "OR to_name=? OR to_name LIKE ? ESCAPE '\\' "
+                "ORDER BY path,line,kind,to_name LIMIT ?",
+                (symbol, prefix, symbol, suffix, max(1, min(limit, 200))),
+            ).fetchall()
+        return [CodeRelation(str(row[0]), int(row[1]), *map(str, row[2:])) for row in rows]
 
     def _invalidate_file_state(self, paths: set[str]) -> None:
         if not paths:
@@ -647,10 +720,25 @@ class VectorStore:
             ).fetchone()
         return str(row[0]) if row else ""
 
+    def relation_index_version(self) -> str:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM metadata WHERE key='relation_index_version'"
+            ).fetchone()
+        return str(row[0]) if row else ""
+
+    def set_relation_index_version(self) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO metadata VALUES ('relation_index_version', ?)",
+                (RELATION_INDEX_VERSION,),
+            )
+
     def reset_for_embedding(self, signature: str) -> None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             connection.execute("DELETE FROM chunks")
+            connection.execute("DELETE FROM relations")
             connection.execute("DELETE FROM file_state")
             connection.execute(
                 "INSERT OR REPLACE INTO metadata VALUES ('embedding_signature', ?)",
@@ -726,10 +814,11 @@ class CodeIndex:
             )
         if stored_signature != signature:
             self.store.reset_for_embedding(signature)
+        rebuild_relations = self.store.relation_index_version() != RELATION_INDEX_VERSION
         files = sorted(file for file in root.rglob("*") if self._indexable(file))
         current: set[str] = set()
         chunk_count = 0
-        pending: list[tuple[str, list[CodeChunk], str]] = []
+        pending: list[tuple[str, list[CodeChunk], str, list[CodeRelation]]] = []
         pending_chunks = 0
         total_files = len(files)
 
@@ -737,15 +826,20 @@ class CodeIndex:
             nonlocal chunk_count, pending_chunks
             texts = [
                 f"[{chunk.kind}:{chunk.name}] {chunk.content}"
-                for _, chunks, _ in pending
+                for _, chunks, _, _ in pending
                 for chunk in chunks
             ]
             vectors = await self._embed_all(texts)
             cursor = 0
-            for relative, chunks, content_hash in pending:
+            for relative, chunks, content_hash, relations in pending:
                 next_cursor = cursor + len(chunks)
                 self.store.replace_path(
-                    relative, chunks, vectors[cursor:next_cursor], content_hash, signature
+                    relative,
+                    chunks,
+                    vectors[cursor:next_cursor],
+                    content_hash,
+                    signature,
+                    relations,
                 )
                 chunk_count += len(chunks)
                 cursor = next_cursor
@@ -783,19 +877,30 @@ class CodeIndex:
                     [],
                     f"excluded:{self.MAX_FILE_BYTES}",
                     signature,
+                    [],
                 )
                 continue
             content_hash = hashlib.sha256(raw).hexdigest()
             state = self.store.file_state(relative)
             if state and state[0] == content_hash and state[2] == signature:
+                if rebuild_relations:
+                    content = raw.decode("utf-8", errors="replace")
+                    self.store.replace_relations(
+                        relative,
+                        _tree_sitter_relations(
+                            relative,
+                            content,
+                            self.workspace / ".kairocli" / "tree-sitter-cache",
+                        ),
+                    )
                 chunk_count += state[1]
                 continue
             content = raw.decode("utf-8", errors="replace")
-            chunks = self.chunker.chunk(relative, content)
+            chunks, relations = self.chunker.chunk_with_relations(relative, content)
             if not chunks:
-                self.store.replace_path(relative, [], [], content_hash, signature)
+                self.store.replace_path(relative, [], [], content_hash, signature, relations)
                 continue
-            pending.append((relative, chunks, content_hash))
+            pending.append((relative, chunks, content_hash, relations))
             pending_chunks += len(chunks)
             if pending_chunks >= self._embedding_batch_size() * MAX_CONCURRENT_EMBEDDING_BATCHES:
                 await flush_pending()
@@ -810,6 +915,8 @@ class CodeIndex:
             or stored.startswith(relative_root + "/")
         }
         self.store.delete_paths(existing_in_scope - current)
+        if root == self.workspace:
+            self.store.set_relation_index_version()
         return {"files": len(files), "chunks": chunk_count}
 
     async def search(self, query: str, limit: int = 10) -> list[dict[str, object]]:
@@ -879,88 +986,17 @@ class CodeIndex:
         return raw_size
 
     def graph(self, symbol: str) -> list[dict[str, object]]:
-        escaped = re.escape(symbol)
-        definition = re.compile(
-            rf"\b(?:class|interface|enum|def|function|struct|trait)\s+{escaped}\b"
-        )
-        reference = re.compile(rf"\b{escaped}\b")
-        result: list[dict[str, object]] = []
-        for file in self.workspace.rglob("*"):
-            if not self._indexable(file):
-                continue
-            raw, _ = _read_index_source(file, self.MAX_FILE_BYTES)
-            if raw is None:
-                continue
-            content = raw.decode("utf-8", errors="replace")
-            structured_definitions = self._tree_sitter_definitions(file, content, symbol)
-            definition_lines: set[int] = set()
-            for item in structured_definitions:
-                line_value = item["line"]
-                if isinstance(line_value, int):
-                    definition_lines.add(line_value)
-            result.extend(structured_definitions)
-            for line_number, line in enumerate(content.splitlines(), 1):
-                if reference.search(line):
-                    if line_number in definition_lines:
-                        continue
-                    result.append(
-                        {
-                            "path": file.relative_to(self.workspace).as_posix(),
-                            "line": line_number,
-                            "kind": "definition" if definition.search(line) else "reference",
-                            "text": line.strip(),
-                        }
-                    )
-        return result[:200]
-
-    def _tree_sitter_definitions(
-        self, file: Path, content: str, symbol: str
-    ) -> list[dict[str, object]]:
-        try:
-            from tree_sitter_language_pack import PackConfig, configure, detect_language, get_parser
-
-            configure(PackConfig(cache_dir=str(self.workspace / ".kairocli" / "tree-sitter-cache")))
-            language = detect_language(str(file))
-            if not language:
-                return []
-            tree = get_parser(language).parse(content.encode())
-        except Exception:
-            return []
-        definition_types = {
-            "class_definition",
-            "class_declaration",
-            "interface_declaration",
-            "enum_declaration",
-            "function_definition",
-            "function_declaration",
-            "method_definition",
-            "method_declaration",
-            "struct_item",
-            "trait_item",
-        }
-        result: list[dict[str, object]] = []
-        stack = [tree.root_node]
-        lines = content.splitlines()
-        while stack:
-            node = stack.pop()
-            if node.type in definition_types:
-                name_node = node.child_by_field_name("name")
-                if (
-                    name_node
-                    and content.encode()[name_node.start_byte : name_node.end_byte].decode()
-                    == symbol
-                ):
-                    line = node.start_point.row + 1
-                    result.append(
-                        {
-                            "path": file.relative_to(self.workspace).as_posix(),
-                            "line": line,
-                            "kind": "definition",
-                            "text": lines[line - 1].strip() if line <= len(lines) else symbol,
-                        }
-                    )
-            stack.extend(node.named_children)
-        return result
+        return [
+            {
+                "path": item.path,
+                "line": item.line,
+                "kind": item.kind,
+                "from_name": item.from_name,
+                "to_name": item.to_name,
+                "text": f"{item.from_name} -> {item.to_name}",
+            }
+            for item in self.store.relations(symbol)
+        ]
 
     def _indexable(self, file: Path) -> bool:
         if not file.is_file() or file.suffix.lower() not in self.EXTENSIONS:
@@ -1233,13 +1269,15 @@ def _tree_sitter_declaration_ranges(
         if cache_dir is not None:
             configure(PackConfig(cache_dir=str(cache_dir)))
         encoded = content.encode()
-        root = get_parser(language).parse(encoded).root_node
+        parser = get_parser(language)
+        tree = parser.parse(encoded)
+        root = tree.root_node
     except Exception:
         if "language" in locals() and language:
             unavailable_languages.add(language)
         return []
 
-    result: list[tuple[int, int, str, str]] = []
+    ranges: list[tuple[int, int, str, str]] = []
     stack = [root]
     while stack:
         node = stack.pop()
@@ -1249,11 +1287,188 @@ def _tree_sitter_declaration_ranges(
             if name:
                 if kind == "function" and _tree_sitter_has_method_container(node):
                     kind = "method"
-                result.append(
-                    (node.start_point.row + 1, node.end_point.row + 1, kind, name)
+                ranges.append(
+                    (
+                        _line_from_byte(encoded, node.start_byte),
+                        _line_from_byte(encoded, node.end_byte),
+                        kind,
+                        name,
+                    )
                 )
         stack.extend(node.named_children)
-    return result
+    return ranges
+
+
+_TREE_SITTER_CALL_TYPES = {
+    "call",
+    "call_expression",
+    "invocation_expression",
+    "method_invocation",
+}
+
+
+def _tree_sitter_relations(path: str, content: str, cache_dir: Path) -> list[CodeRelation]:
+    if Path(path).suffix.casefold() == ".py":
+        return _python_relations(path, content)
+    try:
+        from tree_sitter_language_pack import PackConfig, configure, detect_language, get_parser
+
+        language = detect_language(path)
+        kinds = _TREE_SITTER_NODE_KINDS.get(language or "")
+        if not language or kinds is None:
+            return []
+        configure(PackConfig(cache_dir=str(cache_dir)))
+        encoded = content.encode()
+        parser = get_parser(language)
+        tree = parser.parse(encoded)
+        root = tree.root_node
+    except Exception:
+        return []
+
+    relations: list[CodeRelation] = []
+
+    def text(node: Any) -> str:
+        return encoded[node.start_byte : node.end_byte].decode(errors="replace")
+
+    def call_target(node: Any) -> str:
+        if node.type == "method_invocation":
+            name = node.child_by_field_name("name")
+            owner = node.child_by_field_name("object")
+            target = ".".join(text(item) for item in (owner, name) if item is not None)
+        else:
+            target_node = next(
+                (
+                    node.child_by_field_name(field)
+                    for field in ("function", "callee", "name", "method")
+                    if node.child_by_field_name(field) is not None
+                ),
+                None,
+            )
+            if target_node is None and node.named_children:
+                target_node = node.named_children[0]
+            target = text(target_node) if target_node is not None else ""
+        target = " ".join(target.split())
+        return target if 0 < len(target) <= 200 else ""
+
+    def visit(node: Any, class_name: str = "", caller: str = "") -> None:
+        kind = kinds.get(node.type)
+        name = ""
+        if kind is not None and _tree_sitter_is_definition(node):
+            name = _tree_sitter_definition_name(node, encoded)
+        if name:
+            if kind == "class":
+                class_name = f"{class_name}.{name}" if class_name else name
+                relations.append(
+                    CodeRelation(
+                        path,
+                        _line_from_byte(encoded, node.start_byte),
+                        Path(path).name,
+                        class_name,
+                        "defines",
+                    )
+                )
+                caller = ""
+            elif kind in {"function", "method"}:
+                owner = caller or class_name
+                qualified = f"{owner}.{name}" if owner else name
+                if class_name and not caller:
+                    relations.append(
+                        CodeRelation(
+                            path,
+                            _line_from_byte(encoded, node.start_byte),
+                            class_name,
+                            qualified,
+                            "contains",
+                        )
+                    )
+                elif not owner:
+                    relations.append(
+                        CodeRelation(
+                            path,
+                            _line_from_byte(encoded, node.start_byte),
+                            Path(path).name,
+                            qualified,
+                            "defines",
+                        )
+                    )
+                caller = qualified
+        if caller and node.type in _TREE_SITTER_CALL_TYPES:
+            target = call_target(node)
+            if target:
+                relations.append(
+                    CodeRelation(
+                        path,
+                        _line_from_byte(encoded, node.start_byte),
+                        caller,
+                        target,
+                        "calls",
+                    )
+                )
+        for child in node.named_children:
+            visit(child, class_name, caller)
+
+    visit(root)
+    return relations
+
+
+def _line_from_byte(content: bytes, offset: int) -> int:
+    return content.count(b"\n", 0, offset) + 1
+
+
+def _python_relations(path: str, content: str) -> list[CodeRelation]:
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+    relations: list[CodeRelation] = []
+
+    class Visitor(ast.NodeVisitor):
+        class_name = ""
+        caller = ""
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            previous_class, previous_caller = self.class_name, self.caller
+            self.class_name = f"{self.class_name}.{node.name}" if self.class_name else node.name
+            relations.append(
+                CodeRelation(path, node.lineno, Path(path).name, self.class_name, "defines")
+            )
+            self.caller = ""
+            self.generic_visit(node)
+            self.class_name, self.caller = previous_class, previous_caller
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            self._visit_function(node)
+
+        def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+            self._visit_function(node)
+
+        def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            previous_caller = self.caller
+            owner = self.caller or self.class_name
+            qualified = f"{owner}.{node.name}" if owner else node.name
+            if self.class_name and not self.caller:
+                relations.append(
+                    CodeRelation(path, node.lineno, self.class_name, qualified, "contains")
+                )
+            elif not owner:
+                relations.append(
+                    CodeRelation(path, node.lineno, Path(path).name, qualified, "defines")
+                )
+            self.caller = qualified
+            self.generic_visit(node)
+            self.caller = previous_caller
+
+        def visit_Call(self, node: ast.Call) -> None:
+            if self.caller:
+                target = " ".join(ast.unparse(node.func).split())
+                if 0 < len(target) <= 200:
+                    relations.append(
+                        CodeRelation(path, node.lineno, self.caller, target, "calls")
+                    )
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    return relations
 
 
 def _tree_sitter_is_definition(node: Any) -> bool:

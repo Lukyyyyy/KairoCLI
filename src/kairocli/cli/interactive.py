@@ -1602,8 +1602,14 @@ async def _handle_command(
         if not payload:
             console.print("Usage: /graph <symbol>")
         else:
-            for item in agent.tools.code_index.graph(payload):
-                console.print(f"{item['kind']} {item['path']}:{item['line']} {item['text']}")
+            relations = agent.tools.code_index.graph(payload)
+            if not relations:
+                console.print("No indexed symbol relations. Run /index after code changes.")
+            for item in relations:
+                console.print(
+                    f"{item['from_name']} ── {item['kind']} --> [{item['to_name']}] "
+                    f"({item['path']}:{item['line']})"
+                )
     elif command.type == CommandType.CONTEXT:
         console.print(agent.context_status())
     elif command.type == CommandType.POLICY:

@@ -266,10 +266,16 @@ def test_chunker_and_vector_search(tmp_path: Path) -> None:
 
 async def test_code_index_search_and_graph(tmp_path: Path) -> None:
     (tmp_path / "service.py").write_text(
-        "class PaymentService:\n    def charge(self):\n        return 'paid'\n", encoding="utf-8"
+        "class PaymentService:\n    def charge(self):\n        return pay()\n", encoding="utf-8"
     )
     index = CodeIndex(tmp_path, tmp_path / ".kairocli" / "index.db")
     summary = await index.index()
     assert summary == {"files": 1, "chunks": 2}
     assert (await index.search("payment charge", 1))[0]["path"] == "service.py"
-    assert index.graph("PaymentService")[0]["kind"] == "definition"
+    graph = index.graph("PaymentService")
+    assert [(item["kind"], item["to_name"]) for item in graph] == [
+        ("defines", "PaymentService"),
+        ("contains", "PaymentService.charge"),
+        ("calls", "pay"),
+    ]
+    assert index.graph("pay")[0]["from_name"] == "PaymentService.charge"
