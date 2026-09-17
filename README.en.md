@@ -11,10 +11,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Lukyyyyy/KairoCLI/actions/workflows/ci.yml"><img src="https://github.com/Lukyyyyy/KairoCLI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11--3.14-3776AB?logo=python&amp;logoColor=white" alt="Python 3.11–3.14"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&amp;logoColor=white" alt="FastAPI 0.115+"></a>
+  <a href="https://docs.pydantic.dev/"><img src="https://img.shields.io/badge/Pydantic-2.9+-E92063?logo=pydantic&amp;logoColor=white" alt="Pydantic 2.9+"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-1.0+-5A67D8" alt="MCP 1.0+"></a>
+  <a href="https://textual.textualize.io/"><img src="https://img.shields.io/badge/Textual-1.0+-111111" alt="Textual 1.0+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Lukyyyyy/KairoCLI" alt="MIT License"></a>
-  <a href="https://github.com/Lukyyyyy/KairoCLI"><img src="https://img.shields.io/badge/version-0.1.0-orange" alt="Version 0.1.0"></a>
 </p>
 
 <p align="center">
@@ -31,9 +33,8 @@ tool use, multi-agent collaboration, and human approval into one controlled secu
 it as an interactive terminal assistant, a structured automation command, a local Runtime API, or a
 multi-user web service.
 
-> [!IMPORTANT]
-> Kairo CLI is currently at version `0.1.0` and under active development. Interfaces,
-> configuration, and data formats may change in future releases.
+**Project status:** Kairo CLI is currently at version `0.1.0` and under active development.
+Interfaces, configuration, and data formats may change in future releases.
 
 ## Why Kairo CLI
 
@@ -113,9 +114,9 @@ GLM_API_KEY=your-api-key
 KAIROCLI_PROVIDER=glm
 ```
 
-> [!CAUTION]
-> Never commit `.env` or real credentials. Kairo CLI reads `~/.kairocli/.env`, the workspace
-> `.env`, and process environment variables in that order; later sources take precedence.
+**Credential safety:** Never commit `.env` or real credentials. Kairo CLI reads
+`~/.kairocli/.env`, the workspace `.env`, and process environment variables in that order; later
+sources take precedence.
 
 ### 3. Start
 

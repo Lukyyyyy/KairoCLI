@@ -11,10 +11,12 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Lukyyyyy/KairoCLI/actions/workflows/ci.yml"><img src="https://github.com/Lukyyyyy/KairoCLI/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11--3.14-3776AB?logo=python&amp;logoColor=white" alt="Python 3.11–3.14"></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&amp;logoColor=white" alt="FastAPI 0.115+"></a>
+  <a href="https://docs.pydantic.dev/"><img src="https://img.shields.io/badge/Pydantic-2.9+-E92063?logo=pydantic&amp;logoColor=white" alt="Pydantic 2.9+"></a>
+  <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-1.0+-5A67D8" alt="MCP 1.0+"></a>
+  <a href="https://textual.textualize.io/"><img src="https://img.shields.io/badge/Textual-1.0+-111111" alt="Textual 1.0+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Lukyyyyy/KairoCLI" alt="MIT License"></a>
-  <a href="https://github.com/Lukyyyyy/KairoCLI"><img src="https://img.shields.io/badge/version-0.1.0-orange" alt="Version 0.1.0"></a>
 </p>
 
 <p align="center">
@@ -30,8 +32,7 @@ Kairo CLI 是一个 Python 原生的开源 Agent 运行时。它把代码理解�
 多人协作和人工审批收束到统一的安全边界中，可作为终端助手、自动化命令、本地 Runtime
 API 或多用户 Web 服务使用。
 
-> [!IMPORTANT]
-> Kairo CLI 当前版本为 `0.1.0`，仍在积极开发中。接口、配置和数据格式可能在后续版本中调整。
+**当前状态：** Kairo CLI 当前版本为 `0.1.0`，仍在积极开发中。接口、配置和数据格式可能在后续版本中调整。
 
 ## 为什么选择 Kairo CLI
 
@@ -105,9 +106,8 @@ GLM_API_KEY=your-api-key
 KAIROCLI_PROVIDER=glm
 ```
 
-> [!CAUTION]
-> 不要提交 `.env` 或任何真实密钥。Kairo CLI 依次读取 `~/.kairocli/.env`、项目 `.env`
-> 和进程环境变量，后读取的配置优先。
+**密钥安全：** 不要提交 `.env` 或任何真实密钥。Kairo CLI 依次读取 `~/.kairocli/.env`、
+项目 `.env` 和进程环境变量，后读取的配置优先。
 
 ### 3. 启动
 
