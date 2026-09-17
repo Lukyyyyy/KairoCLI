@@ -32,7 +32,7 @@ def test_context_profile_is_derived_from_model_window() -> None:
     profile = ContextProfile.from_client(CapabilityClient())
     assert profile.max_context_window == 1_000_000
     assert profile.agent_token_budget == 800_000
-    assert profile.compression_trigger_tokens == 967_000
+    assert profile.compression_trigger_tokens == 900_000
     assert profile.short_term_memory_budget == 450_000
     assert profile.memory_context_tokens == 5_000
     assert profile.mcp_resource_index_enabled

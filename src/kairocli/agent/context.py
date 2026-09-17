@@ -35,11 +35,10 @@ class ContextProfile:
     @classmethod
     def from_client(cls, client: ModelCapabilities) -> ContextProfile:
         window = max(8_000, client.max_context_window())
-        trigger = cls.auto_compact_trigger_tokens(window)
         return cls(
             max_context_window=window,
             agent_token_budget=max(4_000, math.floor(window * 0.8)),
-            compression_trigger_ratio=max(0.5, min(0.99, trigger / window)),
+            compression_trigger_ratio=0.9,
             short_term_memory_budget=max(4_000, math.floor(window * 0.45)),
             memory_context_tokens=max(500, min(5_000, window // 200)),
             mcp_resource_index_enabled=window >= 32_000,
@@ -53,11 +52,7 @@ class ContextProfile:
 
     @staticmethod
     def auto_compact_trigger_tokens(window: int) -> int:
-        safe_window = max(8_000, window)
-        summary_reserve = min(20_000, max(1_000, safe_window // 4))
-        buffer = min(13_000, max(1_000, safe_window // 8))
-        trigger = safe_window - summary_reserve - buffer
-        return max(1_000, min(safe_window - 1, trigger))
+        return math.floor(max(8_000, window) * 0.9)
 
 
 def estimate_text_tokens(value: str) -> int:
