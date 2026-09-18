@@ -1,6 +1,7 @@
 import json
 from collections import OrderedDict
 
+from ..json_boundary import decode_strict_json
 from ..models import ToolCall, ToolOutput
 from ..tools.tool_result import is_failed_tool_text
 from ..trace import redact_sensitive_text
@@ -85,7 +86,30 @@ def format_tool_results(calls: list[ToolCall], results: list[ToolOutput]) -> str
     if images:
         parts.append(f"{images} image(s)")
     parts.append(_duration(elapsed_ms))
-    return " · ".join(parts)
+    summary = " · ".join(parts)
+    blocked = [
+        f"{_tool_label(call.name)}: {reason}"
+        for call, output in paired
+        if (reason := _policy_denial_reason(output)) is not None
+    ]
+    if blocked:
+        summary += "\n⛔ Blocked by safety policy · " + "; ".join(blocked[:3])
+    return summary
+
+
+def _policy_denial_reason(output: ToolOutput) -> str | None:
+    try:
+        payload = decode_strict_json(
+            output.text,
+            max_bytes=800_000,
+            max_depth=32,
+            max_nodes=100_000,
+        )
+    except (RecursionError, TypeError, UnicodeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("policy_denied") is not True:
+        return None
+    return _safe_argument_text(payload.get("error", "Operation denied"))[:400]
 
 
 def _tool_label(name: str) -> str:

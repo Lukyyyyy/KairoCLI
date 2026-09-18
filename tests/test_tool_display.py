@@ -91,3 +91,17 @@ def test_tool_result_summary_uses_shared_strict_failure_contract() -> None:
     )
 
     assert rendered == "⚠ 5 tool(s) · 3 failed · 0 ms"
+
+
+def test_tool_result_summary_explains_hard_policy_blocks() -> None:
+    rendered = format_tool_results(
+        [_call("execute_command", {"command": "rm -rf /"})],
+        [
+            ToolOutput(
+                '{"error":"Command rejected by safety policy","policy_denied":true}'
+            )
+        ],
+    )
+
+    assert "⛔ Blocked by safety policy" in rendered
+    assert "Command rejected by safety policy" in rendered
