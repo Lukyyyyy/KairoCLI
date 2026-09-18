@@ -44,6 +44,36 @@ async def test_registry_close_attempts_all_owned_services(tmp_path: Path) -> Non
     assert set(closed) == {"shell", "lsp", "snapshot"}
 
 
+async def test_query_code_graph_tool_requires_and_queries_index(tmp_path: Path) -> None:
+    registry = ToolRegistry(tmp_path)
+    source = tmp_path / "service.py"
+    source.write_text(
+        "class UserService:\n    def login(self):\n        return load_user()\n",
+        encoding="utf-8",
+    )
+
+    missing = json.loads(await registry.execute("query_code_graph", {"symbol": "UserService"}))
+    assert missing == {"symbol": "UserService", "relations": [], "index_required": True}
+
+    await registry.code_index.index()
+    result = json.loads(await registry.execute("query_code_graph", {"symbol": "UserService"}))
+
+    assert result["index_required"] is False
+    assert [(item["kind"], item["to_name"]) for item in result["relations"]] == [
+        ("defines", "UserService"),
+        ("contains", "UserService.login"),
+        ("calls", "load_user"),
+    ]
+
+    schema = next(
+        item["function"]["parameters"]
+        for item in registry.schemas()
+        if item["function"]["name"] == "query_code_graph"
+    )
+    assert schema["additionalProperties"] is False
+    assert schema["properties"]["symbol"]["maxLength"] == 200
+
+
 async def test_registry_close_is_terminal_and_rejects_late_tools(tmp_path: Path) -> None:
     registry = ToolRegistry(tmp_path)
     await registry.close()

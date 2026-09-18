@@ -193,6 +193,17 @@ def _query_schema() -> dict[str, Any]:
     return _required({"query": {"type": "string"}}, "query")
 
 
+def _code_graph_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string", "minLength": 1, "maxLength": 200},
+        },
+        "required": ["symbol"],
+        "additionalProperties": False,
+    }
+
+
 def _web_search_schema() -> dict[str, Any]:
     return _required(
         {

@@ -249,6 +249,7 @@ def test_skill_discovery_and_state(tmp_path: Path) -> None:
 def test_wechat_noninteractive_policy() -> None:
     policy = WechatPolicy()
     assert policy.allow_tool("read_file", {"path": "README.md"})
+    assert policy.allow_tool("query_code_graph", {"symbol": "UserService"})
     assert not policy.allow_tool("execute_command", {"command": "git status"})
     assert policy.allow_tool("write_file", {"path": "x"})
     assert policy.allow_tool("create_project", {"path": "x"})

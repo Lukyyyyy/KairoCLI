@@ -49,6 +49,7 @@ from .limits import (
 )
 from .process import _read_bounded_stream, _terminate_process_tree
 from .schemas import (
+    _code_graph_schema,
     _command_schema,
     _create_schema,
     _glob_schema,
@@ -802,6 +803,13 @@ class ToolRegistry:
                 self._search_code,
             ),
             (
+                "query_code_graph",
+                "Query indexed code definitions, containment, and syntax-level call relations "
+                "for one symbol. Ask the user to run /index when index_required is true.",
+                _code_graph_schema(),
+                self._query_code_graph,
+            ),
+            (
                 "web_search",
                 "Search the web for current information.",
                 _web_search_schema(),
@@ -1287,6 +1295,18 @@ class ToolRegistry:
         if not self.code_index.store.paths():
             return {"query": query, "matches": [], "index_required": True}
         return {"query": query, "matches": await self.code_index.search(query)}
+
+    async def _query_code_graph(self, args: dict[str, Any]) -> dict[str, Any]:
+        symbol = str(args["symbol"]).strip()
+        if not symbol:
+            raise ToolArgumentsError("symbol must not be blank")
+        if not self.code_index.store.relation_index_version():
+            return {"symbol": symbol, "relations": [], "index_required": True}
+        return {
+            "symbol": symbol,
+            "relations": self.code_index.graph(symbol),
+            "index_required": False,
+        }
 
     async def _web_search(self, args: dict[str, Any]) -> dict[str, Any]:
         query = str(args["query"])

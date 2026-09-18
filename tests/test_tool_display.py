@@ -13,6 +13,9 @@ def test_tool_display_compacts_single_calls_and_mcp_names() -> None:
     assert format_tool_calls([_call("web_fetch", {"url": "https://example.com/a/"})]) == (
         "⏵ 📰 Web fetch(example.com/a)"
     )
+    assert format_tool_calls([_call("query_code_graph", {"symbol": "UserService"})]) == (
+        "⏵ 🕸 Query code graph(UserService)"
+    )
     assert format_tool_calls([_call("mcp__chrome__click", {"ref": "x"})]).startswith(
         "⏵ 🔌 MCP chrome.click"
     )

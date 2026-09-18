@@ -48,6 +48,7 @@ class WechatPolicy:
             "glob_files",
             "grep_code",
             "search_code",
+            "query_code_graph",
             "web_search",
             "web_fetch",
             "load_skill",
