@@ -14,6 +14,7 @@ from kairocli.config import (
     handle_config_command,
     handle_model_command,
     normalize_provider_name,
+    save_approval_mode,
 )
 from kairocli.paths import KairoPaths
 
@@ -46,11 +47,31 @@ def test_config_save_roundtrip(tmp_path: Path) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
     config = AppConfig.load(paths)
     config.default_provider = "agnes"
+    config.approval_mode = "auto"
     config.providers["agnes"].context_window = 777_000
     config.save(paths)
     loaded = AppConfig.load(paths)
     assert loaded.default_provider == "agnes"
+    assert loaded.approval_mode == "auto"
     assert loaded.providers["agnes"].context_window == 777_000
+
+
+def test_approval_mode_rolls_back_when_global_save_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    config = AppConfig.load(paths)
+
+    def fail_save(_config: AppConfig, _paths: KairoPaths) -> None:
+        raise OSError("no")
+
+    monkeypatch.setattr(AppConfig, "save", fail_save)
+
+    with pytest.raises(OSError, match="no"):
+        save_approval_mode(config, paths, "auto")
+
+    assert config.approval_mode == "ask"
+    assert "approval_mode" not in config._dirty_values
 
 
 def test_config_concurrent_saves_merge_distinct_changed_fields(tmp_path: Path) -> None:
@@ -265,6 +286,7 @@ def test_config_ignores_symlinked_dotenv(tmp_path: Path, monkeypatch: pytest.Mon
     [
         ({"task_workers": 0}, "task_workers"),
         ({"renderer": "unknown"}, "RENDERER"),
+        ({"approval_mode": "unknown"}, "approval_mode"),
         ({"default_provider": "unknown"}, "Unsupported"),
         ({"providers": {"glm": {"temperature": 3}}}, "temperature"),
         ({"providers": {"glm": {"context_window": 100}}}, "context window"),

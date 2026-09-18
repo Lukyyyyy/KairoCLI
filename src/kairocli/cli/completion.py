@@ -10,7 +10,7 @@ _SLASH_SUBCOMMANDS: dict[str, tuple[str, ...]] = {
     "/browser": ("connect", "disconnect", "status", "tabs"),
     "/config": ("provider",),
     "/history": ("clear",),
-    "/hitl": ("on", "off"),
+    "/hitl": ("ask", "auto"),
     "/mcp": ("list", "disable", "enable", "logs", "prompts", "resources", "restart"),
     "/memory": ("clear", "delete", "list", "search"),
     "/session": ("delete", "list", "new", "resume", "save", "status"),

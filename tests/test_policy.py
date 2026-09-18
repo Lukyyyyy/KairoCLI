@@ -14,6 +14,7 @@ from kairocli.policy import (
     ApprovalDecision,
     ApprovalPolicy,
     ApprovalResult,
+    ApprovalRisk,
     AuditLog,
     CommandGuard,
     PathGuard,
@@ -288,6 +289,13 @@ def test_approval_result_and_session_caches() -> None:
     policy.remember(tool, result)
     assert not policy.needs_approval(tool)
 
+    policy.remember("execute_command", result)
+    assert not policy.needs_approval("execute_command")
+    assert policy.allows_session_approval("execute_command")
+    assert policy.risk("execute_command") == ApprovalRisk.HIGH
+    assert policy.risk("write_file") == ApprovalRisk.LOW
+    assert policy.risk("install_skill") == ApprovalRisk.MEDIUM
+
     mcp_tool = "mcp__chrome-devtools__click"
     policy.remember(mcp_tool, ApprovalResult.approve_all_by_server())
     assert not policy.needs_approval("mcp__chrome-devtools__navigate_page")
@@ -302,3 +310,7 @@ def test_approval_result_and_session_caches() -> None:
     policy.clear_session_approvals()
     assert policy.needs_approval(tool)
     assert policy.needs_approval(mcp_tool)
+    policy.set_mode("auto")
+    assert not policy.needs_approval("execute_command")
+    assert not policy.needs_approval("shell_exec")
+    assert policy.needs_approval("write_file")

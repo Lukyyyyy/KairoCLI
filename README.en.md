@@ -153,6 +153,7 @@ Common commands:
 /todo list                 List current todos
 /mcp list                  List MCP servers
 /skill list                List available Skills
+/hitl [ask|auto]           Show or globally set the Shell approval mode
 /policy                    Show the active security policy
 /snapshot list             List workspace snapshots
 /cancel                    Cancel the active task
@@ -330,8 +331,10 @@ Kairo CLI enforces these defaults:
 
 - file tools only access permitted real paths inside the workspace and reject symlink escapes;
 - approval prompts explain low, medium, and high-risk capabilities and reasons;
-- workspace writes may be approved for a session, while high-risk Shell tools such as
-  `execute_command` and `shell_exec` always require per-call approval;
+- workspace writes and Shell tools may be approved for a session; the default `ask` mode prompts
+  per call until `always this tool` is selected for the current session;
+- `/hitl auto` globally saves the auto-approval mode, so `execute_command` and `shell_exec` run
+  after hard-policy checks; non-interactive, Runtime API, and WeChat entry points ignore it;
 - catastrophic shell patterns and path escapes are blocked directly by policy;
 - non-interactive mode denies every approval-gated tool by default;
 - mutating tools run serially while read-only tools use bounded concurrency;

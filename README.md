@@ -143,6 +143,7 @@ kairocli
 /todo list                 查看当前任务清单
 /mcp list                  查看 MCP 服务
 /skill list                查看可用 Skill
+/hitl [ask|auto]           查看或全局设置 Shell 审批模式
 /policy                    查看当前安全策略
 /snapshot list             查看工作区快照
 /cancel                    取消当前任务
@@ -310,7 +311,10 @@ Kairo CLI 默认实施以下边界：
 
 - 文件工具只访问工作区允许的真实路径，并拒绝符号链接逃逸；
 - 审批框按低危、中危、高危展示工具能力和风险原因；
-- 工作区写入可按会话授权，`execute_command`、`shell_exec` 等高风险 Shell 能力始终逐次审批；
+- 工作区写入与 Shell 工具均可按会话授权；默认 `ask` 模式逐次询问，选择
+  `always this tool` 后在当前会话放行该工具；
+- `/hitl auto` 全局保存“帮我批准”模式，使 `execute_command`、`shell_exec` 在通过硬策略后
+  自动执行；非交互、Runtime API 和微信渠道不继承该设置；
 - 灾难性 Shell 模式和路径越界由策略直接拦截，并返回明确原因；
 - 非交互模式默认拒绝所有需要审批的工具；
 - 写入型工具串行执行，只读工具受控并发；

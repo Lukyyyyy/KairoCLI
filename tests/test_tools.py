@@ -1241,6 +1241,57 @@ async def test_approve_all_skips_future_prompts_for_same_tool(tmp_path: Path) ->
     assert approvals == 1
 
 
+async def test_shell_approval_can_be_remembered_for_session(tmp_path: Path) -> None:
+    approvals = 0
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    paths.workspace.mkdir(parents=True)
+
+    async def approve_all(name: str, arguments: dict[str, object]) -> ApprovalResult:
+        nonlocal approvals
+        approvals += 1
+        return ApprovalResult.approve_all()
+
+    registry = ToolRegistry(
+        paths.workspace,
+        audit=AuditLog(paths),
+        approval_policy=ApprovalPolicy(True),
+        approver=approve_all,
+    )
+    await registry.execute("execute_command", {"command": "echo one"})
+    await registry.execute("execute_command", {"command": "echo two"})
+
+    assert approvals == 1
+    entries = next(paths.audit_dir.glob("audit-*.jsonl")).read_text(encoding="utf-8").splitlines()
+    assert [json.loads(entry)["approval_mode"] for entry in entries] == ["ask", "ask"]
+
+
+async def test_auto_mode_skips_shell_prompt_but_not_command_guard(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    paths.workspace.mkdir(parents=True)
+
+    async def unexpected_prompt(name: str, arguments: dict[str, object]) -> bool:
+        raise AssertionError(f"unexpected approval prompt for {name}: {arguments}")
+
+    registry = ToolRegistry(
+        paths.workspace,
+        audit=AuditLog(paths),
+        approval_policy=ApprovalPolicy(mode="auto"),
+        approver=unexpected_prompt,
+    )
+    allowed = json.loads(await registry.execute("execute_command", {"command": "echo ok"}))
+    denied = json.loads(await registry.execute("execute_command", {"command": "sudo echo no"}))
+
+    assert allowed["exit_code"] == 0
+    assert denied["policy_denied"] is True
+    entries = [
+        json.loads(line)
+        for line in next(paths.audit_dir.glob("audit-*.jsonl"))
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    assert [entry["approval_mode"] for entry in entries] == ["auto", "auto"]
+
+
 async def test_parallel_approve_all_prompts_once_for_same_tool(tmp_path: Path) -> None:
     approvals = 0
     entered = asyncio.Event()

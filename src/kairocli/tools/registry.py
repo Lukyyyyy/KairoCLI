@@ -266,6 +266,12 @@ class ToolRegistry:
             self._mcp_server_gates[server_name] = gate
         return gate
 
+    def _approval_mode(self, tool_name: str) -> str:
+        policy = self.approval_policy
+        if policy is None or not policy.enabled or not policy.governs(tool_name):
+            return ""
+        return policy.mode.value
+
     @asynccontextmanager
     async def mcp_server_transition(self, server_name: str) -> AsyncIterator[None]:
         """Wait for in-flight calls and block new calls during one server transition."""
@@ -418,7 +424,13 @@ class ToolRegistry:
                                 )
                             )
                             if self.audit:
-                                self.audit.append(name, result.decision.value, arguments, detail)
+                                self.audit.append(
+                                    name,
+                                    result.decision.value,
+                                    arguments,
+                                    detail,
+                                    self._approval_mode(name),
+                                )
                             return ToolOutput(
                                 json.dumps(
                                     {
@@ -481,13 +493,16 @@ class ToolRegistry:
                     "error" if failed else "allowed",
                     effective_arguments,
                     detail,
+                    self._approval_mode(name),
                 )
             return output
         except ToolArgumentsError as exc:
             raise_if_canceled(cancel_event)
             detail = _bounded_tool_error(exc)
             if self.audit and _requires_audit(name):
-                self.audit.append(name, "error", effective_arguments, detail)
+                self.audit.append(
+                    name, "error", effective_arguments, detail, self._approval_mode(name)
+                )
             return ToolOutput(
                 json.dumps(
                     {
@@ -500,7 +515,9 @@ class ToolRegistry:
             raise_if_canceled(cancel_event)
             detail = _bounded_tool_error(exc)
             if self.audit:
-                self.audit.append(name, "denied", effective_arguments, detail)
+                self.audit.append(
+                    name, "denied", effective_arguments, detail, self._approval_mode(name)
+                )
             return ToolOutput(json.dumps({"error": detail, "policy_denied": True}))
         except AgentCanceled:
             if browser_operation_started and self.browser_guard is not None:
@@ -511,6 +528,7 @@ class ToolRegistry:
                     "canceled",
                     effective_arguments,
                     "Tool execution canceled; side effects may have completed",
+                    self._approval_mode(name),
                 )
             raise
         except asyncio.CancelledError:
@@ -521,7 +539,9 @@ class ToolRegistry:
             raise_if_canceled(cancel_event)
             detail = _bounded_tool_error(exc)
             if self.audit and _requires_audit(name):
-                self.audit.append(name, "error", effective_arguments, detail)
+                self.audit.append(
+                    name, "error", effective_arguments, detail, self._approval_mode(name)
+                )
             return ToolOutput(json.dumps({"error": detail, "type": type(exc).__name__}))
         finally:
             log.info(
@@ -634,6 +654,7 @@ class ToolRegistry:
                             "error",
                             arguments,
                             f"Tool execution exceeded {timeout:g}s timeout",
+                            self._approval_mode(name),
                         )
                     return ToolOutput(
                         json.dumps(
@@ -660,6 +681,7 @@ class ToolRegistry:
                             "canceled",
                             arguments,
                             "Tool batch canceled; side effects may have completed",
+                            self._approval_mode(name),
                         )
             raise
 

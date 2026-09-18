@@ -462,6 +462,20 @@ async def test_tui_approval_supports_tool_and_mcp_server_scopes(
         tool_result = await approve_tool.wait()
         assert tool_result.decision == ApprovalDecision.APPROVED_ALL
 
+        approve_shell = app.run_worker(
+            app.approve_tool("execute_command", {"command": "rm empty.txt"}),  # type: ignore[attr-defined]
+            name="approve-shell-once",
+        )
+        for _ in range(20):
+            await pilot.pause()
+            if app.screen.query("#approval-risk"):
+                break
+        assert "HIGH" in str(app.screen.query_one("#approval-risk").render())
+        assert app.screen.query("#approval-all")
+        await pilot.click("#approval-all")
+        shell_result = await approve_shell.wait()
+        assert shell_result.decision == ApprovalDecision.APPROVED_ALL
+
         approve_server = app.run_worker(
             app.approve_tool("mcp__demo__write", {"value": 1}),  # type: ignore[attr-defined]
             name="approve-server-scope",

@@ -34,6 +34,17 @@ class ApprovalDecision(StrEnum):
     SKIPPED = "skipped"
 
 
+class ApprovalRisk(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ApprovalMode(StrEnum):
+    ASK = "ask"
+    AUTO = "auto"
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovalResult:
     decision: ApprovalDecision
@@ -157,13 +168,21 @@ class AuditEntry:
     decision: str
     arguments: dict[str, Any]
     detail: str = ""
+    approval_mode: str = ""
 
 
 class AuditLog:
     def __init__(self, paths: KairoPaths) -> None:
         self.directory = paths.audit_dir
 
-    def append(self, tool: str, decision: str, arguments: dict[str, Any], detail: str = "") -> None:
+    def append(
+        self,
+        tool: str,
+        decision: str,
+        arguments: dict[str, Any],
+        detail: str = "",
+        approval_mode: str = "",
+    ) -> None:
         try:
             redacted_arguments = _redact_arguments(tool, arguments)
         except (RecursionError, TypeError, ValueError):
@@ -174,6 +193,7 @@ class AuditLog:
             decision,
             redacted_arguments,
             redact_sensitive_text(detail)[:MAX_AUDIT_DETAIL_CHARS],
+            approval_mode,
         )
         try:
             serialized = json.dumps(
@@ -278,26 +298,34 @@ def read_recent_audit(paths: KairoPaths, limit: int = 10) -> str:
 
 
 class ApprovalPolicy:
-    DANGEROUS_TOOLS = {
+    SESSION_APPROVAL_TOOLS = {
         "write_file",
         "apply_patch",
-        "execute_command",
-        "shell_exec",
         "create_project",
         "install_skill",
         "revert_turn",
         "browser_connect",
         "browser_disconnect",
     }
+    SHELL_TOOLS = {"execute_command", "shell_exec"}
+    DANGEROUS_TOOLS = SESSION_APPROVAL_TOOLS | SHELL_TOOLS
+    LOW_RISK_TOOLS = {"write_file", "apply_patch", "create_project"}
 
-    def __init__(self, enabled: bool = True) -> None:
+    def __init__(self, enabled: bool = True, mode: str = ApprovalMode.ASK) -> None:
+        if mode not in {item.value for item in ApprovalMode}:
+            raise ValueError("Approval mode must be ask or auto")
         self.enabled = enabled
+        self.mode = ApprovalMode(mode)
         self._approved_tools: set[str] = set()
         self._approved_mcp_servers: set[str] = set()
 
     def needs_approval(self, tool_name: str) -> bool:
-        if not self.enabled or tool_name in self._approved_tools:
+        if not self.enabled:
             return False
+        if tool_name in self._approved_tools:
+            return False
+        if tool_name in self.SHELL_TOOLS:
+            return self.mode == ApprovalMode.ASK
         server = self.mcp_server_name(tool_name)
         if server is not None and server in self._approved_mcp_servers:
             return False
@@ -316,9 +344,36 @@ class ApprovalPolicy:
             if server is not None:
                 self._approved_mcp_servers.add(server)
 
+    @classmethod
+    def allows_session_approval(cls, tool_name: str) -> bool:
+        return True
+
+    @classmethod
+    def risk(cls, tool_name: str) -> ApprovalRisk:
+        if tool_name in cls.SHELL_TOOLS:
+            return ApprovalRisk.HIGH
+        if tool_name in cls.LOW_RISK_TOOLS:
+            return ApprovalRisk.LOW
+        return ApprovalRisk.MEDIUM
+
+    @classmethod
+    def risk_reason(cls, tool_name: str) -> str:
+        risk = cls.risk(tool_name)
+        if risk == ApprovalRisk.HIGH:
+            return "Arbitrary shell execution may affect data outside the workspace."
+        if risk == ApprovalRisk.LOW:
+            return "This change is limited to the workspace and can be reviewed."
+        return "This operation may change user, runtime, browser, or external state."
+
     def clear_session_approvals(self) -> None:
         self._approved_tools.clear()
         self._approved_mcp_servers.clear()
+
+    def set_mode(self, mode: str) -> None:
+        if mode not in {item.value for item in ApprovalMode}:
+            raise ValueError("Approval mode must be ask or auto")
+        self.mode = ApprovalMode(mode)
+        self.clear_session_approvals()
 
     def clear_mcp_server_approvals(self, server_name: str) -> None:
         """Invalidate every cached approval tied to one restarted MCP server."""
@@ -383,4 +438,5 @@ def _valid_audit_payload(payload: Any) -> bool:
         and isinstance(payload.get("decision"), str)
         and isinstance(payload.get("arguments"), dict)
         and isinstance(payload.get("detail", ""), str)
+        and isinstance(payload.get("approval_mode", ""), str)
     )

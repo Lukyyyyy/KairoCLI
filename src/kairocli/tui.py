@@ -11,7 +11,7 @@ from .agent import Agent, AgentCanceled, AgentOrchestrator, PlanExecuteAgent
 from .brand import PRODUCT_NAME
 from .browser import handle_browser_command
 from .commands import SLASH_HELP
-from .config import AppConfig, handle_config_command, handle_model_command
+from .config import AppConfig, handle_config_command, handle_model_command, save_approval_mode
 from .image import prepare_image_input
 from .json_boundary import decode_strict_json
 from .mcp import (
@@ -266,6 +266,10 @@ def run_tui(
         #approval-actions { height: auto; }
         #approval-error { height: auto; color: red; }
         #approval-arguments { margin: 1 0; }
+        #approval-risk { text-style: bold; }
+        .risk-low { color: green; }
+        .risk-medium { color: yellow; }
+        .risk-high { color: red; }
         """
 
         def __init__(self, tool_name: str, summary: str) -> None:
@@ -274,13 +278,21 @@ def run_tui(
             self.summary = summary
 
         def compose(self) -> ComposeResult:
+            risk = ApprovalPolicy.risk(self.tool_name)
             with Vertical(id="approval"):
                 yield Static(f"Allow {self.tool_name}?\n{self.summary[:12_000]}")
+                yield Static(
+                    f"Risk: {risk.value.upper()} · "
+                    f"{ApprovalPolicy.risk_reason(self.tool_name)}",
+                    id="approval-risk",
+                    classes=f"risk-{risk.value}",
+                )
                 yield Input(value=self.summary[:32_000], id="approval-arguments")
                 yield Static("", id="approval-error")
                 with Horizontal(id="approval-actions"):
                     yield Button("Allow once", id="approval-once", variant="success")
-                    yield Button("Always tool", id="approval-all")
+                    if ApprovalPolicy.allows_session_approval(self.tool_name):
+                        yield Button("Always tool", id="approval-all")
                     if ApprovalPolicy.mcp_server_name(self.tool_name):
                         yield Button("Always server", id="approval-server")
                     yield Button("Run edited", id="approval-modify", variant="warning")
@@ -451,7 +463,9 @@ def run_tui(
             log.write(Text(safe, style=style) if style else Text(safe))
 
         def on_mount(self) -> None:
-            agent.tools.approval_policy = ApprovalPolicy(True)
+            agent.tools.approval_policy = ApprovalPolicy(
+                True, app_config.approval_mode if app_config is not None else "ask"
+            )
             agent.tools.approver = self.approve_tool
             agent.on_tool_calls = self.display_tool_calls
             agent.on_tool_results = self.display_tool_results
@@ -752,15 +766,29 @@ def run_tui(
                 if policy is None:
                     log.write("HITL approvals are unavailable.")
                     return
-                if operation == "on":
-                    policy.enabled = True
-                elif operation == "off":
-                    policy.enabled = False
-                    policy.clear_session_approvals()
-                elif operation:
-                    log.write("Usage: /hitl [on|off]")
+                if operation and operation not in {"ask", "auto"}:
+                    log.write("Usage: /hitl [ask|auto]")
                     return
-                log.write(f"HITL approvals: {'on' if policy.enabled else 'off'}")
+                if not operation:
+                    log.write(f"Approval mode: {policy.mode.value}")
+                    return
+                paths = agent.memory_store.paths if agent.memory_store is not None else None
+                if app_config is None or paths is None:
+                    log.write("Global approval configuration is unavailable.")
+                    return
+                try:
+                    save_approval_mode(app_config, paths, operation)
+                except (OSError, ValueError) as exc:
+                    self.write_untrusted(
+                        log, "Approval mode was not saved: " + _safe_tui_error(exc)
+                    )
+                    return
+                policy.set_mode(operation)
+                log.write(
+                    "Approval mode: auto · allowed Shell commands run without prompts."
+                    if operation == "auto"
+                    else "Approval mode: ask · Shell commands require approval."
+                )
                 return
             if command in {"/help", "?"}:
                 log.write(SLASH_HELP)
@@ -940,7 +968,7 @@ def run_tui(
                 paths = agent.memory_store.paths if agent.memory_store is not None else None
                 log.write(
                     f"Workspace fence: {agent.tools.workspace}\n"
-                    f"HITL: {'on' if policy is not None and policy.enabled else 'off'}\n"
+                    f"Approval mode: {policy.mode.value if policy is not None else 'unavailable'}\n"
                     f"Audit: {paths.audit_dir if paths is not None else 'unavailable'}"
                 )
                 return

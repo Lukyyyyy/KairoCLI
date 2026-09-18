@@ -734,6 +734,7 @@ async def test_browser_mcp_audit_strips_url_query(tmp_path: Path) -> None:
             decision: str,
             arguments: dict[str, object],
             detail: str = "",
+            approval_mode: str = "",
         ) -> None:
             self.entries.append((tool, decision, detail))
 

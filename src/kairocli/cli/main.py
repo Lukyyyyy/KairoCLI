@@ -136,11 +136,12 @@ def run_web_server(
         workspace: Path | None = None,
     ) -> Any:
         turn_paths = KairoPaths.discover(workspace or paths.workspace, paths.home)
+        turn_config = config or app_config
         return make_agent(
             turn_paths,
-            config or app_config,
+            turn_config,
             None,
-            approval_policy=_ApprovalPolicy(enabled=True),
+            approval_policy=_ApprovalPolicy(enabled=True, mode=turn_config.approval_mode),
             approver=approver,
         )
 

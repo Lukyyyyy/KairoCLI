@@ -41,6 +41,7 @@ from kairocli.llm import LlmClient
 from kairocli.models import LlmResponse, Message
 from kairocli.paths import KairoPaths
 from kairocli.plan import ExecutionPlan, PlanTask
+from kairocli.policy import ApprovalPolicy, ApprovalResult
 from kairocli.rendering.thought_display import ThoughtDisplay
 from kairocli.sessions import SessionStore
 from kairocli.tools import ToolRegistry
@@ -91,6 +92,67 @@ async def test_index_command_reports_progress_before_completion(tmp_path: Path) 
     )
 
     assert console.messages == ["Indexing workspace...", "Indexed 1 files into 1 chunks."]
+
+
+async def test_clear_resets_session_approvals(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
+    approvals = ApprovalPolicy()
+    approvals.remember("write_file", ApprovalResult.approve_all())
+    assert not approvals.needs_approval("write_file")
+
+    await cli_module._handle_command(
+        cli_module.parse_command("/clear"),
+        paths,
+        AppConfig.load(paths),
+        agent,
+        None,
+        None,
+        None,
+        approvals,
+        None,
+        None,
+        None,
+        None,
+        RecordingConsole(),
+    )
+
+    assert approvals.needs_approval("write_file")
+
+
+async def test_hitl_command_saves_global_mode_and_clears_session_approvals(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    config = AppConfig.load(paths)
+    approvals = ApprovalPolicy()
+    approvals.remember("write_file", ApprovalResult.approve_all())
+    console = RecordingConsole()
+
+    await cli_module._handle_command(
+        cli_module.parse_command("/hitl auto"),
+        paths,
+        config,
+        Agent(SessionClient(), ToolRegistry(workspace), "system"),
+        None,
+        None,
+        None,
+        approvals,
+        None,
+        None,
+        None,
+        None,
+        console,
+    )
+
+    assert approvals.mode.value == "auto"
+    assert approvals.needs_approval("write_file")
+    assert AppConfig.load(paths).approval_mode == "auto"
+    assert console.messages == ["Approval mode: auto · allowed Shell commands run without prompts."]
 
 
 def test_index_progress_reuses_one_transient_row(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1097,6 +1159,18 @@ def test_approval_request_renders_readable_tool_arguments_and_choices() -> None:
     assert "m modify" in rendered
     assert "v always this server" not in rendered
 
+    shell_console = RecordingConsole()
+    cli_module._print_approval_request(
+        shell_console,
+        "execute_command",
+        {"command": "rm empty.txt"},
+        has_server_scope=False,
+    )
+    shell_rendered = shell_console.messages[0]
+    assert "Risk: HIGH" in shell_rendered
+    assert "outside the workspace" in shell_rendered
+    assert "always this tool" in shell_rendered
+
 
 async def test_interrupt_reuses_prompt_input_and_triggers_only_once() -> None:
     from prompt_toolkit.input.defaults import create_pipe_input
@@ -1943,8 +2017,8 @@ def test_completion_understands_open_angles_and_slash_subcommands() -> None:
         "/wechat stop",
     ]
     assert _slash_completion_candidates("/hitl ", ["/hitl"]) == [
-        "/hitl on",
-        "/hitl off",
+        "/hitl ask",
+        "/hitl auto",
     ]
     assert _slash_completion_candidates("/config ", ["/config"]) == ["/config provider"]
     assert _slash_completion_candidates("/trace reasoning ", ["/trace"]) == [

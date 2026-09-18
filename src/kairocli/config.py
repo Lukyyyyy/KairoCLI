@@ -82,6 +82,21 @@ def handle_model_command(payload: str | None, config: AppConfig, paths: KairoPat
     return "Provider saved. Restart the session to rebuild the active model client."
 
 
+def save_approval_mode(config: AppConfig, paths: KairoPaths, mode: str) -> None:
+    if mode not in {"ask", "auto"}:
+        raise ValueError("Approval mode must be ask or auto")
+    previous = config.approval_mode
+    previous_dirty = set(config._dirty_values)
+    config.approval_mode = mode
+    config._dirty_values.add("approval_mode")
+    try:
+        config.save(paths)
+    except (OSError, ValueError):
+        config.approval_mode = previous
+        config._dirty_values = previous_dirty
+        raise
+
+
 def handle_config_command(payload: str | None, config: AppConfig, paths: KairoPaths) -> str:
     parts = (payload or "").split()
     if not parts:
@@ -89,6 +104,7 @@ def handle_config_command(payload: str | None, config: AppConfig, paths: KairoPa
             f"default_provider={config.default_provider}",
             f"renderer={config.renderer}",
             f"task_workers={config.task_workers}",
+            f"approval_mode={config.approval_mode}",
         ]
         lines.extend(
             f"{name}: model={provider.model} base_url={provider.base_url} "
@@ -194,6 +210,7 @@ class AppConfig:
     default_provider: str = "glm"
     renderer: str = "inline"
     task_workers: int = 2
+    approval_mode: str = "ask"
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
     _loaded_values: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
     _persisted_values: dict[str, Any] = field(default_factory=dict, repr=False, compare=False)
@@ -313,6 +330,9 @@ class AppConfig:
         if renderer not in {"inline", "plain", "tui"}:
             raise ValueError("KAIROCLI_RENDERER must be inline, plain, or tui")
         persisted_task_workers = _integer(raw.get("task_workers", 2), "task_workers", 1, 32)
+        approval_mode = _text(raw.get("approval_mode", "ask"))
+        if approval_mode not in {"ask", "auto"}:
+            raise ValueError("Kairo CLI config approval_mode must be ask or auto")
         config = cls(
             default_provider=default_provider,
             renderer=renderer,
@@ -322,6 +342,7 @@ class AppConfig:
                 1,
                 32,
             ),
+            approval_mode=approval_mode,
             providers=providers,
         )
         if env.get("KAIROCLI_TUI", "").lower() in {"1", "true", "yes", "on"}:
@@ -338,6 +359,7 @@ class AppConfig:
                 "default_provider": persisted_default_provider,
                 "renderer": persisted_renderer,
                 "task_workers": persisted_task_workers,
+                "approval_mode": approval_mode,
             }
         )
         config._persisted_values = persisted_values
@@ -373,6 +395,7 @@ def _config_payload(config: AppConfig) -> dict[str, Any]:
         ),
         "renderer": _persisted_or_changed(config, "renderer", config.renderer),
         "task_workers": _persisted_or_changed(config, "task_workers", config.task_workers),
+        "approval_mode": _persisted_or_changed(config, "approval_mode", config.approval_mode),
         "providers": {
             name: {
                 "api_key": (
@@ -410,9 +433,10 @@ def _merge_config_payload(
     latest: dict[str, Any],
 ) -> dict[str, Any]:
     merged: dict[str, Any] = {
-        key: latest[key] for key in ("default_provider", "renderer", "task_workers")
+        key: latest[key]
+        for key in ("default_provider", "renderer", "task_workers", "approval_mode")
     }
-    for key in ("default_provider", "renderer", "task_workers"):
+    for key in ("default_provider", "renderer", "task_workers", "approval_mode"):
         if _config_value_changed(config, key, getattr(config, key)):
             merged[key] = desired[key]
     desired_providers = desired["providers"]
@@ -595,6 +619,7 @@ def _config_runtime_values(config: AppConfig) -> dict[str, Any]:
         "default_provider": config.default_provider,
         "renderer": config.renderer,
         "task_workers": config.task_workers,
+        "approval_mode": config.approval_mode,
     }
     for name, provider in config.providers.items():
         values.update(
@@ -615,6 +640,7 @@ def _config_payload_values(payload: dict[str, Any]) -> dict[str, Any]:
         "default_provider": payload["default_provider"],
         "renderer": payload["renderer"],
         "task_workers": payload["task_workers"],
+        "approval_mode": payload["approval_mode"],
     }
     raw_providers = payload["providers"]
     if isinstance(raw_providers, dict):
@@ -739,6 +765,8 @@ def _validate_config_for_save(config: AppConfig) -> None:
     if config.renderer not in {"inline", "plain", "tui"}:
         raise ValueError("KAIROCLI_RENDERER must be inline, plain, or tui")
     _integer(config.task_workers, "task_workers", 1, 32)
+    if config.approval_mode not in {"ask", "auto"}:
+        raise ValueError("Kairo CLI config approval_mode must be ask or auto")
     for name, provider in config.providers.items():
         if name not in PROVIDER_DEFAULTS:
             raise ValueError(f"Unsupported provider config: {name}")

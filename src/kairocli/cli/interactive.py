@@ -32,6 +32,7 @@ from ..config import (
     handle_config_command,
     handle_model_command,
     normalize_provider_name,
+    save_approval_mode,
 )
 from ..image import prepare_image_input
 from ..json_boundary import decode_strict_json
@@ -137,26 +138,34 @@ def _print_approval_request(
     """Render a stable approval card before temporarily taking terminal input."""
 
     summary = sanitize_terminal_text(_approval_arguments(arguments))
+    risk = ApprovalPolicy.risk(tool_name)
+    risk_reason = ApprovalPolicy.risk_reason(tool_name)
+    allow_session = ApprovalPolicy.allows_session_approval(tool_name)
+    risk_style = {"low": "green", "medium": "yellow", "high": "bold red"}[risk.value]
+    choices_data = [("y", "allow once")]
+    if allow_session:
+        choices_data.append(("a", "always this tool"))
+    if has_server_scope:
+        choices_data.append(("v", "always this server"))
+    choices_data.extend((("s", "skip"), ("m", "modify"), ("n", "reject")))
     if _has_rich(console):
         from rich.console import Group
         from rich.panel import Panel
         from rich.text import Text
 
         choices = Text()
-        for key, label in (
-            ("y", "allow once"),
-            ("a", "always this tool"),
-            *(((("v", "always this server"),)) if has_server_scope else ()),
-            ("s", "skip"),
-            ("m", "modify"),
-            ("n", "reject"),
-        ):
+        for key, label in choices_data:
             if choices:
                 choices.append("   ")
             choices.append(key, style="bold #4a7fa7")
             choices.append(f"  {label}", style="dim")
         body = Group(
             Text.assemble(("Tool  ", "dim"), (tool_name, "bold")),
+            Text.assemble(
+                ("Risk  ", "dim"),
+                (risk.value.upper(), risk_style),
+                (f" · {risk_reason}", "dim"),
+            ),
             Text("Arguments", style="dim"),
             Text(summary, style="#888888"),
             Text(""),
@@ -173,12 +182,10 @@ def _print_approval_request(
             )
         )
         return
-    choice_text = "y allow once · a always this tool"
-    if has_server_scope:
-        choice_text += " · v always this server"
-    choice_text += " · s skip · m modify · n reject"
+    choice_text = " · ".join(f"{key} {label}" for key, label in choices_data)
     console.print(
-        f"Permission required\n  Tool: {tool_name}\n  Arguments:\n{summary}\n  {choice_text}"
+        f"Permission required\n  Tool: {tool_name}\n  Risk: {risk.value.upper()} · "
+        f"{risk_reason}\n  Arguments:\n{summary}\n  {choice_text}"
     )
 
 
@@ -930,7 +937,7 @@ async def interactive(
     if restored_session is not None and provider is None:
         if restored_session.meta.provider in config.providers:
             selected_provider = restored_session.meta.provider
-    approvals = ApprovalPolicy(True)
+    approvals = ApprovalPolicy(True, config.approval_mode)
 
     async def approve(tool_name: str, arguments: dict[str, Any]) -> ApprovalResult:
         has_server_scope = ApprovalPolicy.mcp_server_name(tool_name) is not None
@@ -951,7 +958,11 @@ async def interactive(
             if answer in {"y", "yes"}:
                 return ApprovalResult.approve()
             if answer in {"a", "all"}:
-                return ApprovalResult.approve_all()
+                return (
+                    ApprovalResult.approve_all()
+                    if approvals.allows_session_approval(tool_name)
+                    else ApprovalResult.approve()
+                )
             if answer in {"v", "server"} and has_server_scope:
                 return ApprovalResult.approve_all_by_server()
             if answer in {"s", "skip"}:
@@ -1534,7 +1545,8 @@ async def _handle_command(
         console.print("Cancellation requested.")
     elif command.type == CommandType.CLEAR:
         agent.clear()
-        console.print("Conversation cleared; long-term memory retained.")
+        approvals.clear_session_approvals()
+        console.print("Conversation and session approvals cleared; long-term memory retained.")
     elif command.type == CommandType.COMPACT:
         compacted = await agent.compact()
         console.print("Conversation compacted." if compacted else "Nothing to compact.")
@@ -1560,10 +1572,23 @@ async def _handle_command(
     elif command.type == CommandType.TEAM:
         return "team"
     elif command.type == CommandType.HITL:
-        if payload in {"on", "off"}:
-            approvals.enabled = payload == "on"
-            approvals.clear_session_approvals()
-        console.print(f"HITL approvals: {'on' if approvals.enabled else 'off'}")
+        mode = payload.casefold()
+        if mode and mode not in {"ask", "auto"}:
+            console.print("Usage: /hitl [ask|auto]")
+        elif mode:
+            try:
+                save_approval_mode(config, paths, mode)
+            except (OSError, ValueError) as exc:
+                console.print("Approval mode was not saved: " + _safe_cli_error(exc))
+            else:
+                approvals.set_mode(mode)
+                console.print(
+                    "Approval mode: auto · allowed Shell commands run without prompts."
+                    if mode == "auto"
+                    else "Approval mode: ask · Shell commands require approval."
+                )
+        else:
+            console.print(f"Approval mode: {approvals.mode.value}")
     elif command.type == CommandType.MEMORY:
         console.print(await handle_memory_command(payload, memory))
     elif command.type == CommandType.SAVE:
@@ -1613,9 +1638,9 @@ async def _handle_command(
     elif command.type == CommandType.CONTEXT:
         console.print(agent.context_status())
     elif command.type == CommandType.POLICY:
-        hitl_state = "on" if approvals.enabled else "off"
         console.print(
-            f"Workspace fence: {paths.workspace}\nHITL: {hitl_state}\nAudit: {paths.audit_dir}"
+            f"Workspace fence: {paths.workspace}\nApproval mode: {approvals.mode.value}\n"
+            f"Audit: {paths.audit_dir}"
         )
     elif command.type == CommandType.SNAPSHOT:
         if agent.tools.snapshot_service is None:
