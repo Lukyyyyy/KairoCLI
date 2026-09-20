@@ -20,6 +20,7 @@ from .text_safety import safe_text
 
 MAX_SKILL_FILE_BYTES = 2 * 1024 * 1024
 MAX_SKILL_BODY_CHARS = 5 * 1024
+MAX_SKILL_PAGE_CHARS = 20 * 1024
 MAX_REFERENCE_CHARS = 100_000
 MAX_INDEX_CHARS = 4_096
 MAX_INDEX_SKILLS = 20
@@ -69,8 +70,23 @@ class Skill:
             f"use /skill show {self.name} for the full body)"
         )
 
-    def load_for_agent(self) -> str:
-        return self.load(MAX_SKILL_BODY_CHARS)
+    def page(
+        self,
+        offset: int = 0,
+        max_chars: int = MAX_SKILL_BODY_CHARS,
+    ) -> dict[str, object]:
+        total = len(self.body)
+        if offset < 0 or offset > total:
+            raise ValueError("Skill offset is outside the body")
+        page_size = min(max(max_chars, 1_000), MAX_SKILL_PAGE_CHARS)
+        end = min(offset + page_size, total)
+        return {
+            "content": self.body[offset:end],
+            "offset": offset,
+            "next_offset": end if end < total else None,
+            "total_chars": total,
+            "partial": end < total,
+        }
 
     def references(self) -> list[str]:
         if self.references_dir is None:

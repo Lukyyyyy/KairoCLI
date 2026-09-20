@@ -13,6 +13,7 @@ from kairocli.config import AppConfig
 from kairocli.paths import KairoPaths
 from kairocli.skills import (
     MAX_SKILL_BODY_CHARS,
+    MAX_SKILL_PAGE_CHARS,
     SkillRegistry,
     SkillSource,
     handle_skill_command,
@@ -185,7 +186,9 @@ def test_skill_body_and_references_are_bounded_and_path_safe(tmp_path: Path) -> 
     registry = SkillRegistry(paths)
     registry.reload()
     skill = registry.skills["large"]
-    assert "skill body truncated" in skill.load_for_agent()
+    first = skill.page()
+    assert first["partial"] is True
+    assert first["next_offset"] == MAX_SKILL_BODY_CHARS
     assert skill.references() == ["binary.dat", "guide.md"]
     assert skill.load_reference("guide.md") == "reference"
     with pytest.raises(PermissionError, match="escapes"):
@@ -387,22 +390,54 @@ def test_skill_state_lock_preserves_cross_process_updates(tmp_path: Path) -> Non
     assert not registry.skills["beta"].enabled
 
 
-async def test_agent_skill_tools_use_bounded_body_and_reference_loader(tmp_path: Path) -> None:
+async def test_agent_skill_tools_page_body_without_loss_and_load_references(
+    tmp_path: Path,
+) -> None:
     paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
-    skill_file = _write_skill(
-        paths.project_dir / "skills", "demo", body="z" * (MAX_SKILL_BODY_CHARS + 10)
-    )
+    body = ("中文🙂```python\nprint('ok')\n```\n" * 400)[: MAX_SKILL_BODY_CHARS + 137]
+    body += "final instruction"
+    skill_file = _write_skill(paths.project_dir / "skills", "demo", body=body)
     references = skill_file.parent / "references"
     references.mkdir()
     (references / "details.md").write_text("details", encoding="utf-8")
     registry = SkillRegistry(paths)
     registry.reload()
     agent = make_agent(paths, AppConfig.load(paths), skill_registry=registry)
-    loaded = await agent.tools.execute("load_skill", {"name": "demo"})
-    assert loaded.startswith("## Loaded Skill: demo")
-    assert "skill body truncated" in loaded
-    assert "details.md" in loaded
+    assert "follow next_offset" in agent.base_system_prompt
+    first = json.loads(await agent.tools.execute("load_skill", {"name": "demo"}))
+    second = json.loads(
+        await agent.tools.execute(
+            "load_skill",
+            {"name": "demo", "offset": first["next_offset"]},
+        )
+    )
+    assert first["partial"] is True
+    assert first["references"] == ["details.md"]
+    assert second["partial"] is False
+    assert second["next_offset"] is None
+    assert first["content"] + second["content"] == body
     assert (
         await agent.tools.execute("load_skill_reference", {"name": "demo", "path": "details.md"})
         == "details"
     )
+
+
+async def test_agent_skill_tool_rejects_offset_outside_body(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    _write_skill(paths.project_dir / "skills", "demo", body="short")
+    registry = SkillRegistry(paths)
+    registry.reload()
+    agent = make_agent(paths, AppConfig.load(paths), skill_registry=registry)
+
+    result = json.loads(await agent.tools.execute("load_skill", {"name": "demo", "offset": 6}))
+
+    assert result["type"] == "ValueError"
+    assert "outside the body" in result["error"]
+
+    invalid_size = json.loads(
+        await agent.tools.execute(
+            "load_skill",
+            {"name": "demo", "max_chars": MAX_SKILL_PAGE_CHARS + 1},
+        )
+    )
+    assert invalid_size["invalid_arguments"] is True

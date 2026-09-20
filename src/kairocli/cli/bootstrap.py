@@ -28,7 +28,12 @@ from ..pricing import PricingConfig
 from ..prompts import PromptAssembler
 from ..rag import HashEmbeddingClient, embedding_client_from_environment
 from ..skill_installer import SkillInstallRequest, install_skill
-from ..skills import SkillRegistry, refresh_agent_skill_index
+from ..skills import (
+    MAX_SKILL_BODY_CHARS,
+    MAX_SKILL_PAGE_CHARS,
+    SkillRegistry,
+    refresh_agent_skill_index,
+)
 from ..snapshot import SnapshotService
 from ..todos import SessionTodoController
 from ..tools import ToolDefinition, ToolRegistry
@@ -159,27 +164,40 @@ def make_agent(
         )
     )
 
-    async def load_skill(arguments: dict[str, Any]) -> str:
+    async def load_skill(arguments: dict[str, Any]) -> dict[str, object]:
         name = str(arguments.get("name", "")).strip()
         skill = skills.skills.get(name)
         if skill is None or not skill.enabled:
             raise ValueError(f"Skill is unavailable: {name}")
-        references = skill.references()
-        reference_note = (
-            "\n\nAvailable references (load only if needed):\n- " + "\n- ".join(references)
-            if references
-            else ""
-        )
-        return f"## Loaded Skill: {name}\n\n{skill.load_for_agent()}{reference_note}"
+        return {
+            "name": name,
+            "source": skill.source,
+            **skill.page(
+                offset=int(arguments.get("offset", 0)),
+                max_chars=int(arguments.get("max_chars", MAX_SKILL_BODY_CHARS)),
+            ),
+            "references": skill.references(),
+        }
 
     tools.register(
         ToolDefinition(
             "load_skill",
-            "Load the full instructions for an available Kairo CLI skill.",
+            "Load one page of an available Kairo CLI Skill's instructions. When partial is "
+            "true, continue with next_offset before acting on instructions that may depend on "
+            "the omitted content.",
             {
                 "type": "object",
-                "properties": {"name": {"type": "string"}},
+                "properties": {
+                    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+                    "offset": {"type": "integer", "minimum": 0},
+                    "max_chars": {
+                        "type": "integer",
+                        "minimum": 1_000,
+                        "maximum": MAX_SKILL_PAGE_CHARS,
+                    },
+                },
                 "required": ["name"],
+                "additionalProperties": False,
             },
             load_skill,
         )
