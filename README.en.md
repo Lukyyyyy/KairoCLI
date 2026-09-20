@@ -160,6 +160,9 @@ Common commands:
 /exit                      Exit Kairo CLI
 ```
 
+`/mcp` and `/mcp list` show aligned server, colored status, transport, tool-count, and uptime
+columns; stdio servers also show the local process PID.
+
 Use `@relative/path` or `@<path with spaces>` to add local content to the context:
 
 ```text

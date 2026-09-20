@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
 
+from rich.text import Text
+
+from ..rendering.terminal import sanitize_terminal_text
 from .constants import (
     _MCP_SERVER_NAME,
 )
@@ -19,6 +23,51 @@ from .safety import (
 log = logging.getLogger(__name__)
 
 _MCP_RESOURCE_INDEX = re.compile(r"\n*<mcp_resource_index>.*?</mcp_resource_index>", re.DOTALL)
+
+
+def _format_uptime(started_at: float) -> str:
+    seconds = max(0, int(time.monotonic() - started_at))
+    if seconds >= 86_400:
+        return f"{seconds // 86_400}d"
+    if seconds >= 3_600:
+        return f"{seconds // 3_600}h"
+    if seconds >= 60:
+        return f"{seconds // 60}m"
+    return f"{seconds}s"
+
+
+def _format_mcp_servers(manager: McpServerManager, statuses: dict[str, str]) -> Text:
+    names = sorted(manager.configs)
+    name_width = max(map(len, names))
+    tool_width = max(
+        len(str(len(getattr(manager.clients.get(name), "tools", ())))) for name in names
+    )
+    output = Text("🔌 MCP Servers", style="bold")
+    for name in names:
+        client = manager.clients.get(name)
+        status = statuses[name]
+        state, style = (
+            ("ready", "green")
+            if client is not None
+            else ("disabled", "yellow")
+            if not manager.configs[name].enabled
+            else ("error", "red")
+        )
+        transport = "http" if manager.configs[name].url else "stdio"
+        tools = len(getattr(client, "tools", ()))
+        output.append(f"\n  {name:<{name_width}}  ")
+        output.append(f"● {state:<8}", style=style)
+        output.append(f"  {transport:<5}  {tools:>{tool_width}} tools")
+        started_at = getattr(client, "started_at", None)
+        if isinstance(started_at, (int, float)):
+            output.append(f"  uptime {_format_uptime(started_at)}")
+        pid = getattr(getattr(client, "process", None), "pid", None)
+        if isinstance(pid, int):
+            output.append(f"  pid {pid}")
+        if state == "error":
+            detail = sanitize_terminal_text(status.removeprefix("ERROR: ")).replace("\n", " ")
+            output.append("  " + detail, style="dim red")
+    return output
 
 
 def refresh_agent_resource_index(agent: Any, manager: McpServerManager) -> None:
@@ -41,14 +90,14 @@ async def handle_mcp_command(
     manager: McpServerManager,
     agent: Any | None = None,
     approval_policy: Any | None = None,
-) -> str:
+) -> str | Text:
     operation, _, raw_name = payload.strip().partition(" ")
     name = raw_name.strip()
     if not operation or operation == "list":
         statuses = manager.status()
         if not statuses:
             return "No MCP servers configured."
-        return "\n".join(f"{server}: {statuses[server]}" for server in sorted(statuses))
+        return _format_mcp_servers(manager, statuses)
     if operation not in {"restart", "logs", "disable", "enable", "resources", "prompts"}:
         return "Usage: /mcp [list|restart|logs|disable|enable|resources|prompts] <name>"
     if not name:

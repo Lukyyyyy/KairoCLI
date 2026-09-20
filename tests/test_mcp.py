@@ -5,6 +5,7 @@ import json
 import shlex
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,6 +56,8 @@ for line in sys.stdin:
     )
     client = McpClient("demo", McpServerConfig(command=sys.executable, args=[str(server)]))
     await client.start()
+    assert client.started_at is not None
+    assert client.process is not None and client.process.pid
     registry = ToolRegistry(tmp_path)
     client.register_tools(registry)
     result = await registry.execute("mcp__demo__echo", {"text": "hello"})
@@ -68,6 +71,7 @@ for line in sys.stdin:
     assert '<resource server="demo" uri="demo://one"' in expanded
     assert "resource" in expanded
     await client.close()
+    assert client.started_at is None
 
 
 async def test_resource_mentions_are_escaped_deduplicated_and_globally_bounded(
@@ -843,12 +847,40 @@ async def test_shared_mcp_commands_and_resource_index_refresh(tmp_path: Path) ->
     assert "demo://one" in agent.system_prompt
     assert await handle_mcp_command("logs demo", manager) == "ready"
     assert '"review"' in await handle_mcp_command("prompts demo", manager)
-    assert await handle_mcp_command("list", manager) == "demo: RUNNING"
+    listing = await handle_mcp_command("list", manager)
+    assert listing.plain == "🔌 MCP Servers\n  demo  ● ready     stdio  0 tools"
+    assert any(span.style == "green" for span in listing.spans)
     assert await handle_mcp_command("restart", manager) == "Usage: /mcp restart <name>"
 
     manager.clients.clear()
     refresh_agent_resource_index(agent, manager)
     assert "<mcp_resource_index>" not in agent.system_prompt
+
+
+async def test_mcp_list_aligns_and_colors_statuses(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    manager = McpServerManager(paths, ToolRegistry(paths.workspace))
+    manager.configs = {
+        "ready": McpServerConfig(command="unused"),
+        "off": McpServerConfig(command="unused", enabled=False),
+        "broken": McpServerConfig(url="https://example.test/mcp"),
+    }
+    manager.clients["ready"] = SimpleNamespace(
+        tools=[{}, {}],
+        started_at=time.monotonic() - 7_200,
+        process=SimpleNamespace(pid=22080),
+    )  # type: ignore[assignment]
+    manager.errors["broken"] = "connection\x1b[31m\nfailed"
+
+    listing = await handle_mcp_command("", manager)
+
+    assert listing.plain.splitlines() == [
+        "🔌 MCP Servers",
+        "  broken  ● error     http   0 tools  connection failed",
+        "  off     ● disabled  stdio  0 tools",
+        "  ready   ● ready     stdio  2 tools  uptime 2h  pid 22080",
+    ]
+    assert {str(span.style) for span in listing.spans} >= {"red", "yellow", "green"}
 
 
 def test_mcp_config_rejects_unsafe_container_files(tmp_path: Path) -> None:

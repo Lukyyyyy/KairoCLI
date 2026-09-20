@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import subprocess
+import time
 from collections import deque
 from collections.abc import AsyncIterator
 from functools import partial
@@ -64,6 +65,7 @@ class McpClient:
         self.name = name
         self.config = config
         self.process: asyncio.subprocess.Process | None = None
+        self.started_at: float | None = None
         self.http_client: Any = None
         self.session_id: str | None = None
         self._next_id = 1
@@ -90,6 +92,7 @@ class McpClient:
         self._stderr_task: asyncio.Task[None] | None = None
 
     async def start(self, initialize_timeout: float = 15) -> None:
+        self.started_at = None
         if self.config.command:
             env = os.environ | self.config.env
             process_options: dict[str, Any] = {}
@@ -147,6 +150,7 @@ class McpClient:
                 self.resources = await self._list_paginated("resources/list", "resources")
             if "prompts" in self.capabilities:
                 self.prompts = await self._list_paginated("prompts/list", "prompts")
+            self.started_at = time.monotonic()
         except BaseException:
             await self.close()
             raise
@@ -201,6 +205,7 @@ class McpClient:
         self.http_client = None
         self.session_id = None
         self.process = None
+        self.started_at = None
         self._reader_task = None
         self._stderr_task = None
         self._notification_tasks.clear()

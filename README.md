@@ -150,6 +150,9 @@ kairocli
 /exit                      退出 Kairo CLI
 ```
 
+`/mcp` 与 `/mcp list` 会按列对齐显示服务、彩色状态、传输方式、工具数量和运行时间；
+stdio 服务还会显示本地进程 PID。
+
 使用 `@relative/path` 或 `@<path with spaces>` 将本地内容加入上下文：
 
 ```text
