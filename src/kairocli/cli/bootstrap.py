@@ -333,6 +333,7 @@ def make_agent(
         image_cache_dir=paths.user_dir / "cache" / "clipboard",
         trace_logger=LlmTraceLogger.from_environment(paths),
         pricing=PricingConfig.load(paths),
+        skill_registry=skills,
     )
     return agent_ref
 

@@ -22,6 +22,7 @@ MAX_SKILL_FILE_BYTES = 2 * 1024 * 1024
 MAX_SKILL_BODY_CHARS = 5 * 1024
 MAX_SKILL_PAGE_CHARS = 20 * 1024
 MAX_REFERENCE_CHARS = 100_000
+MAX_EXPLICIT_SKILL_CHARS = 100_000
 MAX_INDEX_CHARS = 4_096
 MAX_INDEX_SKILLS = 20
 MAX_DESCRIPTION_CHARS = 500
@@ -33,6 +34,7 @@ MAX_SKILL_REFERENCE_SCAN_DEPTH = 16
 MAX_SKILL_STATE_JSON_DEPTH = 16
 MAX_SKILL_STATE_JSON_NODES = 10_000
 _VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_EXPLICIT_SKILL = re.compile(r"^\s*\$([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?=\s|$)")
 _SKILL_STATE_THREAD_LOCK = threading.RLock()
 
 
@@ -269,6 +271,37 @@ class SkillRegistry:
         if len(rendered) <= max_chars:
             return rendered
         return rendered[:max_chars] + "\n...(skill index truncated)"
+
+    def explicit_context(self, prompt: str) -> str | None:
+        match = _EXPLICIT_SKILL.match(prompt)
+        if match is None:
+            return None
+        name = match.group(1)
+        skill = self.skills.get(name)
+        if skill is None:
+            raise ValueError(f"Unknown Skill: {name}")
+        if not skill.enabled:
+            raise ValueError(f"Skill is disabled: {name}")
+        if len(skill.body) > MAX_EXPLICIT_SKILL_CHARS:
+            raise ValueError(
+                f"Skill {name} exceeds the explicit invocation limit "
+                f"({MAX_EXPLICIT_SKILL_CHARS} characters)"
+            )
+        references = skill.references()
+        reference_note = (
+            "\nAvailable references (load only when needed with load_skill_reference):\n- "
+            + "\n- ".join(references)
+            if references
+            else ""
+        )
+        return (
+            f"<explicit_skill name=\"{html.escape(name)}\">\n"
+            "The user explicitly selected this Skill for the current request. Follow its "
+            "instructions subject to the system prompt and the user's request. Do not call "
+            "load_skill for it; the complete SKILL.md body is included below.\n\n"
+            f"{skill.body}{reference_note}\n"
+            "</explicit_skill>"
+        )
 
     def _disabled(self) -> set[str]:
         try:

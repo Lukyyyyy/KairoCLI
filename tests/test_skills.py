@@ -170,6 +170,28 @@ def test_kairo_skill_locations_override_standard_locations(tmp_path: Path) -> No
     assert registry.skills["shared"].body == "kairo project"
 
 
+def test_explicit_skill_context_requires_leading_enabled_skill(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    skill_file = _write_skill(paths.project_dir / "skills", "demo", body="Follow demo rules.")
+    references = skill_file.parent / "references"
+    references.mkdir()
+    (references / "details.md").write_text("details", encoding="utf-8")
+    registry = SkillRegistry(paths)
+    registry.reload()
+
+    context = registry.explicit_context("$demo do the work")
+
+    assert context is not None
+    assert "Follow demo rules." in context
+    assert "details.md" in context
+    assert registry.explicit_context("mention $demo without invoking it") is None
+    with pytest.raises(ValueError, match="Unknown Skill: missing"):
+        registry.explicit_context("$missing do the work")
+    registry.set_enabled("demo", False)
+    with pytest.raises(ValueError, match="Skill is disabled: demo"):
+        registry.explicit_context("$demo do the work")
+
+
 def test_skill_reload_isolates_one_root_scan_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

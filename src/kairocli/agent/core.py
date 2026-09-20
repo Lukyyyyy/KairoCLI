@@ -21,6 +21,7 @@ from ..llm import LlmClient, LlmError
 from ..memory import MemoryStore, browser_login_fact
 from ..models import LlmResponse, Message, ToolCall, ToolOutput
 from ..pricing import PricingConfig
+from ..skills import SkillRegistry
 from ..tools import SERIALIZED_WORKSPACE_MUTATION_TOOLS, ToolRegistry
 from ..trace import LlmTraceLogger
 from ..user_input import normalize_user_input
@@ -104,6 +105,7 @@ class Agent:
         trace_scope: str = "agent",
         shared_token_budget: _SharedTokenBudget | None = None,
         pricing: PricingConfig | None = None,
+        skill_registry: SkillRegistry | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -121,6 +123,7 @@ class Agent:
         self.trace_logger = trace_logger
         self.trace_scope = trace_scope
         self.pricing = pricing or PricingConfig.default()
+        self.skill_registry = skill_registry
         self.compactor = ConversationCompactor(llm, complete_handler=self.complete_auxiliary)
         self.history: list[Message] = []
         self.cancel_event = cancel_event or asyncio.Event()
@@ -151,6 +154,7 @@ class Agent:
         image_urls: list[str] | None = None,
         *,
         reset_cancellation: bool = True,
+        explicit_skill_context: str | None = None,
     ) -> str:
         if self._run_lock.locked():
             raise RuntimeError("Agent already has an active run")
@@ -159,6 +163,7 @@ class Agent:
                 prompt,
                 image_urls,
                 reset_cancellation=reset_cancellation,
+                explicit_skill_context=explicit_skill_context,
             )
 
     async def _run_once(
@@ -167,6 +172,7 @@ class Agent:
         image_urls: list[str] | None = None,
         *,
         reset_cancellation: bool = True,
+        explicit_skill_context: str | None = None,
     ) -> str:
         prompt = normalize_user_input(prompt, max_bytes=None)
         if not prompt.strip():
@@ -186,6 +192,8 @@ class Agent:
             prompt = prepared.text
             image_urls = list(prepared.image_urls)
         prompt = normalize_user_input(prompt)
+        if explicit_skill_context is None:
+            explicit_skill_context = self.resolve_explicit_skill(prompt)
         await self._refresh_memory_context(prompt)
         user_content: Any = prompt
         if image_urls:
@@ -196,7 +204,8 @@ class Agent:
                     for image_url in image_urls
                 ],
             ]
-        self.history.append(Message("user", user_content))
+        run_user_message = Message("user", user_content)
+        self.history.append(run_user_message)
         session_id: str | None = None
         session_start = time.monotonic()
         if self.trace_logger is not None:
@@ -215,7 +224,16 @@ class Agent:
             for _ in range(self.budget.max_iterations):
                 raise_if_canceled(self.cancel_event)
                 await self._compact_if_needed()
-                messages = [Message("system", self.system_prompt), *self.history]
+                history = [
+                    Message(
+                        "user",
+                        self.apply_explicit_skill_context(item.content, explicit_skill_context),
+                    )
+                    if item is run_user_message and explicit_skill_context is not None
+                    else item
+                    for item in self.history
+                ]
+                messages = [Message("system", self.system_prompt), *history]
                 tool_schemas = self.tools.schemas()
                 turn += 1
                 if self.trace_logger is not None:
@@ -411,6 +429,26 @@ class Agent:
         child.on_reasoning_delta = self.on_reasoning_delta
         child.on_before_llm_request = self.on_before_llm_request
         child.on_usage = self.on_usage
+
+    def resolve_explicit_skill(self, prompt: str) -> str | None:
+        if self.skill_registry is None:
+            return None
+        return self.skill_registry.explicit_context(prompt)
+
+    @staticmethod
+    def apply_explicit_skill_context(content: Any, context: str | None) -> Any:
+        if context is None:
+            return content
+        if isinstance(content, str):
+            return f"{context}\n\n<user_request>\n{content}\n</user_request>"
+        enriched = copy.deepcopy(content)
+        for part in enriched:
+            if isinstance(part, dict) and part.get("type") == "text":
+                part["text"] = (
+                    f"{context}\n\n<user_request>\n{part.get('text', '')}\n</user_request>"
+                )
+                break
+        return enriched
 
     async def complete_auxiliary(
         self,

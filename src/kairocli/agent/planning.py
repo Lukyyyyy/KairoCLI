@@ -52,8 +52,13 @@ class PlanExecuteAgent:
     async def run(self, task: str, image_urls: list[str] | None = None) -> str:
         self.agent.cancel_event.clear()
         self.agent.reset_run_budget()
-        plan = await self.create_plan(task, cancel_event=self.agent.cancel_event)
-        reviewed = await self._review_plan(task, plan)
+        skill_context = self.agent.resolve_explicit_skill(task)
+        plan = await self.create_plan(
+            task,
+            cancel_event=self.agent.cancel_event,
+            explicit_skill_context=skill_context,
+        )
+        reviewed = await self._review_plan(task, plan, skill_context)
         if reviewed is None:
             return "Plan canceled."
         plan = reviewed
@@ -100,11 +105,17 @@ class PlanExecuteAgent:
                     "plan-worker",
                     self.agent._shared_token_budget,
                     pricing=self.agent.pricing,
+                    skill_registry=self.agent.skill_registry,
                 )
                 self.agent.attach_tool_observers(worker)
                 async with batch_semaphore:
                     try:
-                        result = await worker.run(prompt, image_urls, reset_cancellation=False)
+                        result = await worker.run(
+                            prompt,
+                            image_urls,
+                            reset_cancellation=False,
+                            explicit_skill_context=skill_context,
+                        )
                         return plan_task, result, None
                     except AgentCanceled:
                         raise
@@ -144,8 +155,13 @@ class PlanExecuteAgent:
                         or "(none)"
                     )
                 )
-                replanned = await self.create_plan(task, feedback, self.agent.cancel_event)
-                reviewed = await self._review_plan(task, replanned)
+                replanned = await self.create_plan(
+                    task,
+                    feedback,
+                    self.agent.cancel_event,
+                    explicit_skill_context=skill_context,
+                )
+                reviewed = await self._review_plan(task, replanned, skill_context)
                 if reviewed is None:
                     return "Plan canceled."
                 plan = reviewed
@@ -166,9 +182,18 @@ class PlanExecuteAgent:
         synthesis += (
             "\n\nReview the work, resolve any remaining issue if possible, and answer the user."
         )
-        return await self.agent.run(synthesis, reset_cancellation=False)
+        return await self.agent.run(
+            synthesis,
+            reset_cancellation=False,
+            explicit_skill_context=skill_context,
+        )
 
-    async def _review_plan(self, task: str, plan: ExecutionPlan) -> ExecutionPlan | None:
+    async def _review_plan(
+        self,
+        task: str,
+        plan: ExecutionPlan,
+        explicit_skill_context: str | None = None,
+    ) -> ExecutionPlan | None:
         while self.review_handler is not None:
             review = self.review_handler(plan)
             if asyncio.iscoroutine(review):
@@ -177,7 +202,12 @@ class PlanExecuteAgent:
                 return None
             if not isinstance(review, str) or not review.strip():
                 break
-            plan = await self.create_plan(task, review.strip(), self.agent.cancel_event)
+            plan = await self.create_plan(
+                task,
+                review.strip(),
+                self.agent.cancel_event,
+                explicit_skill_context=explicit_skill_context,
+            )
         if self.on_plan_created is not None:
             self.on_plan_created(plan)
         return plan
@@ -187,6 +217,7 @@ class PlanExecuteAgent:
         task: str,
         feedback: str = "",
         cancel_event: asyncio.Event | None = None,
+        explicit_skill_context: str | None = None,
     ) -> ExecutionPlan:
         system = Message(
             "system",
@@ -206,7 +237,15 @@ class PlanExecuteAgent:
             + _truncate_orchestration_text(feedback, MAX_ORCHESTRATION_REVIEW_BYTES)
         )
         response = await self.agent.complete_auxiliary(
-            [system, Message("user", prompt)], "planner", cancel_event
+            [
+                system,
+                Message(
+                    "user",
+                    self.agent.apply_explicit_skill_context(prompt, explicit_skill_context),
+                ),
+            ],
+            "planner",
+            cancel_event,
         )
         try:
             payload = _extract_json(response.content)

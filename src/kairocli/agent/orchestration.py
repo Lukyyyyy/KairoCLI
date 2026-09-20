@@ -49,11 +49,13 @@ class AgentOrchestrator:
     async def run(self, task: str, image_urls: list[str] | None = None) -> str:
         self.agent.cancel_event.clear()
         self.agent.reset_run_budget()
+        skill_context = self.agent.resolve_explicit_skill(task)
         planner = PlanExecuteAgent(self.agent)
         plan = await planner.create_plan(
             "Divide this goal into independently executable specialist assignments where possible: "
             + task,
             cancel_event=self.agent.cancel_event,
+            explicit_skill_context=skill_context,
         )
         if self.on_plan_created is not None:
             self.on_plan_created(plan)
@@ -85,6 +87,7 @@ class AgentOrchestrator:
                             "team-worker",
                             self.agent._shared_token_budget,
                             pricing=self.agent.pricing,
+                            skill_registry=self.agent.skill_registry,
                         )
                         self.agent.attach_tool_observers(role_agent)
                         prompt = (
@@ -107,13 +110,18 @@ class AgentOrchestrator:
                                 prompt,
                                 image_urls,
                                 reset_cancellation=False,
+                                explicit_skill_context=skill_context,
                             )
                         finally:
                             self.agent.absorb_usage(role_agent)
                         if not accepted_result.strip():
                             raise RuntimeError("Worker returned an empty result")
                         try:
-                            review = await self._review_step(assignment, accepted_result)
+                            review = await self._review_step(
+                                assignment,
+                                accepted_result,
+                                skill_context,
+                            )
                         except AgentCanceled:
                             raise
                         except Exception:
@@ -170,9 +178,22 @@ class AgentOrchestrator:
             "if needed, "
             "and return one final answer."
         )
-        return await self.agent.run(review_prompt, reset_cancellation=False)
+        return await self.agent.run(
+            review_prompt,
+            reset_cancellation=False,
+            explicit_skill_context=skill_context,
+        )
 
-    async def _review_step(self, assignment: PlanTask, result: str) -> str:
+    async def _review_step(
+        self,
+        assignment: PlanTask,
+        result: str,
+        explicit_skill_context: str | None = None,
+    ) -> str:
+        prompt = (
+            f"Step: {assignment.description}\n\nWorker result:\n"
+            + _truncate_orchestration_text(result, MAX_ORCHESTRATION_REVIEW_BYTES)
+        )
         response = await self.agent.complete_auxiliary(
             [
                 Message(
@@ -182,8 +203,7 @@ class AgentOrchestrator:
                 ),
                 Message(
                     "user",
-                    f"Step: {assignment.description}\n\nWorker result:\n"
-                    + _truncate_orchestration_text(result, MAX_ORCHESTRATION_REVIEW_BYTES),
+                    self.agent.apply_explicit_skill_context(prompt, explicit_skill_context),
                 ),
             ],
             "team-reviewer",

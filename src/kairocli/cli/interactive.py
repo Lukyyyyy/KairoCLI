@@ -74,6 +74,7 @@ from .completion import (
     _completion_word,
     _highlight_input_line,
     _local_path_completion_candidates,
+    _skill_completion_candidates,
     _slash_completion_candidates,
 )
 from .history import (
@@ -2286,6 +2287,14 @@ def _prompt_session(
             )
             return list(dict.fromkeys(candidates))
 
+        def skill_candidates(text: str) -> list[str]:
+            if skill_registry is None:
+                return []
+            enabled = tuple(
+                name for name, skill in skill_registry.skills.items() if skill.enabled
+            )
+            return _skill_completion_candidates(text, enabled)
+
         class KairoCompleter(Completer):
             def get_completions(self, document: Any, complete_event: Any) -> Any:
                 return iter(())
@@ -2340,6 +2349,9 @@ def _prompt_session(
             if text.startswith("/"):
                 kind = "slash"
                 candidates = slash_candidates(text)
+            elif text.lstrip().startswith("$"):
+                kind = "skill"
+                candidates = skill_candidates(text)
             else:
                 kind = "mention"
                 candidates = mention_candidates(text)
@@ -2638,7 +2650,7 @@ def _prompt_session(
             kind, _, candidates, selected = completion_menu_state()
             start = max(0, min(selected - 7, len(candidates) - 8))
             visible = candidates[start : start + 8]
-            command_width = max(16, *(len(value) + 2 for value in visible))
+            command_width = max(16, *(len(value.rstrip()) + 2 for value in visible))
             fragments: list[tuple[str, str]] = []
             for offset, value in enumerate(visible):
                 is_current = start + offset == selected
@@ -2659,6 +2671,16 @@ def _prompt_session(
                         "class:slash-menu.current" if is_current else "class:slash-menu.description"
                     )
                     fragments.append((command_style, f"  {value:<{command_width}}"))
+                    fragments.append((description_style, description))
+                elif kind == "skill":
+                    label = value.rstrip()
+                    name = label[1:]
+                    skill = skill_registry.skills.get(name) if skill_registry is not None else None
+                    description = skill.description if skill is not None else ""
+                    description_style = (
+                        "class:slash-menu.current" if is_current else "class:slash-menu.description"
+                    )
+                    fragments.append((command_style, f"  {label:<{command_width}}"))
                     fragments.append((description_style, description))
                 else:
                     fragments.append((command_style, f"  {value}"))

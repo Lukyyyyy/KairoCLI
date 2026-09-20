@@ -13,6 +13,9 @@ from .completion import (
     _local_path_completion_candidates as _local_path_completion_candidates,
 )
 from .completion import (
+    _skill_completion_candidates as _skill_completion_candidates,
+)
+from .completion import (
     _slash_completion_candidates as _slash_completion_candidates,
 )
 from .history import (

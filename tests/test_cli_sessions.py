@@ -29,6 +29,7 @@ from kairocli.cli import (
     _read_input,
     _resume_session_hint,
     _session_startup_notice,
+    _skill_completion_candidates,
     _slash_completion_candidates,
     _StreamingAnswerDisplay,
     _terminal_background_block,
@@ -44,6 +45,7 @@ from kairocli.plan import ExecutionPlan, PlanTask
 from kairocli.policy import ApprovalPolicy, ApprovalResult
 from kairocli.rendering.thought_display import ThoughtDisplay
 from kairocli.sessions import SessionStore
+from kairocli.skills import SkillRegistry
 from kairocli.tools import ToolRegistry
 
 cli_module = importlib.import_module("kairocli.cli.interactive")
@@ -2045,6 +2047,52 @@ def test_slash_completion_uses_live_provider_mcp_and_skill_names() -> None:
     assert _slash_completion_candidates("/skill show web", ["/skill"], **options) == [
         "/skill show web-access"
     ]
+
+
+def test_skill_completion_matches_only_the_leading_skill_token() -> None:
+    skills = ("web-access", "wechat", "review")
+
+    assert _skill_completion_candidates("$", skills) == [
+        "$review ",
+        "$web-access ",
+        "$wechat ",
+    ]
+    assert _skill_completion_candidates("$we", skills) == ["$web-access ", "$wechat "]
+    assert _skill_completion_candidates("  $REV", skills) == ["$review "]
+    assert _skill_completion_candidates("use $we", skills) == []
+    assert _skill_completion_candidates("$web-access task", skills) == []
+
+
+async def test_prompt_shows_live_enabled_skill_matches(tmp_path: Path) -> None:
+    workspace = tmp_path / "work"
+    paths = KairoPaths.discover(workspace, tmp_path / "home")
+    for name, description in (("web-access", "Browse the web"), ("disabled", "Hidden")):
+        skill_file = paths.project_dir / "skills" / name / "SKILL.md"
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text(
+            f"---\nname: {name}\ndescription: {description}\n---\ninstructions",
+            encoding="utf-8",
+        )
+    registry = SkillRegistry(paths)
+    registry.reload()
+    registry.set_enabled("disabled", False)
+    session = _prompt_session(paths, lambda: "idle", skill_registry=registry)
+    assert session is not None
+    prompt_container = session.app.layout.container.children[0]
+    menu = prompt_container.alternative_content.content.children[-1]
+
+    session.default_buffer._set_text("$we")
+    session.default_buffer._set_cursor_position(3)
+
+    assert menu.filter() is True
+    rendered = "".join(fragment[1] for fragment in menu.content.content.text())
+    assert "$web-access" in rendered
+    assert "Browse the web" in rendered
+    assert "$disabled" not in rendered
+    tab = session.key_bindings.get_bindings_for_keys(("c-i",))[0]
+    tab.handler(SimpleNamespace(current_buffer=session.default_buffer))
+    await asyncio.sleep(0)
+    assert session.default_buffer.text == "$web-access "
 
 
 def test_input_highlighting_warns_without_changing_text() -> None:

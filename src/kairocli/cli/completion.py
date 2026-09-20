@@ -179,6 +179,18 @@ def _slash_completion_candidates(
     ][:50]
 
 
+def _skill_completion_candidates(text: str, skills: tuple[str, ...]) -> list[str]:
+    stripped = text.lstrip()
+    if not re.fullmatch(r"\$[A-Za-z0-9._-]*", stripped):
+        return []
+    prefix = stripped[1:].casefold()
+    return [
+        f"${name} "
+        for name in sorted(set(skills), key=str.casefold)
+        if name.casefold().startswith(prefix)
+    ][:50]
+
+
 def _named_completion_lines(
     command: str,
     fixed: tuple[str, ...],

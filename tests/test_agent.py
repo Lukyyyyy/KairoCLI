@@ -18,7 +18,9 @@ from kairocli.agent import (
 )
 from kairocli.llm import LlmClient, LlmError
 from kairocli.models import LlmResponse, Message, ToolCall, ToolOutput, Usage
+from kairocli.paths import KairoPaths
 from kairocli.plan import ExecutionPlan
+from kairocli.skills import SkillRegistry
 from kairocli.tools import ToolDefinition, ToolRegistry
 
 
@@ -38,6 +40,39 @@ class FakeClient(LlmClient):
                 tool_calls=[ToolCall("1", "write_file", {"path": "answer.txt", "content": "42"})]
             )
         return LlmResponse(content="done")
+
+
+async def test_explicit_skill_is_injected_without_polluting_history(tmp_path: Path) -> None:
+    class RecordingClient(LlmClient):
+        provider = "test"
+        model = "recording"
+
+        def __init__(self) -> None:
+            self.messages: list[Message] = []
+
+        async def complete(
+            self,
+            messages: list[Message],
+            tools: list[dict[str, Any]] | None = None,
+        ) -> LlmResponse:
+            self.messages = messages
+            return LlmResponse(content="done")
+
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    skill_file = paths.project_dir / "skills" / "demo" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        "---\nname: demo\ndescription: demo\n---\nFollow explicit demo rules.",
+        encoding="utf-8",
+    )
+    registry = SkillRegistry(paths)
+    registry.reload()
+    client = RecordingClient()
+    agent = Agent(client, ToolRegistry(paths.workspace), "system", skill_registry=registry)
+
+    assert await agent.run("$demo do the work") == "done"
+    assert "Follow explicit demo rules." in str(client.messages[-1].content)
+    assert agent.history[0].content == "$demo do the work"
 
 
 async def test_react_tool_loop(tmp_path: Path) -> None:
@@ -501,6 +536,42 @@ async def test_plan_agent_builds_executes_and_reviews(tmp_path: Path) -> None:
         ("started", "inspect", None),
         ("completed", "inspect", True),
     ]
+
+
+async def test_plan_agent_propagates_explicit_skill_to_each_role(tmp_path: Path) -> None:
+    class RecordingPlanClient(PlanClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.prompts: list[str] = []
+
+        async def complete(
+            self,
+            messages: list[Message],
+            tools: list[dict[str, Any]] | None = None,
+        ) -> LlmResponse:
+            self.prompts.append(str(messages[-1].content))
+            return await super().complete(messages, tools)
+
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    skill_file = paths.project_dir / "skills" / "demo" / "SKILL.md"
+    skill_file.parent.mkdir(parents=True)
+    skill_file.write_text(
+        "---\nname: demo\ndescription: demo\n---\nFollow explicit demo rules.",
+        encoding="utf-8",
+    )
+    registry = SkillRegistry(paths)
+    registry.reload()
+    client = RecordingPlanClient()
+    agent = Agent(
+        client,
+        ToolRegistry(paths.workspace),
+        "system",
+        skill_registry=registry,
+    )
+
+    assert await PlanExecuteAgent(agent).run("$demo understand project") == "final reviewed answer"
+    assert len(client.prompts) == 3
+    assert all("Follow explicit demo rules." in prompt for prompt in client.prompts)
 
 
 class PlanToolClient(LlmClient):

@@ -1,6 +1,6 @@
 ---
 name: web-access
-description: Safely research current public web information using search, fetch, and browser tools.
+description: Research current public web information when freshness, a supplied URL, or source links matter.
 ---
 
 # Web Access

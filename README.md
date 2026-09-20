@@ -304,7 +304,13 @@ KAIROCLI_EMBEDDING_BASE_URL=http://localhost:11434
 ### MCP、Skill 与浏览器
 
 - 用户级与项目级 MCP 配置分别位于 `~/.kairocli/mcp.json` 和 `.kairocli/mcp.json`；
-- Skill 按用户、项目和内置层级加载，可从本地目录、精选目录或 Git 仓库安装；
+- Skill 按内置、用户、项目层级加载；兼容 OpenAI 标准的 `~/.agents/skills` 和从仓库根目录
+  到当前工作区逐级 `.agents/skills`，并保留 `~/.kairocli/skills`、`.kairocli/skills`；
+- Skill 可从本地目录、精选目录或 Git 仓库安装；同名时更深的项目目录优先，Kairo 专用目录
+  在同一层级优先；
+- 在消息开头使用 `$skill-name 任务内容` 可为当前请求显式加载该 Skill 的完整正文；未知或
+  已停用的 Skill 会直接报错；输入 `$` 时会实时显示可用 Skill 并支持方向键选择、
+  `Tab` 或 `Enter` 确认，未显式指定时仍由 Agent 按需加载；
 - 首次运行会生成隔离模式的 Chrome DevTools MCP 默认配置；敏感页面始终逐次审批；
 - 单个 MCP 服务启动失败不会阻止主程序启动。
 
@@ -331,13 +337,17 @@ Kairo CLI 默认实施以下边界：
 
 ## 数据与项目指令
 
-Kairo CLI 不读取其他 Agent 产品的数据目录：
+除兼容开放 Skill 标准的 `.agents/skills` 外，Kairo CLI 不读取其他 Agent 产品的数据目录：
 
 | 范围 | 位置 | 内容 |
 | --- | --- | --- |
 | 用户级 | `~/.kairocli/` | 配置、会话、记忆、任务、审计、日志和 Runtime 数据 |
 | 项目级 | `<workspace>/.kairocli/` | 项目 MCP、Skill、索引和运行状态 |
 | 项目指令 | `KAIRO.md`、`KAIRO.local.md` | 长期规则与本地覆盖规则 |
+
+标准 Skill 由包含 YAML 前置元数据 `name`、`description` 的 `SKILL.md` 定义，可附带
+`references/`、`scripts/`、`assets/` 和 `agents/openai.yaml`。Kairo 渐进式加载名称、描述、正文与
+引用文件；其余资源随 Skill 保留，但不会自动执行脚本或安装 `openai.yaml` 声明的依赖。
 
 项目指令按用户级、工作区、`.kairocli` 和 local 的顺序加载，越靠后的规则优先级越高；
 子目录中的指令文件只作用于对应目录树。
