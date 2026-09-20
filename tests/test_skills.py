@@ -112,6 +112,64 @@ def test_skill_project_overrides_user_and_builtin_with_metadata(tmp_path: Path) 
     assert skill.body == "project"
 
 
+def test_skill_discovers_official_user_and_nested_project_locations(tmp_path: Path) -> None:
+    repository = tmp_path / "repository"
+    workspace = repository / "packages" / "app"
+    home = tmp_path / "home"
+    (repository / ".git").mkdir(parents=True)
+    paths = KairoPaths.discover(workspace, home)
+    user_file = _write_skill(home / ".agents" / "skills", "user-standard")
+    root_file = _write_skill(repository / ".agents" / "skills", "root-standard")
+    nested_file = _write_skill(
+        workspace.parent / ".agents" / "skills",
+        "shared",
+        body="nested project",
+    )
+    _write_skill(repository / ".agents" / "skills", "shared", body="repository project")
+
+    registry = SkillRegistry(paths)
+    registry.reload()
+
+    assert registry.skills["user-standard"].path == user_file
+    assert registry.skills["user-standard"].source == SkillSource.USER
+    assert registry.skills["root-standard"].path == root_file
+    assert registry.skills["root-standard"].source == SkillSource.PROJECT
+    assert registry.skills["shared"].path == nested_file
+    assert registry.skills["shared"].body == "nested project"
+
+
+def test_skill_standard_project_discovery_stops_at_repository_root(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    repository = parent / "repository"
+    workspace = repository / "nested"
+    home = tmp_path / "home"
+    (repository / ".git").mkdir(parents=True)
+    _write_skill(parent / ".agents" / "skills", "outside")
+    _write_skill(workspace / ".agents" / "skills", "inside")
+
+    registry = SkillRegistry(KairoPaths.discover(workspace, home))
+    registry.reload()
+
+    assert "inside" in registry.skills
+    assert "outside" not in registry.skills
+
+
+def test_kairo_skill_locations_override_standard_locations(tmp_path: Path) -> None:
+    paths = KairoPaths.discover(tmp_path / "work", tmp_path / "home")
+    _write_skill(paths.home / ".agents" / "skills", "shared", body="standard user")
+    _write_skill(paths.user_dir / "skills", "shared", body="kairo user")
+    _write_skill(paths.workspace / ".agents" / "skills", "shared", body="standard project")
+    kairo_project = _write_skill(
+        paths.project_dir / "skills", "shared", body="kairo project"
+    )
+
+    registry = SkillRegistry(paths)
+    registry.reload()
+
+    assert registry.skills["shared"].path == kairo_project
+    assert registry.skills["shared"].body == "kairo project"
+
+
 def test_skill_reload_isolates_one_root_scan_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

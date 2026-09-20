@@ -148,13 +148,20 @@ class SkillRegistry:
                 SkillSource.BUILTIN,
                 Path(__file__).parent,
             ),
+            (self.paths.home / ".agents" / "skills", SkillSource.USER, self.paths.home),
             (self.paths.user_dir / "skills", SkillSource.USER, self.paths.home),
+        ]
+        roots.extend(
+            (directory / ".agents" / "skills", SkillSource.PROJECT, directory)
+            for directory in _project_skill_directories(self.paths.workspace)
+        )
+        roots.append(
             (
                 self.paths.project_dir / "skills",
                 SkillSource.PROJECT,
                 self.paths.workspace,
-            ),
-        ]
+            )
+        )
         found: dict[str, Skill] = {}
         for root, source, trusted_base in roots:
             uses_symlink = _path_uses_symlink(root, trusted_base)
@@ -475,6 +482,22 @@ def _bounded_reference_files(root: Path) -> list[str]:
                 continue
         pending.extend((child, depth + 1) for child in reversed(child_directories))
     return sorted(result)[:MAX_SKILL_REFERENCES]
+
+
+def _project_skill_directories(workspace: Path) -> list[Path]:
+    candidates = [workspace, *workspace.parents]
+    repository_root = next(
+        (candidate for candidate in candidates if (candidate / ".git").exists()),
+        workspace,
+    )
+    directories: list[Path] = []
+    current = workspace
+    while True:
+        directories.append(current)
+        if current == repository_root:
+            break
+        current = current.parent
+    return list(reversed(directories))
 
 
 def handle_skill_command(payload: str | None, registry: SkillRegistry, agent: Any = None) -> str:
