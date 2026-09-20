@@ -499,12 +499,14 @@ def handle_task_command(
         lines = [
             f"Background task {found.id}",
             f"Status: {found.status}",
-            f"Created: {found.created_at}",
+            f"Created: {_local_timestamp(found.created_at)}",
         ]
         if found.started_at:
-            lines.append(f"Started: {found.started_at}")
+            lines.append(f"Started: {_local_timestamp(found.started_at)}")
         if found.finished_at:
-            lines.append(f"Finished: {found.finished_at} ({found.duration_ms}ms)")
+            lines.append(
+                f"Finished: {_local_timestamp(found.finished_at)} ({found.duration_ms}ms)"
+            )
         lines.extend(("", "Task:", found.prompt))
         if found.error:
             lines.extend(("", "Error:", found.error))
@@ -516,6 +518,16 @@ def handle_task_command(
 
 def _valid_task_id(task_id: str) -> bool:
     return bool(_TASK_ID.fullmatch(task_id))
+
+
+def _local_timestamp(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone().isoformat()
 
 
 def _process_is_alive(pid: int) -> bool:

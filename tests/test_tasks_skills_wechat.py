@@ -6,6 +6,7 @@ import os
 import sqlite3
 from contextlib import closing
 from dataclasses import asdict, replace
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -226,6 +227,8 @@ def test_task_command_outputs_reusable_id_and_structured_log(tmp_path: Path) -> 
     _handle_task(f"log {task.id}", store, manager, console)
     assert f"Background task {task.id}" in console.messages[-1]
     assert "Status: enqueued" in console.messages[-1]
+    local_created_at = datetime.fromisoformat(task.created_at).astimezone().isoformat()
+    assert f"Created: {local_created_at}" in console.messages[-1]
     assert "Task:\ninspect the queue" in console.messages[-1]
     _handle_task(f"cancel {task.id}", store, manager, console)
     assert console.messages[-1] == f"Cancellation requested: {task.id}"
