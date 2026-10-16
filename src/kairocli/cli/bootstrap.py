@@ -91,6 +91,7 @@ def make_agent(
         approval_policy,
         approver,
         browser_guard=browser_guard,
+        attachment_dir=paths.user_dir / "cache" / "attachments",
     )
     tools.snapshot_service = SnapshotService(paths)
     tools.current_provider = llm.provider

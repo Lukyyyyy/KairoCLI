@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..attachments import AttachmentStore, ImageAttachment
 from ..browser import BrowserGuard
 from ..cancellation import AgentCanceled, raise_if_canceled, wait_with_cancellation
 from ..json_boundary import decode_strict_json
@@ -60,6 +61,8 @@ from .schemas import (
     _patch_schema,
     _path_schema,
     _query_schema,
+    _read_attachment_schema,
+    _save_attachment_summaries_schema,
     _shell_exec_schema,
     _shell_id_schema,
     _shell_start_schema,
@@ -218,6 +221,7 @@ class ToolRegistry:
         approver: ApprovalHandler | None = None,
         tool_timeout_seconds: float = 90,
         browser_guard: BrowserGuard | None = None,
+        attachment_dir: Path | None = None,
     ) -> None:
         self.workspace = workspace.resolve()
         self.path_guard = PathGuard(self.workspace)
@@ -227,6 +231,10 @@ class ToolRegistry:
         self.approver = approver
         self.tool_timeout_seconds = max(0.1, tool_timeout_seconds)
         self.browser_guard = browser_guard
+        self.attachments = AttachmentStore(
+            attachment_dir or self.workspace / ".kairocli" / "cache" / "attachments",
+            self.workspace,
+        )
         self.code_index = CodeIndex(
             self.workspace, self.workspace / ".kairocli" / "rag" / "codebase.db"
         )
@@ -727,6 +735,22 @@ class ToolRegistry:
     def _register_builtin_tools(self) -> None:
         specs: list[tuple[str, str, dict[str, Any], ToolHandler]] = [
             (
+                "read_attachment",
+                "Load one to four historical image attachments by their IDs when visual "
+                "details are required. Use summaries to select candidates; do not call this "
+                "for questions already answerable from text.",
+                _read_attachment_schema(),
+                self._read_attachment,
+            ),
+            (
+                "save_attachment_summaries",
+                "Save one objective 1-3 sentence summary for each unsummarized image in the "
+                "current user turn. Include the subject, scene, salient text, and distinguishing "
+                "visual features; do not infer user intent.",
+                _save_attachment_summaries_schema(),
+                self._save_attachment_summaries,
+            ),
+            (
                 "read_file",
                 "Read a bounded UTF-8 text range within the workspace. Use offset/limit to "
                 "continue when partial is reported; binary files are rejected.",
@@ -851,6 +875,45 @@ class ToolRegistry:
         ]
         for name, description, parameters, handler in specs:
             self.register(ToolDefinition(name, description, parameters, handler))
+
+    def remember_image_urls(self, image_urls: list[str]) -> list[ImageAttachment]:
+        return [self.attachments.remember_data_url(value) for value in image_urls]
+
+    def authorize_attachment_ids(self, attachment_ids: list[str]) -> None:
+        self.attachments.authorize(attachment_ids)
+
+    def load_attachment_urls(self, attachment_ids: list[str]) -> list[str]:
+        return [self.attachments.read_data_url(value)[1] for value in attachment_ids]
+
+    async def _read_attachment(self, args: dict[str, Any]) -> ToolOutput:
+        values = [
+            await asyncio.to_thread(self.attachments.read_data_url, attachment_id)
+            for attachment_id in args["attachment_ids"]
+        ]
+        if sum(record.size_bytes for record, _ in values) > 8 * 1024 * 1024:
+            raise ValueError("Selected attachments exceed the 8 MiB batch limit")
+        return ToolOutput(
+            json.dumps(
+                {
+                    "attachments": [
+                        {
+                            "attachment_id": record.id,
+                            "media_type": record.media_type,
+                            "size_bytes": record.size_bytes,
+                        }
+                        for record, _ in values
+                    ]
+                }
+            ),
+            tuple(data_url for _, data_url in values),
+        )
+
+    async def _save_attachment_summaries(self, args: dict[str, Any]) -> str:
+        saved = await asyncio.to_thread(
+            self.attachments.save_summaries,
+            [dict(value) for value in args["summaries"]],
+        )
+        return json.dumps({"saved": saved})
 
     async def _read_file(self, args: dict[str, Any]) -> str:
         path = self.path_guard.resolve(str(args["path"]), must_exist=True)

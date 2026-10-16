@@ -63,7 +63,7 @@ Inspect → Plan → Approve → Execute → Record
 | --- | --- |
 | Agent | ReAct, reviewable plans, dependency-aware Team mode, parallel read-only tools |
 | Code intelligence | AST / Tree-sitter chunking, hybrid retrieval, definitions, calls, LSP diagnostics |
-| Engineering tools | File I/O, safe patches, controlled commands, persistent shells, web research, images |
+| Engineering tools | File I/O, safe patches, controlled commands, persistent shells, web research, follow-up image context |
 | Context | `KAIRO.md`, long-term memory, compaction, todos, snapshots, session recovery |
 | Extensions | MCP tools/resources/prompts, layered Skills, Chrome DevTools sessions |
 | Automation | `text` / `json` / `jsonl`, local Runtime API, resumable SSE |
@@ -333,6 +333,7 @@ supports identifiers, camelCase, and Jieba tokenization for Chinese.
 Kairo CLI enforces these defaults:
 
 - file tools only access permitted real paths inside the workspace and reject symlink escapes;
+- image attachments are deduplicated in a private cache; history keeps summaries and IDs and reloads pixels only when needed;
 - approval prompts explain low, medium, and high-risk capabilities and reasons;
 - workspace writes and Shell tools may be approved for a session; the default `ask` mode prompts
   per call until `always this tool` is selected for the current session;

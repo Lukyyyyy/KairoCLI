@@ -140,10 +140,12 @@ class SessionSaveSnapshot:
         # Clone each message before crossing the thread boundary. Agent removes
         # historical image parts in place at the next turn, so a tuple alone would
         # not be a stable snapshot even though it isolates appends/replacements.
+        snapshot_history = getattr(agent, "history_without_image_payloads", None)
+        messages = snapshot_history() if snapshot_history is not None else list(agent.history)
         return cls(
             provider=str(agent.llm.provider),
             model=str(agent.llm.model),
-            messages=tuple(_without_images(message) for message in agent.history),
+            messages=tuple(_without_images(message) for message in messages),
             input_tokens=int(agent.total_input_tokens),
             output_tokens=int(agent.total_output_tokens),
             cached_tokens=int(agent.total_cached_tokens),
@@ -649,6 +651,9 @@ class SessionStore:
 
 def apply_session(agent: Any, state: SessionState) -> None:
     agent.history = list(state.messages)
+    restore_attachments = getattr(agent, "restore_attachment_references", None)
+    if restore_attachments is not None:
+        restore_attachments()
     agent.total_input_tokens = state.input_tokens
     agent.total_output_tokens = state.output_tokens
     agent.total_cached_tokens = state.cached_tokens

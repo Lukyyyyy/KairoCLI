@@ -13,6 +13,45 @@ from .limits import (
 from .shell import MAX_SHELL_COMMAND_BYTES
 
 
+def _read_attachment_schema() -> dict[str, Any]:
+    return _required(
+        {
+            "attachment_ids": {
+                "type": "array",
+                "items": {"type": "string", "pattern": "^img_[0-9a-f]{24}$"},
+                "minItems": 1,
+                "maxItems": 4,
+            }
+        },
+        "attachment_ids",
+    ) | {"additionalProperties": False}
+
+
+def _save_attachment_summaries_schema() -> dict[str, Any]:
+    return _required(
+        {
+            "summaries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "attachment_id": {
+                            "type": "string",
+                            "pattern": "^img_[0-9a-f]{24}$",
+                        },
+                        "summary": {"type": "string", "minLength": 1, "maxLength": 500},
+                    },
+                    "required": ["attachment_id", "summary"],
+                    "additionalProperties": False,
+                },
+                "minItems": 1,
+                "maxItems": 20,
+            }
+        },
+        "summaries",
+    ) | {"additionalProperties": False}
+
+
 def _required(properties: dict[str, Any], *required: str) -> dict[str, Any]:
     return {"type": "object", "properties": properties, "required": list(required)}
 

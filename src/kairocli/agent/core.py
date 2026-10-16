@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..attachments import ATTACHMENT_REF_RE, CURRENT_ATTACHMENTS_RE
 from ..cancellation import AgentCanceled as AgentCanceled
 from ..cancellation import raise_if_canceled, wait_with_cancellation
 from ..image import prepare_image_input
@@ -195,8 +196,27 @@ class Agent:
         if explicit_skill_context is None:
             explicit_skill_context = self.resolve_explicit_skill(prompt)
         await self._refresh_memory_context(prompt)
+        if not image_urls and self.llm.supports_image_input() and not self.llm.supports_tools():
+            for message in reversed(self.history):
+                text = (
+                    message.content
+                    if isinstance(message.content, str)
+                    else "\n".join(
+                        str(part.get("text", ""))
+                        for part in message.content
+                        if part.get("type") == "text"
+                    )
+                )
+                attachment_ids = ATTACHMENT_REF_RE.findall(text)
+                if attachment_ids:
+                    image_urls = self.tools.load_attachment_urls(attachment_ids[:4])
+                    break
         user_content: Any = prompt
         if image_urls:
+            attachments = self.tools.remember_image_urls(image_urls)
+            prompt += "\n\n" + self.tools.attachments.references_markup(
+                attachments, "current_attachments"
+            )
             user_content = [
                 {"type": "text", "text": prompt},
                 *[
@@ -645,23 +665,68 @@ class Agent:
         self.last_context_tokens = 0
         self.reset_run_budget()
 
-    def _strip_historical_images(self) -> None:
-        for message in self.history:
+    def _strip_historical_images(self, history: list[Message] | None = None) -> None:
+        for message in self.history if history is None else history:
             if not isinstance(message.content, list):
                 continue
-            retained = [part for part in message.content if part.get("type") != "image_url"]
-            omitted = len(message.content) - len(retained)
+            retained: list[dict[str, Any]] = []
+            attachments = []
+            omitted = 0
+            for part in message.content:
+                if part.get("type") == "image_url":
+                    image = part.get("image_url")
+                    url = image.get("url", "") if isinstance(image, dict) else ""
+                    if isinstance(url, str) and url:
+                        try:
+                            attachments.extend(self.tools.remember_image_urls([url]))
+                        except ValueError:
+                            omitted += 1
+                    continue
+                retained.append(part)
+            if not attachments and not omitted:
+                continue
+            markup = self.tools.attachments.references_markup(attachments) if attachments else ""
+            replaced = False
+            for part in retained if markup else ():
+                if part.get("type") != "text" or not isinstance(part.get("text"), str):
+                    continue
+                text = str(part["text"])
+                if CURRENT_ATTACHMENTS_RE.search(text):
+                    part["text"] = CURRENT_ATTACHMENTS_RE.sub("\n\n" + markup, text).strip()
+                    replaced = True
+                    break
+            if not replaced:
+                if markup:
+                    retained.append({"type": "text", "text": markup})
             if omitted:
                 retained.append(
                     {
                         "type": "text",
-                        "text": (
-                            f"[Omitted {omitted} historical image attachment(s). Re-run the "
-                            "related tool or attach the image again if it is still needed.]"
-                        ),
+                        "text": f"[Omitted {omitted} historical image attachment(s).]",
                     }
                 )
-                message.content = retained
+            message.content = retained
+
+    def history_without_image_payloads(self) -> list[Message]:
+        history = copy.deepcopy(self.history)
+        self._strip_historical_images(history)
+        return history
+
+    def restore_attachment_references(self) -> None:
+        attachment_ids: list[str] = []
+        for message in self.history:
+            parts = (
+                [message.content]
+                if isinstance(message.content, str)
+                else [
+                    str(part.get("text", ""))
+                    for part in message.content
+                    if part.get("type") == "text"
+                ]
+            )
+            for part in parts:
+                attachment_ids.extend(ATTACHMENT_REF_RE.findall(part))
+        self.tools.authorize_attachment_ids(attachment_ids)
 
     async def compact(self) -> bool:
         if self._run_lock.locked():

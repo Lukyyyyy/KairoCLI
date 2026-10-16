@@ -55,7 +55,7 @@ Inspect → Plan → Approve → Execute → Record
 | --- | --- |
 | Agent | ReAct、可审阅 Plan、依赖感知 Team 协作、并行只读工具调用 |
 | 代码理解 | AST / Tree-sitter 分块、混合检索、定义与调用关系、LSP 诊断 |
-| 工程工具 | 文件读写、安全补丁、受控命令、持久 Shell、网页检索、图片输入 |
+| 工程工具 | 文件读写、安全补丁、受控命令、持久 Shell、网页检索、可追问的图片输入 |
 | 上下文 | `KAIRO.md` 指令、长期记忆、自动压缩、Todo、快照、会话恢复 |
 | 扩展 | MCP tools/resources/prompts、分层 Skill、Chrome DevTools 浏览器会话 |
 | 自动化 | `text` / `json` / `jsonl` 输出、本地 Runtime API、可恢复 SSE |
@@ -319,6 +319,7 @@ KAIROCLI_EMBEDDING_BASE_URL=http://localhost:11434
 Kairo CLI 默认实施以下边界：
 
 - 文件工具只访问工作区允许的真实路径，并拒绝符号链接逃逸；
+- 图片附件按内容去重保存到私有缓存；历史只保留摘要和附件 ID，需要视觉细节时按需加载；
 - 审批框按低危、中危、高危展示工具能力和风险原因；
 - 工作区写入与 Shell 工具均可按会话授权；默认 `ask` 模式逐次询问，选择
   `always this tool` 后在当前会话放行该工具；

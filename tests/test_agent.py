@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from kairocli.llm import LlmClient, LlmError
 from kairocli.models import LlmResponse, Message, ToolCall, ToolOutput, Usage
 from kairocli.paths import KairoPaths
 from kairocli.plan import ExecutionPlan
+from kairocli.sessions import SessionSaveSnapshot
 from kairocli.skills import SkillRegistry
 from kairocli.tools import ToolDefinition, ToolRegistry
 
@@ -1294,6 +1296,127 @@ async def test_new_turn_prunes_historical_image_payloads(tmp_path: Path) -> None
     assert isinstance(old_content, list)
     assert all(part["type"] != "image_url" for part in old_content)
     assert "Omitted 1 historical" in old_content[-1]["text"]
+
+
+async def test_historical_image_summary_selects_and_reloads_attachment(tmp_path: Path) -> None:
+    class AttachmentClient(LlmClient):
+        provider = "glm"
+        model = "vision"
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.attachment_id = ""
+            self.follow_up_messages: list[Message] = []
+            self.reloaded_messages: list[Message] = []
+
+        async def complete(
+            self, messages: list[Message], tools: list[dict[str, Any]] | None = None
+        ) -> LlmResponse:
+            self.calls += 1
+            if self.calls == 1:
+                content = messages[-1].content
+                assert isinstance(content, list)
+                match = re.search(r'id="(img_[0-9a-f]{24})"', content[0]["text"])
+                assert match is not None
+                self.attachment_id = match.group(1)
+                return LlmResponse(
+                    tool_calls=[
+                        ToolCall(
+                            "summarize-1",
+                            "save_attachment_summaries",
+                            {
+                                "summaries": [
+                                    {
+                                        "attachment_id": self.attachment_id,
+                                        "summary": "Login page with an expired-code warning.",
+                                    }
+                                ]
+                            },
+                        )
+                    ]
+                )
+            if self.calls == 2:
+                return LlmResponse(content="first answer")
+            if self.calls == 3:
+                self.follow_up_messages = messages
+                return LlmResponse(
+                    tool_calls=[
+                        ToolCall(
+                            "read-1",
+                            "read_attachment",
+                            {"attachment_ids": [self.attachment_id]},
+                        )
+                    ]
+                )
+            self.reloaded_messages = messages
+            return LlmResponse(content="follow-up answer")
+
+    attachment_dir = tmp_path / "attachments"
+    client = AttachmentClient()
+    agent = Agent(
+        client,
+        ToolRegistry(tmp_path, attachment_dir=attachment_dir),
+        "system",
+    )
+    image_url = "data:image/png;base64,aGVsbG8="
+
+    assert await agent.run("inspect", [image_url]) == "first answer"
+    snapshot = SessionSaveSnapshot.capture(agent)
+    first_content = snapshot.messages[0].content
+    assert isinstance(first_content, list)
+    assert all(part.get("type") != "image_url" for part in first_content)
+    assert "expired-code warning" in first_content[0]["text"]
+
+    resumed = Agent(
+        client,
+        ToolRegistry(tmp_path, attachment_dir=attachment_dir),
+        "system",
+    )
+    resumed.history = list(snapshot.messages)
+    resumed.restore_attachment_references()
+    assert await resumed.run("How far is that warning from the right edge?") == "follow-up answer"
+
+    historical = client.follow_up_messages[1].content
+    assert isinstance(historical, list)
+    assert "expired-code warning" in historical[0]["text"]
+    assert image_url not in str(client.follow_up_messages)
+    reloaded = client.reloaded_messages[-1].content
+    assert isinstance(reloaded, list)
+    assert reloaded[1]["image_url"]["url"] == image_url
+
+
+async def test_provider_without_tools_reloads_latest_historical_image(tmp_path: Path) -> None:
+    class NoToolsClient(LlmClient):
+        provider = "xfyun"
+        model = "vision"
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.second_messages: list[Message] = []
+
+        def supports_tools(self) -> bool:
+            return False
+
+        async def complete(
+            self, messages: list[Message], tools: list[dict[str, Any]] | None = None
+        ) -> LlmResponse:
+            self.calls += 1
+            if self.calls == 2:
+                self.second_messages = messages
+            return LlmResponse(content="done")
+
+    image_url = "data:image/png;base64,aGVsbG8="
+    client = NoToolsClient()
+    agent = Agent(client, ToolRegistry(tmp_path), "system")
+    await agent.run("inspect", [image_url])
+    await agent.run("continue")
+
+    historical = client.second_messages[1].content
+    assert isinstance(historical, list)
+    assert all(part.get("type") != "image_url" for part in historical)
+    current = client.second_messages[-1].content
+    assert isinstance(current, list)
+    assert current[1]["image_url"]["url"] == image_url
 
 
 async def test_agent_parses_image_references_outside_cli_path(tmp_path: Path) -> None:
