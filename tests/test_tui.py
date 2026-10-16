@@ -15,7 +15,7 @@ from kairocli.config import AppConfig
 from kairocli.llm import LlmClient
 from kairocli.mcp import McpServerConfig, McpServerManager
 from kairocli.memory import MemoryStore
-from kairocli.models import LlmResponse, Message
+from kairocli.models import LlmResponse, Message, ToolCall
 from kairocli.paths import KairoPaths
 from kairocli.policy import ApprovalDecision
 from kairocli.skills import SkillRegistry
@@ -30,6 +30,57 @@ from kairocli.tui import (
     _tui_submission_action,
     run_tui,
 )
+
+
+async def test_tui_replays_history_on_mount_and_session_resume(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    agent = Agent(ImmediateClient(), ToolRegistry(tmp_path), "system")
+    store = tui_module.SessionStore(tmp_path / "sessions.db")
+    first = store.create(tmp_path, "glm", "model")
+    agent.history = [
+        Message("user", "startup question"),
+        Message("assistant", "", [ToolCall("call-1", "read_file", {"path": "a.py"})]),
+        Message("tool", "private tool body", tool_call_id="call-1"),
+        Message("assistant", "startup answer"),
+    ]
+    second = store.create(tmp_path, "glm", "model")
+    store.save(
+        second.meta.id,
+        tmp_path,
+        "glm",
+        "model",
+        [
+            Message("user", "other question"),
+            Message("assistant", "", [ToolCall("call-2", "read_file", {"path": "b.py"})]),
+            Message("tool", '{"error":"private failure"}', tool_call_id="call-2"),
+            Message("assistant", "other answer"),
+        ],
+    )
+    captured: list[App[Any]] = []
+    monkeypatch.setattr(App, "run", lambda self: captured.append(self))
+    run_tui(agent, session_store=store, session_id=first.meta.id, workspace=tmp_path)
+
+    async with captured[0].run_test() as pilot:
+        await pilot.pause()
+        log = captured[0].query_one(RichLog)
+        transcript = "\n".join(line.text for line in log.lines)
+        assert "> startup question" in transcript
+        assert "startup answer" in transcript
+        assert "⏵ 📖 Read file(a.py)" in transcript
+        assert "✓ 1 tool(s)" in transcript
+
+        await captured[0].handle_session(f"resume {second.meta.id}", log)  # type: ignore[attr-defined]
+
+        transcript = "\n".join(line.text for line in log.lines)
+        assert "> other question" in transcript
+        assert "other answer" in transcript
+        assert "⏵ 📖 Read file(b.py)" in transcript
+        assert "⚠ 1 tool(s) · 1 failed" in transcript
+        assert "private" not in transcript
+        assert "0 ms" not in transcript
+        assert agent.history[-1].content == "other answer"
 
 
 def test_tui_error_text_is_total_redacted_and_unicode_safe() -> None:

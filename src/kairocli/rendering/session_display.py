@@ -1,12 +1,66 @@
 from __future__ import annotations
 
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
+from itertools import groupby
 
+from ..models import Message, ToolCall, ToolOutput
 from ..sessions import SessionMeta
+from ..trace import redact_sensitive_text
+from .terminal import sanitize_terminal_text
+from .tool_display import format_tool_calls, format_tool_results
 
 DEFAULT_SESSION_LIST_LIMIT = 20
+
+
+def iter_session_history(
+    messages: Sequence[Message], *, compact_tools: bool = True
+) -> Iterator[tuple[str, str]]:
+    """Replay conversation and tool summaries without exposing reasoning or result bodies."""
+    pending: dict[str, ToolCall] = {}
+    for role, group in groupby(messages, key=lambda message: message.role):
+        if role == "tool":
+            pairs = [
+                (call, ToolOutput(text=_session_message_text(message)))
+                for message in group
+                if (call := pending.pop(message.tool_call_id or "", None)) is not None
+            ]
+            if pairs:
+                # shortcut: only result text is stored; persist ToolOutput for timing and diffs.
+                yield (
+                    "tool_result",
+                    format_tool_results(
+                        [call for call, _ in pairs],
+                        [output for _, output in pairs],
+                        include_duration=False,
+                    ),
+                )
+            continue
+        if role not in {"user", "assistant"}:
+            continue
+        if role == "user":
+            pending.clear()
+        for message in group:
+            text = sanitize_terminal_text(redact_sensitive_text(_session_message_text(message)))
+            if text.strip():
+                yield role, text
+            if role == "assistant" and message.tool_calls:
+                pending.update((call.id, call) for call in message.tool_calls)
+                yield "tool_call", format_tool_calls(message.tool_calls, compact=compact_tools)
+
+
+def _session_message_text(message: Message) -> str:
+    content = message.content
+    return (
+        content
+        if isinstance(content, str)
+        else "\n".join(
+            part["text"]
+            for part in content
+            if part.get("type") == "text" and isinstance(part.get("text"), str)
+        )
+    )
 
 
 def format_session_list(

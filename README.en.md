@@ -223,6 +223,11 @@ kairocli -p "Record the inspection result" --save-session
 
 `--continue` resumes the latest non-empty session in the current workspace. `--resume` selects a
 session by ID. Sessions remain bound to their original workspace.
+Interactive sessions replay saved messages, tool calls, and result summaries using the normal
+conversation styles on startup and when switching with `/session resume <ID>`. Tool names,
+arguments, call IDs, and result text are stored in SQLite session messages. Session records lack
+display metadata such as timing and file diffs; replay does not invent these details.
+`/restore <N>` restores project file snapshots, not chat history.
 
 ### Runtime API and web console
 

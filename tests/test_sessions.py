@@ -131,6 +131,19 @@ def test_session_roundtrip_preserves_protocol_usage_and_strips_images(
         "assistant",
     ]
     assert loaded.messages[1].tool_calls[0].arguments == {"path": "README.md"}
+    assert loaded.messages[2].tool_call_id == "call-1"
+    assert loaded.messages[2].content == "contents"
+    with closing(sqlite3.connect(store.database)) as connection:
+        raw = connection.execute(
+            "SELECT messages_json FROM sessions WHERE id = ?", (state.meta.id,)
+        ).fetchone()[0]
+    persisted = json.loads(raw)
+    assert persisted[1]["tool_calls"] == [
+        {"id": "call-1", "name": "read_file", "arguments": {"path": "README.md"}}
+    ]
+    assert persisted[2]["role"] == "tool"
+    assert persisted[2]["tool_call_id"] == "call-1"
+    assert persisted[2]["content"] == "contents"
     assert loaded.messages[1].reasoning_content == "reasoning"
     assert "secret-binary" not in json.dumps([message.content for message in loaded.messages])
     assert loaded.input_tokens == 10

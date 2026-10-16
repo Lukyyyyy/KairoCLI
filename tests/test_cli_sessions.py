@@ -39,7 +39,7 @@ from kairocli.cli import (
 )
 from kairocli.config import AppConfig
 from kairocli.llm import LlmClient
-from kairocli.models import LlmResponse, Message
+from kairocli.models import LlmResponse, Message, ToolCall
 from kairocli.paths import KairoPaths
 from kairocli.plan import ExecutionPlan, PlanTask
 from kairocli.policy import ApprovalPolicy, ApprovalResult
@@ -257,8 +257,10 @@ async def test_shutdown_defers_cancellation_until_cleanup_finishes() -> None:
     assert shutdown_task.result() == ["finished"]
 
 
+@pytest.mark.parametrize("restore_mode", ["new", "resume", "continue"])
 async def test_interactive_startup_failure_closes_every_started_component(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, restore_mode: str,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     workspace = tmp_path / "work"
     workspace.mkdir()
@@ -266,6 +268,17 @@ async def test_interactive_startup_failure_closes_every_started_component(
     config = AppConfig.load(paths)
     agent = Agent(SessionClient(), ToolRegistry(workspace), "system")
     closed: list[str] = []
+    store = SessionStore(paths.session_database)
+    state = store.create(workspace, "glm", "session-model")
+    store.save(
+        state.meta.id,
+        workspace,
+        "glm",
+        "session-model",
+        [Message("user", "saved question"), Message("assistant", "saved answer")],
+    )
+    console = RecordingConsole()
+    monkeypatch.setattr(cli_module, "_console", lambda: console)
 
     class DisabledSnapshotService:
         class Config:
@@ -318,9 +331,22 @@ async def test_interactive_startup_failure_closes_every_started_component(
     )
 
     with pytest.raises(RuntimeError, match="prompt failed"):
-        await cli_module.interactive(paths, config)
+        await cli_module.interactive(
+            paths,
+            config,
+            resume_id=state.meta.id if restore_mode == "resume" else None,
+            continue_session=restore_mode == "continue",
+        )
 
     assert set(closed) == {"mcp", "task", "tools"}
+    transcript = "\n".join(console.messages) + capsys.readouterr().out
+    if restore_mode == "new":
+        assert "saved question" not in transcript
+        assert agent.history == []
+    else:
+        assert "› saved question" in transcript
+        assert "● saved answer" in transcript
+        assert [message.content for message in agent.history] == ["saved question", "saved answer"]
 
 
 def _append_history_worker(path: str, prefix: str, count: int) -> None:
@@ -351,6 +377,7 @@ async def test_session_command_switches_without_losing_histories(tmp_path: Path)
 
     assert resumed_id == first.meta.id
     assert [message.content for message in agent.history] == ["first conversation"]
+    assert "› first conversation" in console.messages[-1]
     second = store.load(second_id, workspace)
     assert second is not None
     assert [message.content for message in second.messages] == ["second conversation"]
@@ -933,6 +960,153 @@ def test_answer_prefix_is_a_gray_solid_circle() -> None:
             },
         )
     ]
+
+
+@pytest.mark.parametrize("renderer", ["inline", "plain"])
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_session_replay_uses_normal_answer_renderer_and_input_style(
+    monkeypatch: pytest.MonkeyPatch, renderer: str, wrapped: bool,
+) -> None:
+    from rich.console import Console
+    from rich.text import Text
+
+    from kairocli.rendering.terminal import sanitize_terminal_text
+
+    output = io.StringIO()
+    console = Console(
+        file=output, width=60, force_terminal=True, color_system="truecolor", no_color=False,
+        style="on default",
+    )
+    monkeypatch.setattr(cli_module.sys, "stdout", output)
+    monkeypatch.setattr(cli_module, "_terminal_columns", lambda: 60)
+    answer = (
+        "## Result\n\n**Ready**\n\n| Name | Value |\n|---|---|\n| checks | passed |"
+        "\n\n```python\nprint('ok')\n```"
+    )
+    cli_module._StreamingAnswerDisplay(console, renderer, 60).print_complete(answer)
+    expected_answer = output.getvalue()
+    output.seek(0)
+    output.truncate()
+
+    cli_module._print_session_history(
+        cli_module._CommandOutputConsole(console) if wrapped else console,
+        [
+            Message("user", "inspect files\n" + "检查" * 40),
+            Message("assistant", "", [ToolCall("call-1", "read_file", {"path": "a.py"})]),
+            Message("tool", "private result body", tool_call_id="call-1"),
+            Message("assistant", answer, reasoning_content="private reasoning"),
+        ],
+        renderer,
+    )
+
+    transcript = output.getvalue()
+    visible = sanitize_terminal_text(transcript)
+    assert expected_answer in transcript
+    assert "48;2;48;48;48" in transcript
+    assert "› inspect files" in visible
+    lines = Text.from_ansi(transcript).split("\n")
+    question_index = next(i for i, line in enumerate(lines) if line.plain.startswith("› "))
+    for line in lines[question_index - 1:question_index + 4]:
+        assert line.cell_len == 60
+        for offset in range(len(line)):
+            background = line.get_style_at_offset(console, offset).bgcolor
+            assert background is not None and background.name == "#303030"
+    assert "Read file × 1" in visible
+    assert "✓ 1 tool(s)" in visible
+    assert "0 ms" not in visible
+    assert "private" not in visible
+    assert ("**Ready**" in visible) == (renderer == "plain")
+
+
+@pytest.mark.parametrize("columns", [40, 60])
+@pytest.mark.parametrize(
+    "question",
+    [
+        "你好", "第一行\n第二行", "first\n\nthird", "检查" * 45,
+        "long English question with several words " * 3, "x" * 38,
+    ],
+    ids=["short", "multiline", "blank_line", "chinese_wrap", "word_wrap", "exact_width"],
+)
+async def test_replayed_question_matches_the_actual_submitted_composer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, columns: int, question: str,
+) -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.layout import Dimension
+    from prompt_toolkit.output import ColorDepth
+    from prompt_toolkit.output.vt100 import Vt100_Output
+    from prompt_toolkit.utils import get_cwidth
+    from rich.console import Console
+    from rich.text import Text
+
+    normal_rows: list[list[tuple[str, str, str, bool]]] = []
+    terminal = Vt100_Output(
+        io.StringIO(), lambda: Size(rows=40, columns=columns), term="xterm-256color",
+        default_color_depth=ColorDepth.DEPTH_24_BIT, enable_cpr=False,
+    )
+    monkeypatch.setattr("prompt_toolkit.output.create_output", lambda: terminal)
+    with create_pipe_input() as pipe_input, create_app_session(input=pipe_input, output=terminal):
+        session = _prompt_session(KairoPaths.discover(tmp_path, tmp_path / "home"), lambda: "idle")
+
+        def show_full_question() -> None:
+            # Let the real renderer show wrapped input, retaining its bottom blank row.
+            window = session.app.layout.current_window
+            window.height = None
+            window.height = Dimension.exact(window.preferred_height(columns, 40).preferred + 1)
+
+        original_reset = session.app.renderer.reset
+
+        def capture_submitted_composer(*args: object, **kwargs: object) -> None:
+            screen = session.app.renderer.last_rendered_screen
+            if session.app.is_done and screen is not None:
+                for y in range(screen.height):
+                    row = []
+                    for x in range(columns):
+                        cell = screen.data_buffer[y][x]
+                        style = session.app._merged_style.get_attrs_for_style_str(cell.style)
+                        row.append((cell.char, style.color, style.bgcolor, style.bold))
+                    if all(cell[2] == "303030" for cell in row):
+                        normal_rows.append(row)
+            original_reset(*args, **kwargs)
+
+        monkeypatch.setattr(session.app.renderer, "reset", capture_submitted_composer)
+        ready = asyncio.Event()
+        session.app.after_render += lambda _app: ready.set()
+        task = asyncio.create_task(
+            session.prompt_async(default=question, pre_run=show_full_question)
+        )
+        await asyncio.wait_for(ready.wait(), 2)
+        pipe_input.send_text("\r")
+        assert await asyncio.wait_for(task, 2) == question
+
+    output = io.StringIO()
+    console = Console(
+        file=output, width=columns, force_terminal=True, color_system="truecolor",
+        no_color=False, style="on default",
+    )
+    monkeypatch.setattr(cli_module.sys, "stdout", output)
+    monkeypatch.setattr(cli_module, "_terminal_columns", lambda: columns)
+    cli_module._print_session_history(console, [Message("user", question)], "inline")
+    replay_rows = []
+    for line in Text.from_ansi(output.getvalue()).split("\n"):
+        row = []
+        for offset, character in enumerate(line.plain):
+            style = line.get_style_at_offset(console, offset)
+            foreground = style.color.name.lstrip("#") if style.color else ""
+            background = style.bgcolor.name.lstrip("#") if style.bgcolor else ""
+            row.append((character, foreground, background, bool(style.bold)))
+            row.extend(
+                ("", foreground, background, bool(style.bold))
+                for _ in range(get_cwidth(character) - 1)
+            )
+        if row and all(cell[2] == "303030" for cell in row):
+            replay_rows.append(row)
+    assert normal_rows
+    assert ["".join(cell[0] for cell in row) for row in replay_rows] == [
+        "".join(cell[0] for cell in row) for row in normal_rows
+    ]
+    assert replay_rows == normal_rows
 
 
 def test_command_output_matches_answer_spacing_and_indentation(

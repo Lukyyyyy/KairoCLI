@@ -9,7 +9,7 @@ import re
 import shutil
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -42,12 +42,13 @@ from ..mcp import (
     handle_mcp_command,
 )
 from ..memory import MemoryStore, handle_memory_command, handle_save_command
+from ..models import Message
 from ..paths import KairoPaths
 from ..plan import PlanReviewDecisionType, parse_plan_review_input
 from ..policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from ..prompts import initialize_project_memory
 from ..rendering.diff_display import render_file_diff
-from ..rendering.session_display import format_session_list
+from ..rendering.session_display import format_session_list, iter_session_history
 from ..rendering.terminal import TerminalStreamSanitizer, sanitize_terminal_text
 from ..rendering.terminal_markdown import (
     ColorSystemName,
@@ -1159,6 +1160,7 @@ async def interactive(
             _terminal_background_block(session_notice),
             "dim on default",
         )
+        _print_session_history(console, agent.history, active_renderer)
     _print_status(console, _terminal_background_block(""), "on default")
 
     shutdown_task: asyncio.Task[list[str]] | None = None
@@ -1259,6 +1261,7 @@ async def interactive(
                     paths,
                     agent,
                     command_console,
+                    renderer=active_renderer,
                 )
                 todo_controller.attach(session_id)
                 continue
@@ -1424,6 +1427,8 @@ async def _handle_session_command(
     paths: KairoPaths,
     agent: Agent,
     console: Any,
+    *,
+    renderer: str = "inline",
 ) -> str:
     operation, _, argument = (payload or "status").strip().partition(" ")
     operation = operation.casefold() or "status"
@@ -1479,6 +1484,7 @@ async def _handle_session_command(
         await _save_session(store, current_id, paths, agent, console)
         apply_session(agent, state)
         console.print(f"Resumed {target_id} with {len(state.messages)} messages.")
+        _print_session_history(console, state.messages, renderer)
         if state.meta.provider != agent.llm.provider:
             console.print(
                 f"Stored provider was {state.meta.provider}/{state.meta.model}; "
@@ -2078,6 +2084,46 @@ def _print_command_output(console: Any, value: object = "") -> None:
     _print_answer_prefix(console)
     _print_untrusted(console, rendered)
     _end_answer_block()
+
+
+def _print_session_history(console: Any, messages: Sequence[Message], renderer: str) -> None:
+    if isinstance(console, _CommandOutputConsole):
+        console = console.console
+    columns = _terminal_columns()
+    display = _StreamingAnswerDisplay(console, renderer, columns)
+    for kind, text in iter_session_history(messages, compact_tools=False):
+        if kind == "assistant":
+            display.print_complete(text)
+        elif kind == "user":
+            _write_stream("\n")
+            if _has_rich(console):
+                from rich.cells import cell_len, chop_cells
+                from rich.padding import Padding
+                from rich.text import Text
+
+                lines = [
+                    chunk
+                    for line in text.split("\n")
+                    for chunk in chop_cells(line, columns - 2) or [""]
+                ]
+                # A full final line leaves the input cursor on the next row.
+                if cell_len(lines[-1]) == columns - 2:
+                    lines.append("")
+                question = Text("› " + "\n  ".join(lines))
+                question.stylize("bold", 0, 2)
+                console.print(
+                    Padding(question, (1, 0), style="#cecdc3 on #303030"),
+                    width=columns,
+                )
+            else:
+                _print_untrusted(console, "› " + text)
+        else:
+            style = "dim" if kind == "tool_call" else (
+                "yellow" if text.startswith("⚠") else "green"
+            )
+            _write_stream("\n")
+            _print_status(console, text, style)
+            _write_stream("\n")
 
 
 class _CommandOutputConsole:

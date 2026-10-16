@@ -24,7 +24,7 @@ from .plan import ExecutionPlan
 from .policy import ApprovalPolicy, ApprovalResult, read_recent_audit
 from .prompts import initialize_project_memory
 from .rendering.diff_display import render_file_diff
-from .rendering.session_display import format_session_list
+from .rendering.session_display import format_session_list, iter_session_history
 from .rendering.terminal import sanitize_terminal_text
 from .rendering.terminal_markdown import render_code_search_match
 from .rendering.tool_display import format_tool_calls, format_tool_results
@@ -471,6 +471,7 @@ def run_tui(
             agent.on_tool_results = self.display_tool_results
             if startup_notice:
                 self.query_one("#log", RichLog).write(startup_notice)
+            self.display_session_history(self.query_one("#log", RichLog))
             if mcp_manager is not None:
                 self._mcp_worker = self.run_worker(
                     self.start_mcp(), name="kairo-tui-mcp-start", exclusive=False
@@ -478,6 +479,20 @@ def run_tui(
             if task_manager is not None:
                 task_manager.terminal_callback = self.on_task_terminal
                 task_manager.start()
+
+        def display_session_history(self, log: Any) -> None:
+            for kind, text in iter_session_history(agent.history):
+                if kind == "user":
+                    self.write_untrusted(
+                        log, f"> {_redact_tui_transcript_input(text)}", style="dim"
+                    )
+                elif kind == "assistant":
+                    self.write_untrusted(log, text)
+                else:
+                    style = "dim" if kind == "tool_call" else (
+                        "yellow" if text.startswith("⚠") else "green"
+                    )
+                    self.write_untrusted(log, text, style=style)
 
         def display_tool_calls(self, calls: Any) -> None:
             summary = format_tool_calls(calls)
@@ -631,6 +646,7 @@ def run_tui(
                 if todo_controller is not None:
                     todo_controller.attach(state.meta.id)
                 log.write(f"Resumed {state.meta.id} with {len(state.messages)} messages.")
+                self.display_session_history(log)
                 return
             if operation == "delete":
                 targets = argument.split()

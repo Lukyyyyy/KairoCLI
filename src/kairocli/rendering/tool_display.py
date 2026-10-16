@@ -67,7 +67,9 @@ def format_tool_calls(calls: list[ToolCall], *, compact: bool = True) -> str:
     return "\n".join(lines)
 
 
-def format_tool_results(calls: list[ToolCall], results: list[ToolOutput]) -> str:
+def format_tool_results(
+    calls: list[ToolCall], results: list[ToolOutput], *, include_duration: bool = True
+) -> str:
     paired = list(zip(calls, results, strict=False))[:100]
     if not paired:
         return ""
@@ -85,7 +87,8 @@ def format_tool_results(calls: list[ToolCall], results: list[ToolOutput]) -> str
         parts.append(f"{truncated} truncated")
     if images:
         parts.append(f"{images} image(s)")
-    parts.append(_duration(elapsed_ms))
+    if include_duration:
+        parts.append(_duration(elapsed_ms))
     summary = " · ".join(parts)
     blocked = [
         f"{_tool_label(call.name)}: {reason}"
