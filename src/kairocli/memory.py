@@ -243,7 +243,12 @@ class MemoryStore:
         return entry, True
 
     def search(self, query: str, limit: int = 20) -> list[MemoryEntry]:
-        scored = [(self._score(entry, query), entry) for entry in self.list_entries()]
+        return self._search_entries(query, self.list_entries(), limit)
+
+    def _search_entries(
+        self, query: str, entries: list[MemoryEntry], limit: int
+    ) -> list[MemoryEntry]:
+        scored = [(self._score(entry, query), entry) for entry in entries]
         return [
             entry
             for score, entry in sorted(
@@ -258,11 +263,14 @@ class MemoryStore:
         if not query:
             return []
         bounded_limit = min(max(limit, 1), MAX_MEMORY_SEARCH_LIMIT)
-        lexical = self.search(query, MEMORY_SEMANTIC_CANDIDATES)
+        visible_entries = self.list_entries()
+        lexical = self._search_entries(query, visible_entries, MEMORY_SEMANTIC_CANDIDATES)
         if self.embedding is None:
             return lexical[:bounded_limit]
         try:
-            semantic = await self._semantic_search(query, MEMORY_SEMANTIC_CANDIDATES)
+            semantic = await self._semantic_search(
+                query, visible_entries, MEMORY_SEMANTIC_CANDIDATES
+            )
         except Exception:
             return lexical[:bounded_limit]
         entries = {entry.id: entry for entry in [*lexical, *semantic]}
@@ -358,8 +366,9 @@ class MemoryStore:
             return 0
         return matched / len(tokens)
 
-    async def _semantic_search(self, query: str, limit: int) -> list[MemoryEntry]:
-        entries = self.list_entries()
+    async def _semantic_search(
+        self, query: str, entries: list[MemoryEntry], limit: int
+    ) -> list[MemoryEntry]:
         if not entries or self.embedding is None:
             return []
         signature = embedding_signature(self.embedding)

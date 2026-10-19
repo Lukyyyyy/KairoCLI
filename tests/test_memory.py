@@ -4,6 +4,7 @@ import multiprocessing
 import os
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
@@ -134,6 +135,30 @@ async def test_hybrid_memory_search_uses_semantics_rrf_and_cache(tmp_path: Path)
     assert embedding.calls[1] == ["平时点哪种咖啡"]
     if os.name == "posix":
         assert memory.embedding_file.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("mode", ["lexical", "semantic", "embedding_failure"])
+async def test_hybrid_memory_search_loads_entries_once_per_query(
+    tmp_path: Path, mode: str
+) -> None:
+    embedding = SemanticEmbedding()
+    embedding.fail = mode == "embedding_failure"
+    paths = KairoPaths.discover(tmp_path / "project", tmp_path / "home")
+    memory = MemoryStore(paths, None if mode == "lexical" else embedding)
+    coffee = memory.save("用户喜欢冰美式", "global", key="user.preference.drink")
+    other = MemoryStore(KairoPaths.discover(tmp_path / "other", paths.home))
+    other.save("其他项目喜欢冰美式")
+
+    with patch.object(memory, "_load", wraps=memory._load) as load:
+        for _ in range(2):
+            assert await memory.search_hybrid("冰美式") == [coffee]
+            load.assert_called_once_with()
+            load.reset_mock()
+
+    updated = memory.save("用户喜欢拿铁", "global", key="user.preference.drink")
+    with patch.object(memory, "_load", wraps=memory._load) as load:
+        assert await memory.search_hybrid("拿铁") == [updated]
+        load.assert_called_once_with()
 
 
 async def test_save_immediately_indexes_memory_and_reuses_cached_vector(tmp_path: Path) -> None:
